@@ -1,0 +1,42 @@
+# jev-android-mcp — nunca commitear credenciales ni artefactos locales.
+# Regla: si lleva secreto, va en .env (ignorado) y su forma en .env.example.
+
+# --- Secretos ---
+.env
+*.env
+!.env.example
+*.jks
+*.keystore
+*.p12
+google-services.json
+
+# --- Android / Gradle (máquina-específico y artefactos) ---
+local.properties
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+*.ap_
+
+# --- Python / MCP server (Fase 4+) ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- Logs y temporales ---
+logs/
+*.log
+tmp/
+temp/
+
+# --- OS / editores ---
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/
+*~
