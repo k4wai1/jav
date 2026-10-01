@@ -22,8 +22,10 @@ Persistido en `~/.zshrc` (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, `PATH`).
 Tamaños: `~/Android/Sdk` = 458 MB, `~/.gradle` (tras primer build) = ~1 GB.
 
 Gradle: `gradle-8.7-bin.zip` (134 MB) en `~/opt/`, usado para generar el
-wrapper. `gradle-wrapper.properties` apunta a `file:///home/luis/opt/gradle-8.7-bin.zip`
-para no re-descargar (ver `android-app/gradle/wrapper/`).
+wrapper. `gradle-wrapper.properties` apunta a la URL remota (portabilidad);
+para evitar la re-descarga en esta máquina se puede apuntar temporalmente a
+`file:///home/luis/opt/gradle-8.7-bin.zip` con `validateDistributionUrl=false`
+(solo local, no commitear ese cambio).
 
 ## 2. Builds medidos (`./gradlew assembleDebug`)
 

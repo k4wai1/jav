@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.jev.android"
+    namespace = "dev.jev.jam"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "dev.jev.android"
+        applicationId = "dev.jev.jam"
         minSdk = 29
         targetSdk = 34
         versionCode = 1
@@ -29,6 +29,11 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+
+    // AGP 8.x no genera BuildConfig por defecto; JevLog lo necesita.
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
@@ -64,4 +69,7 @@ dependencies {
     implementation("org.java-websocket:Java-WebSocket:1.5.7")
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.86")
+
+    // Tests JVM Fase 1 (recorrido, tope, snapshot_id). Sin Robolectric.
+    testImplementation("junit:junit:4.13.2")
 }

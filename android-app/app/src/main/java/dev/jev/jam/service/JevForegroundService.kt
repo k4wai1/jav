@@ -1,4 +1,4 @@
-package dev.jev.android.service
+package dev.jev.jam.service
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -20,8 +20,8 @@ class JevForegroundService : Service() {
         super.onCreate()
         ensureChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Jev Android")
-            .setContentText("Servidor local detenido (Fase 0)")
+            .setContentTitle("Jam")
+            .setContentText("Servidor local detenido (Fase 1)")
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)
             .build()
@@ -35,7 +35,7 @@ class JevForegroundService : Service() {
                 manager.createNotificationChannel(
                     NotificationChannel(
                         CHANNEL_ID,
-                        "Jev",
+                        "Jam",
                         NotificationManager.IMPORTANCE_LOW
                     )
                 )
@@ -44,7 +44,7 @@ class JevForegroundService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "jev_server"
+        private const val CHANNEL_ID = "jam_server"
         private const val NOTIFICATION_ID = 1
     }
 }

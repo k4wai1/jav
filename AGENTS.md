@@ -155,3 +155,15 @@ No bloqueantes anotados (resolver en su fase): ring buffer 500
 single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 (Fase 0c); fallback `monkey` en `open_app` (Fase 3); `nodes` array plano
 (Fase 1); política de grant por método (Fase 3, confirmada en §3.7).
+
+**2026-10-01 — arranque Fase 1:**
+
+1. App = **Jam**, paquete `dev.jev.jam` (antes `dev.jev.android`).
+2. Banco principal = TECNO KJ5 (API 33, non-root); LG7n secundario.
+3. Aceptación Fase 1 relajada: match ≥95% en nodos con `text`/`resource_id`
+   vs `uiautomator` + latencia < 100 ms (no identidad total de árboles).
+4. `distributionUrl` del wrapper vuelve a URL remota (portabilidad);
+   el zip local solo como truco no-commiteado (ver `docs/BUILD.md`).
+5. KJ5 corre el clon Shizuku+ (`af.shizuku.plus.api`): no usar como
+   referencia; Fase 3 instalará el oficial `moe.shizuku.privileged.api`.
+6. Onboarding UI mínima entra en Fase 1 (banco visual del `dump_ui`).

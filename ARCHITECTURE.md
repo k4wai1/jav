@@ -32,6 +32,7 @@ por WebSocket. El MCP Python traduce tools → comandos y orquesta el bucle
 | 6 | Jev | OpenRouter `typesafe/jev-1.13` por defecto; `jev_client` abstraído para swap a TypeSafe oficial |
 | 7 | Shell | OFF por defecto. `shell` **bloquea hasta 60 s** esperando grant (notificación: 1 comando = SHA-256 exacto / 5 min / 30 min). Expira sola |
 | 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay TECNO API 31) |
+| 9 | Nombre y banco (2026-10-01) | App = **Jam** (`dev.jev.jam`). Banco principal = **TECNO KJ5 (API 33, sin root)**; LG7n (API 31, Magisk) secundario. Aceptación Fase 1: nodos con `text`/`resource_id` coinciden ≥95% con `uiautomator`, latencia in-app < 100 ms. KJ5 trae un clon **Shizuku+** (`af.shizuku.plus.api`), no el oficial: Fase 3 exige instalar `moe.shizuku.privileged.api` oficial |
 
 ## 3. Verdad del terreno (medido 2026-09-30)
 
