@@ -50,17 +50,21 @@ APK: `android-app/app/build/outputs/apk/debug/app-debug.apk` (16 MB).
   permiso `moe.shizuku.manager.permission.API_V23` fusionado,
   `FOREGROUND_SERVICE_SPECIAL_USE`, property FGS ✓
 
-## 4. Instalación en el TECNO (PENDIENTE — USB caído)
+## 4. Instalación y verificación en dispositivo (HECHA 2026-10-01)
 
-El dispositivo desapareció de `lsusb` a las ~18:17 (cable o USB del teléfono).
-Al reconectar:
+El TECNO LG7n (target) se cayó del USB; se verificó en un **TECNO KJ5,
+Android 13 (API 33)**, sin root, con Shizuku y Tailscale instalados
+(equipo ideal para la ruta non-root + Shizuku).
 
 ```bash
-adb devices                      # debe listar 091923731U007763
-cd android-app
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell monkey -p dev.jev.android -c android.intent.category.LAUNCHER 1
-adb shell 'dumpsys activity activities | grep -m1 mResumedActivity'  # debe mostrar dev.jev.android
+adb install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+adb shell am start -n dev.jev.android/.MainActivity
+adb shell 'dumpsys activity activities | grep -m1 mFocusedApp'
+# mFocusedApp=ActivityRecord{… dev.jev.android/.MainActivity} ✓
 ```
 
-Criterio Fase 0d: app visible en pantalla + grep `su` vacío (ya ✓) + este archivo.
+`uiautomator dump` confirma el paquete en foreground con `android:id/content`
+**vacío** (sin hijos): la pantalla gris es la Activity stub sin `setContentView()`,
+comportamiento esperado de Fase 0. La UI real de onboarding llega en Fase 1.
+
+Criterio Fase 0d: app instalada y en foreground ✓ + grep `su` vacío ✓ + este archivo ✓.
