@@ -36,6 +36,39 @@ Resultado medido (2026-10-01, pantalla de onboarding):
 Comparación de anclas (`text` o `resource_id` no nulos):
 **9/9 = 100%** (criterio: ≥95%). Latencia **40 ms** (criterio: < 100 ms).
 
+## 2b. Verificación en árboles reales (2026-10-02, LG7n API 31)
+
+Procedimiento: receiver temporal `DUMP_WA`/`DUMP_SELF` (eliminado tras
+verificar) + `uiautomator dump` + comparativa de anclas por script.
+
+- **WhatsApp (chat, 124 nodos)**: anclas 73/86 = **84.9%** vs
+  **piso de ruido uia-vs-uia = 80.2%** (el chat es vivo: timestamps y
+  mensajes cambian entre dumps). Diferencia sistemática restante =
+  nodos invisibles que uiautomator incluye y nosotros podamos por diseño.
+  Latencia: **264 ms**.
+- **Ajustes (estático, 66 nodos)**: anclas **26/26 = 100%**,
+  0 nodos perdidos. Latencia: **106 ms**.
+- **Escalado medido**: ~2 ms/nodo (IPC por nodo). El umbral < 100 ms
+  vale para pantallas típicas (≤50 nodos); árboles grandes escalan lineal,
+  con tope 500 (peor caso ~1 s). Sigue siendo 16× mejor que uiautomator.
+- **FLAG_SECURE**: `AccessibilityWindowInfo.isSecure()` **no existe**
+  (verificado en `android.jar` API 34). Experimento con `FLAG_SECURE`
+  en ventana propia: `rootInActiveWindow` devuelve el árbol completo
+  (el sistema solo oculta ventanas seguras **ajenas**). Heurística final:
+  `root == null → secure=true` (cubre ventanas ajenas seguras ycold-start),
+  documentada en `dumpUiTree()`. El cold-start de WhatsApp devolvió
+  `nodes=0, secure=true` por timing, no por flag: reintentar en caliente.
+- **Bug encontrado y corregido**: `snapshot_id` era campo de instancia;
+  al recrearse el servicio se reiniciaba (visto: `snapshot=1` repetido).
+  Ahora persiste en `SharedPreferences` (`jam.snapshot_id`) en cada dump.
+
+## 2c. Broadcasts implícitos filtrados
+
+`am broadcast -a <acción>` a un receiver de manifest **no llega** si el
+paquete está en stopped o por restricciones de broadcasts implícitos.
+Usar broadcast **explícito**: `am broadcast -a … -n pkg/.Clase`.
+(Así se dispararon los dumps temporales de §2b.)
+
 ## 3. Gotchas encontrados
 
 - `settings put` del servicio **solo pega si `accessibility_enabled=1`

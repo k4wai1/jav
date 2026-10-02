@@ -16,7 +16,20 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class JevAccessibilityService : AccessibilityService() {
 
-    private val snapshotCounter = AtomicLong(0)
+    // Monotónico incluso si Android recrea el servicio (nuevo proceso =
+    // nuevo AtomicLong): se persiste en cada incremento. Sin esto, un
+    // snapshot_id reutilizado rompería la protección STALE_SNAPSHOT.
+    // lazy: getSharedPreferences antes de attachBaseContext daría NPE
+    // (crash visto en LG7n al instanciar el servicio).
+    private val snapshotCounter: AtomicLong by lazy {
+        AtomicLong(getSharedPreferences(PREFS, MODE_PRIVATE).getLong(KEY_SNAPSHOT, 0L))
+    }
+
+    private fun nextSnapshotId(): Long {
+        val id = snapshotCounter.incrementAndGet()
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putLong(KEY_SNAPSHOT, id).apply()
+        return id
+    }
 
     @Volatile
     var uiDirty: Boolean = false
@@ -48,7 +61,7 @@ class JevAccessibilityService : AccessibilityService() {
     fun dumpUiTree(): UiSnapshot {
         val root = rootInActiveWindow
             ?: return UiSnapshot(
-                snapshotId = snapshotCounter.incrementAndGet(),
+                snapshotId = nextSnapshotId(),
                 packageName = "",
                 secure = true,
                 nodes = emptyList()
@@ -58,7 +71,7 @@ class JevAccessibilityService : AccessibilityService() {
             val snap = UiTreeExtractor.extract(
                 RealA11yNode(root),
                 root.packageName?.toString().orEmpty(),
-                snapshotCounter.incrementAndGet()
+                nextSnapshotId()
             )
             uiDirty = false
             JevLog.d(TAG, "dump_ui: ${snap.nodes.size} nodos en ${(System.nanoTime() - start) / 1_000_000}ms")
@@ -70,6 +83,8 @@ class JevAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "JamUi"
+        private const val PREFS = "jam"
+        private const val KEY_SNAPSHOT = "snapshot_id"
 
         @Volatile
         var instance: JevAccessibilityService? = null

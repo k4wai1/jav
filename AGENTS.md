@@ -92,6 +92,10 @@ Ktor, Tink/security-crypto, SDK de Tailscale, KSP/KAPT, Espresso.
 9. Re-detección de IP tailnet con **`ConnectivityManager.NetworkCallback`**
    (el broadcast `CONNECTIVITY_CHANGE` está restringido desde Android 7)
    + override manual en ajustes.
+10. **Nodos de decoración del sistema** (`statusBarBackground`,
+    `navigationBarBackground`) aparecen en `dump_ui` pero nunca son
+    target de acción: **filtrarlos en `ui_normalizer.py`** (Fase 4),
+    no en el extractor.
 
 ## 6. Protocolo y tools
 
