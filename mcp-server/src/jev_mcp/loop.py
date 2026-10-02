@@ -82,6 +82,8 @@ async def run(task, max_steps: int = 20, timeout_s: float = 60,
             entry = {"step": step, "phase": _phase(task),
                      "snapshot": state.get("snapshot_id"),
                      "n_cands": len(state.get("candidates", [])),
+                     "cands": [(c.get("id"), c.get("label"))
+                               for c in state.get("candidates", [])],
                      "options": list((questions.get("next_action") or {})
                                      .get("criteria", {}).keys()),
                      "answers": _short(answers),

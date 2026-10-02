@@ -71,7 +71,9 @@ def find_chat_title(state: dict, contact: str) -> dict | None:
         if c.get("editable"):
             continue
         rid = c.get("resource_id") or ""
-        if any(k in rid for k in ("contact_name", "conversation_name", "title", "toolbar_title", "conversacion")):
+        if any(k in rid for k in ("contact_name", "conversation_name",
+                                  "conversation_contact", "title",
+                                  "toolbar_title", "conversacion")):
             if title_matches_strict(contact, c.get("text")):
                 return c
     h = state.get("screen_height") or 0
@@ -144,18 +146,32 @@ class SendWhatsappTask:
         return await app_tools.open_app(WA)
 
     async def observe(self) -> dict:
-        r = await ui_tools.read_screen()
-        if not r.get("ok"):
-            ev = r.get("evidence", {})
-            return {"package": "", "candidates": [], "snapshot_id": -1,
-                    "screen_height": 0,
-                    "error": ev.get("code", "?"), "error_text": ev.get("error", "?")}
-        ev = r["evidence"]
-        return {"package": ev.get("package", ""),
-                "activity": ev.get("activity", ""),
-                "snapshot_id": ev.get("snapshot_id", -1),
-                "screen_height": ev.get("screen_height", 0),
-                "candidates": ev.get("candidates", [])}
+        import asyncio
+        import logging
+        last = None
+        for _ in range(4):
+            r = await ui_tools.read_screen()
+            if not r.get("ok"):
+                ev = r.get("evidence", {})
+                return {"package": "", "candidates": [], "snapshot_id": -1,
+                        "screen_height": 0,
+                        "error": ev.get("code", "?"),
+                        "error_text": ev.get("error", "?")}
+            ev = r["evidence"]
+            last = {"package": ev.get("package", ""),
+                    "activity": ev.get("activity", ""),
+                    "snapshot_id": ev.get("snapshot_id", -1),
+                    "screen_height": ev.get("screen_height", 0),
+                    "candidates": ev.get("candidates", [])}
+            # Pantalla en transición (vacía pero con app): re-observar,
+            # no abortar por un dump transitorio.
+            if last["package"] == WA and last["candidates"]:
+                return last
+            if last["package"] != WA:
+                return last
+            await asyncio.sleep(0.3)
+        logging.getLogger("jev").info("observe: vacío tras reintentos")
+        return last
 
     async def go_home(self, tries: int = 5) -> bool:
         """Vuelve a la lista de chats (monkey reanuda donde quedó)."""
@@ -345,21 +361,31 @@ class SendWhatsappTask:
         # La acción se rige por la fase que HIZO la pregunta (asked),
         # no por la avanzada: avanzar es para el paso siguiente.
         asked = phase
-        last_ok = answers.get("last_ok", {}).get("key") == "true"
+        # Avance mecánico: si el paso previo EJECUTÓ bien, se avanza;
+        # la fase siguiente valida el nuevo estado por sí misma.
+        # last_ok (opinión de Jev) se loguea pero no bloquea: lo que
+        # detecta repeticiones inútiles es el guard STUCK_SAME de abajo.
         prev_ok = bool(history) and bool(history[-1]["result"].get("ok"))
-        if history and (not prev_ok or not last_ok):
-            pass  # reintentar fase: el paso previo falló o no tuvo efecto
-        elif (asked == "SEND" and history
-                and history[-1]["action"].get("kind") == "type_text"
+        if not history:
+            pass  # primer paso: quedarse en SEARCH
+        elif (asked == "SEND" and history[-1]["action"].get("kind") == "type_text"
                 and prev_ok):
             pass  # re-type en SEND: re-evaluar sin avanzar
-        elif history:
+        elif prev_ok:
             self.phase = min(self.phase + 1, len(self.PHASES) - 1)
         key = answers.get("next_action", {}).get("key", "")
         snap = state.get("snapshot_id", -1)
         if key == "done":
             return {"kind": "done", "key": key}
-        return self._action_for(key, state, snap, asked)
+        action = self._action_for(key, state, snap, asked)
+        if action.get("kind") in ("tap_node", "type_text") and action.get("node_id"):
+            sig = (action["kind"], action["node_id"])
+            prev = [(h["action"].get("kind"), h["action"].get("node_id"))
+                    for h in history[-2:]]
+            if len(prev) == 2 and all(s == sig for s in prev):
+                return {"kind": "abort", "key": key, "code": "STUCK_SAME",
+                        "reason": f"misma acción 3× seguidas: {sig}"}
+        return action
 
     def _has_any_title(self, state: dict) -> bool:
         """¿Hay algún título de pantalla (estamos dentro de un chat/vista)?"""
