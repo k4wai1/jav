@@ -5,7 +5,15 @@ description = "MCP server for Jam (jev-android-mcp): Jev-driven Android control"
 requires-python = ">=3.10"
 dependencies = [
     "websockets>=14,<16",
+    "mcp>=1.8,<2",  # v1: FastMCP estable; v2 renombra a MCPServer (no migrar en Fase 4)
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [tool.uv]
 package = false

@@ -162,3 +162,21 @@ adb devices               # 192.168.100.180:5555 device
 Medido: shell `echo` 79–151 ms (vs 63 ms USB) — algo más lento pero
 sin cortes. El puerto se pierde al reiniciar (repetir `tcpip` por USB).
 Si hay 2 transportes, prefijar `-s 192.168.100.180:5555`.
+
+## 7. Fase 4 — MCP server + normalizer (2026-10-02, LG7n por Wi-Fi)
+
+`JEV_TOKEN=… uv run python scripts/fase4_check.py` → **OK fase4**.
+Cliente MCP por stdio contra `server.py`: `device_status` →
+`open_app(com.whatsapp)` verificado → `read_screen` (58/134 candidatos,
+sin decoración) → `tap_text("Buscar")` → `via=gesture` (el campo no es
+clickable: cae al fallback, verificado en app real) → `read_screen`
+(EditText `search_input` enfocado) → `type_text("Felix")` → `chars=5`.
+
+Latencias reales por tool (Wi-Fi, incluyen forward):
+`device_status` 1978 ms · `open_app` 3064 ms (poll de foreground) ·
+`read_screen` 425 ms · `tap_text` 3192 ms (dump interno + gesto) ·
+`type_text` 604 ms. El `tap` por selector paga un `dump_ui` interno:
+en el bucle Jev preferir `tap_node` (AGENTS §5.13).
+
+Fixes: `mcp>=1.8,<2` (v2 renombra FastMCP→MCPServer); `pytest.ini`
+`pythonpath=["src"]`; import relativo en `tools/_base.py`.
