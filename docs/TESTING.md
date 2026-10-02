@@ -91,6 +91,52 @@ Fixes que salieron del propio test: `hello` debe responder **plano**
 **anidada** de `AccessibilityService` (no existe top-level en API 34);
 `JsonArrayBuilder.add(String)` no resolvió → `JsonPrimitive` explícito.
 
+## 4. Fase 3a — Shizuku + screenshot (LG7n, Shizuku oficial)
+
+Pre-requisito (lo hace el usuario): Shizuku arrancado + permiso a Jam.
+Pre-check del script: `pidof moe.shizuku.privileged.api` non-vacío;
+si vacío → mensaje claro y exit 1 (eso también prueba `SHIZUKU_UNAVAILABLE`).
+
+```bash
+adb forward tcp:38472 tcp:38472
+cd mcp-server && uv run python scripts/fase3_check.py
+```
+
+1. `force_stop(com.whatsapp)` → `get_foreground` ya no es WhatsApp.
+2. `open_app(com.whatsapp)` → `get_foreground` = `com.whatsapp`.
+3. `screenshot` → `img_base64` > 1000 chars, `w`/`h` > 0; comparar
+   visualmente con `adb exec-out screencap -p`.
+4. Superficie segura → `SECURE_SURFACE` (app bancaria si hay; si no,
+   FLAG_SECURE temporal en Jam como en §2b).
+5. `shell {command: "id"}` → `METHOD_NOT_ALLOWED` (no `INTERNAL_ERROR`).
+6. Sin permiso Shizuku (denegar en pantalla) → `SHIZUKU_DENIED`.
+7. Sin Shizuku corriendo (parar binder) → `SHIZUKU_UNAVAILABLE` + hint.
+
+## 5. Fase 3a — resultados (2026-10-02, LG7n, Shizuku 13.6.0 oficial)
+
+`uv run python scripts/fase3_check.py` → **OK fase3a**:
+`open_app` lleva a WhatsApp (verificado `HomeActivity`);
+`force_stop` lo saca; `open_app` devuelve package/activity;
+`screenshot` 720×1640 vía `takeScreenshot`; `shell` y método
+desconocido → `METHOD_NOT_ALLOWED`.
+
+Hallazgos (todos con fix aplicado y verificado):
+- **`Shizuku.newProcess` no es público en API 13.x**: el camino es
+  UserService (AIDL `IShellService` + `bindUserService`). Y la clase
+  UserService debe extender **el Stub directamente** (Shizuku la
+  instancia vía app_process y la castea a `IBinder`; extender `Service`
+  da `ClassCastException`). Sin entrada `<service>` en el manifest.
+- `force_stop` **no exige accesibilidad**: movido a `ShellActions`
+  (puro Shizuku); `open_app`/`screenshot` sí la requieren. Sin
+  accesibilidad, `open_app` da `ACCESSIBILITY_DISABLED` (verificado).
+- Pre-check: mirar el proceso **`shizuku_server`** (root), no el manager
+  (aparece/desaparece). Sin Doze-whitelist el server muere:
+  `dumpsys deviceidle whitelist +moe.shizuku.privileged.api`.
+- **SECURE_SURFACE sin disparar**: con `FLAG_SECURE` en ventana
+  **propia**, `takeScreenshot()` tiene éxito (el sistema exime al
+  mismo UID, igual que con el árbol). Hace falta una ventana segura
+  **ajena** (bancaria/APK de prueba). Mapeo según contrato API.
+
 ## 3. Gotchas encontrados
 
 - `settings put` del servicio **solo pega si `accessibility_enabled=1`

@@ -81,3 +81,12 @@ class JamClient:
 
     async def press_home(self) -> dict:
         return await self.call("press_home")
+
+    async def open_app(self, package: str) -> dict:
+        return await self.call("open_app", {"package": package})
+
+    async def force_stop(self, package: str) -> dict:
+        return await self.call("force_stop", {"package": package})
+
+    async def screenshot(self, fmt: str = "png", quality: int = 80) -> dict:
+        return await self.call("screenshot", {"format": fmt, "quality": quality})

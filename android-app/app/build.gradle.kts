@@ -34,6 +34,8 @@ android {
     // AGP 8.x no genera BuildConfig por defecto; JevLog lo necesita.
     buildFeatures {
         buildConfig = true
+        // AIDL para el UserService de Shizuku (IShellService).
+        aidl = true
     }
 
     compileOptions {

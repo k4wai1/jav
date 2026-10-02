@@ -78,12 +78,12 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `press_back` / `press_home` | `{}` | `{}` | ui |
 | `wait_for_node` | `{selector, timeout_ms}` | `{node_id, snapshot_id}` o `TIMEOUT` | ui |
 | `screenshot` | `{format?: png\|webp, quality?}` | `{img_base64, w, h, via}`; superficie segura → `SECURE_SURFACE`; > 4 MiB → `PAYLOAD_TOO_LARGE` (hint: WebP q80). Fallback `screencap` en API 29 = Fase 3 | read |
-| `open_app` | `{package}` | `{package, activity}` (`am start` por Shizuku; fallback `monkey -p <pkg> -c android.intent.category.LAUNCHER 1`) | ui, sin grant |
+| `open_app` | `{package}` | `{package, activity}` (`monkey -p <pkg> -c android.intent.category.LAUNCHER 1` por Shizuku; verificar con `get_foreground`) | ui, sin grant |
 | `force_stop` | `{package}` | `{}` | shell, sin grant |
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |
 | `get_foreground` | `{}` | `{package, activity}` | read |
 | `list_packages` | `{filter?}` | `{packages[]}` (package visibility) | read |
-| `shell` | `{command, confirm?}` | `{stdout, stderr, exit_code}` | shell, **con grant** |
+| `shell` | `{command, confirm?}` | **Hasta Fase 6: `METHOD_NOT_ALLOWED` explícito** (`shell` gateado; ver §8) | shell, **con grant** |
 | `get_audit` | `{limit?}` | `{entries[]}` (ring buffer, 500 entradas) | admin |
 
 **Flujo de grant de `shell`:** la request **bloquea hasta 60 s**.

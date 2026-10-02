@@ -24,6 +24,11 @@
 5. Sin accesibilidad: UI falla `ACCESSIBILITY_DISABLED`, `screencap` sigue vivo.
 6. Shell OFF por defecto; cada ejecución requiere grant activo
    (notificación: 1 comando / 5 min / 30 min). Expira sola.
+7. Shizuku lo arranca el usuario. La app solo pide permiso runtime y,
+   si no corre, falla con `SHIZUKU_UNAVAILABLE` + hint accionable.
+   Nunca intenta arrancarlo.
+8. `shell` no se expone hasta Fase 6 (seguridad cerrada); el dispatcher
+   lo rechaza con `METHOD_NOT_ALLOWED` explícito, no como desconocido.
 
 ## 3. Red y seguridad
 
@@ -101,6 +106,14 @@ Ktor, Tink/security-crypto, SDK de Tailscale, KSP/KAPT, Espresso.
     lleva campo `secure`: la semántica de superficie protegida vive
     solo en `screenshot` → `SECURE_SURFACE`. `root == null` significa
     "sin ventana activa" (típicamente transitorio), no "seguro".
+12. **`takeScreenshot()` es asíncrono con callback**: usar `CountDownLatch`
+    + timeout; `ERROR_TAKE_SCREENSHOT_SECURE_WINDOW` → `SECURE_SURFACE`.
+    El `HardwareBuffer` **debe copiarse** (`wrapHardwareBuffer` + `copy`
+    a `ARGB_8888`) **antes de `close()`**, o el bitmap sale corrupto.
+    En API 30+, WebP = `WEBP_LOSSY` (`WEBP` deprecado).
+13. **Preferir `tap_node(id, snapshot_id)` sobre `tap(selector)`**
+    cuando el cliente ya tiene snapshot fresco: el primero no dumpea
+    internamente (el `tap` por selector sí).
 
 ## 6. Protocolo y tools
 
@@ -195,3 +208,17 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 3. Contrato de acciones: **sin post-snapshot** en respuestas
    (el servidor no dumpea tras actuar); **`type` exige foco**
    (`NOT_FOCUSED` si no; el cliente tapea explícito antes).
+
+**2026-10-02 — Fase 3a parcial antes de 2b:**
+
+1. Alcance 3a: `open_app` + `force_stop` (Shizuku) + `screenshot`
+   (`takeScreenshot`, API 30+). **`shell` diferido a Fase 6** con
+   seguridad cerrada; el dispatcher lo rechaza explícito.
+2. Fase 2b (WSS/cert/Keystore) diferida a después de 3a.
+   Sin API 29 fallback (no hay dispositivo API 29).
+3. Shizuku lo arranca el usuario; sin él → `SHIZUKU_UNAVAILABLE` + hint.
+   Banco 3a: LG7n (Shizuku oficial). Contacto de prueba: Felix.
+4. Deuda Fase 2 (antes de Fase 4): preferir `tap_node` sobre
+   `tap(selector)`; el `snapshot_id` del `wait_for_node` es usable
+   directo si no hubo evento; reintento `STALE_SNAPSHOT` en el bucle,
+   no en la app.

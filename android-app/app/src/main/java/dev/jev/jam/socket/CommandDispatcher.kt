@@ -3,6 +3,7 @@ package dev.jev.jam.socket
 import android.content.Context
 import dev.jev.jam.BuildConfig
 import dev.jev.jam.service.JevAccessibilityService
+import dev.jev.jam.shell.ShellActions
 import dev.jev.jam.ui.UiSnapshot
 import dev.jev.jam.util.JevLog
 import kotlinx.serialization.builtins.ListSerializer
@@ -15,9 +16,9 @@ import rikka.shizuku.Shizuku
 class JamError(message: String, val code: String) : Exception(message)
 
 /**
- * Enruta métodos WS a ejecutores (Fase 2: grupo UI + hello).
- * Métodos con privilegios (shell/open_app/…) → METHOD_NOT_ALLOWED
- * hasta Fase 3. Sin `su` en ningún camino (AGENTS.md §2).
+ * Enruta métodos WS a ejecutores. Grupo UI + 3a (open_app/force_stop/
+ * screenshot). `shell` se rechaza explícito hasta Fase 6 (no es
+ * "desconocido": está gateado). Sin `su` en ningún camino (AGENTS.md §2).
  */
 class CommandDispatcher(private val appContext: Context) {
 
@@ -77,6 +78,12 @@ class CommandDispatcher(private val appContext: Context) {
                 "press_home" -> globalHome(req)
                 "wait_for_node" -> waitFor(req)
                 "get_foreground" -> foreground(req)
+                "open_app" -> openApp(req)
+                "force_stop" -> forceStop(req)
+                "screenshot" -> screenshot(req)
+                "shell" -> throw JamError(
+                    "shell se habilita en Fase 6 (seguridad cerrada)", "METHOD_NOT_ALLOWED"
+                )
                 else -> throw JamError("método desconocido: ${req.method}", "METHOD_NOT_ALLOWED")
             }
         } catch (e: JamError) {
@@ -159,6 +166,33 @@ class CommandDispatcher(private val appContext: Context) {
         return okResponse(req.id, buildJsonObject {
             put("package", pkg)
             put("activity", act)
+        })
+    }
+
+    private fun openApp(req: WsRequest): String {
+        val p = decodeParams<OpenAppParams>(req)
+        val (pkg, act) = svc().openApp(p.pkg)
+        return okResponse(req.id, buildJsonObject {
+            put("package", pkg)
+            put("activity", act)
+        })
+    }
+
+    private fun forceStop(req: WsRequest): String {
+        val p = decodeParams<ForceStopParams>(req)
+        // Sin svc(): force_stop no necesita accesibilidad (sigue vivo degradado).
+        ShellActions.forceStop(p.pkg)
+        return okResponse(req.id)
+    }
+
+    private fun screenshot(req: WsRequest): String {
+        val p = decodeParams<ScreenshotParams>(req)
+        val s = svc().screenshotPng(p.format, p.quality)
+        return okResponse(req.id, buildJsonObject {
+            put("img_base64", s.img)
+            put("w", s.w)
+            put("h", s.h)
+            put("via", s.via)
         })
     }
 

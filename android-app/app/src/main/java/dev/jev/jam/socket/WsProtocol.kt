@@ -2,6 +2,7 @@ package dev.jev.jam.socket
 
 import dev.jev.jam.ui.Selector
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -79,6 +80,15 @@ data class ScrollParams(val direction: String = "down", val node_id: String? = n
 
 @Serializable
 data class WaitParams(val selector: Selector? = null, val timeout_ms: Long = 5000)
+
+@Serializable
+data class OpenAppParams(@SerialName("package") val pkg: String = "")
+
+@Serializable
+data class ForceStopParams(@SerialName("package") val pkg: String = "")
+
+@Serializable
+data class ScreenshotParams(val format: String = "png", val quality: Int = 80)
 
 /** Decodifica params o lanza JamError de validación. */
 inline fun <reified T> decodeParams(req: WsRequest): T {

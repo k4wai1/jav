@@ -40,4 +40,12 @@
         android:layout_marginTop="24dp"
         android:text="Volcar UI (logcat)" />
 
+    <Button
+        android:id="@+id/btnShizuku"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Pedir permiso Shizuku"
+        android:visibility="gone" />
+
 </LinearLayout>

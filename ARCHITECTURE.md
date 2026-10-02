@@ -34,6 +34,7 @@ por WebSocket. El MCP Python traduce tools → comandos y orquesta el bucle
 | 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay TECNO API 31) |
 | 9 | Nombre y banco (2026-10-01) | App = **Jam** (`dev.jev.jam`). Banco principal = **TECNO KJ5 (API 33, sin root)**; LG7n (API 31, Magisk) secundario. Aceptación Fase 1: nodos con `text`/`resource_id` coinciden ≥95% con `uiautomator`, latencia in-app < 100 ms. KJ5 trae un clon **Shizuku+** (`af.shizuku.plus.api`), no el oficial: Fase 3 exige instalar `moe.shizuku.privileged.api` oficial |
 | 10 | Latencia y `secure` (2026-10-02) | Criterio re-ratificado: **≤300 ms para ≤150 nodos; ~2 ms/nodo; peor caso ~1 s a 500**. Bucle Jev ≈ 500–800 ms/paso. **`secure` fuera de `dump_ui`** (FLAG_SECURE no oculta el árbol); solo `screenshot` → `SECURE_SURFACE`. Acciones sin post-snapshot; `type` exige foco (`NOT_FOCUSED`) |
+| 11 | Fase 3a (2026-10-02) | **`open_app`/`force_stop` vía Shizuku; `screenshot` vía `takeScreenshot()` (API 30+) sin Shizuku; `shell` diferido a Fase 6.** Fase 2b (WSS/cert/Keystore) diferida a después de 3a. Shizuku lo arranca el usuario; sin él → `SHIZUKU_UNAVAILABLE` + hint. Banco: LG7n (Shizuku oficial). Contacto de prueba: Felix (WhatsApp) |
 
 ## 3. Verdad del terreno (medido 2026-09-30…10-02)
 
@@ -201,8 +202,9 @@ Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 | 0d | APK vacío instalado | app visible en el TECNO + grep `su` vacío + `docs/BUILD.md` |
 | 1 | AccessibilityService + `dump_ui` + onboarding | anclas ≥95% vs `uiautomator` (estático 100%); latencia §3 |
 | 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back + cliente Python | cliente Python controla WhatsApp real; sin token → rechazado |
-| 2b | WSS tailnet + cert self-signed + token en Keystore | remoto sin TLS → rechazado; pinning TOFU |
-| 3 | Shizuku + open_app/force_stop/grant/shell (+ `screenshot` fallback) | `pm grant`, `am start`, `screencap` OK; sin Shizuku → degradación honesta |
+| 2b | WSS tailnet + cert self-signed + token en Keystore *(después de 3a)* | remoto sin TLS → rechazado; pinning TOFU |
+| 3a | Shizuku: `open_app`/`force_stop` + `screenshot` (`takeScreenshot`, API 30+). **Sin `shell`** | monkey/`am force-stop`/captura OK; sin Shizuku → degradación honesta |
+| 3b | `shell` + audit log + kill switch *(Fase 6, seguridad cerrada)* | denylist operativa; auditoría consultable |
 | 4 | MCP + normalizer + tools device/app/ui (+ optimización IPC) | agente abre WhatsApp y lee pantalla |
 | 5 | jev_client + loop + escalada de texto | "escribe a Juan: voy pronto" end-to-end |
 | 6 | grupo `adb`, audit log, kill switch, docs, hardening | denylist operativa; auditoría consultable |

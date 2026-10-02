@@ -3,12 +3,17 @@ package dev.jev.jam.service
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.util.Base64
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import dev.jev.jam.shell.ShizukuBridge
 import dev.jev.jam.socket.JamError
 import dev.jev.jam.ui.RealA11yNode
 import dev.jev.jam.ui.Selector
@@ -17,6 +22,9 @@ import dev.jev.jam.ui.UiNode
 import dev.jev.jam.ui.UiSnapshot
 import dev.jev.jam.ui.UiTreeExtractor
 import dev.jev.jam.util.JevLog
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -24,13 +32,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 data class TapResult(val nodeId: String, val via: String)
 
+data class ScreenshotData(val img: String, val w: Int, val h: Int, val via: String)
+
 /**
- * Fase 2: percepción + acciones. `dumpUiTree()` sirve snapshots con
- * `snapshot_id` persistido; las acciones por id lo exigen (`STALE_SNAPSHOT`
- * si la UI cambió). Taps: `ACTION_CLICK` primero si `clickable`,
- * `dispatchGesture` como fallback; siempre se reporta `via`.
- * `type` exige foco explícito (`NOT_FOCUSED` si no).
- * Toda mutación marca `uiDirty` (el cliente re-dumpea para verificar).
+ * Fase 2: percepción + acciones UI. Fase 3a: `open_app`/`force_stop`
+ * (Shizuku) + `screenshot` (`takeScreenshot`, API 30+).
+ * `snapshot_id` persistido anti-staleness; toda mutación marca `uiDirty`.
  */
 class JevAccessibilityService : AccessibilityService() {
 
@@ -114,7 +121,7 @@ class JevAccessibilityService : AccessibilityService() {
         return snap.packageName to snap.activity
     }
 
-    // ---- acciones ----
+    // ---- acciones UI (Fase 2) ----
 
     private fun requireFreshNode(nodeId: String, snapshotId: Long): UiNode {
         if (snapshotId != lastSnapshotId || uiDirty) {
@@ -280,6 +287,106 @@ class JevAccessibilityService : AccessibilityService() {
         throw JamError("nodo no apareció en ${timeoutMs}ms", "TIMEOUT")
     }
 
+    // ---- Fase 3a: Shizuku + screenshot ----
+
+    /**
+     * Abre la app por su launcher (`monkey`; no requiere conocer la
+     * activity). Verifica con foreground (exit 0 de monkey no basta).
+     */
+    fun openApp(pkg: String): Pair<String, String> {
+        if (pkg.isBlank()) throw JamError("package vacío", "VALIDATION_ERROR")
+        val r = ShizukuBridge.exec(
+            listOf("monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1")
+        )
+        if (r.exitCode != 0) {
+            throw JamError("monkey falló (exit ${r.exitCode}): ${r.stderr.take(200)}", "INTERNAL_ERROR")
+        }
+        if ((r.stdout + r.stderr).contains("No activities found")) {
+            throw JamError("el paquete no tiene activity lanzable", "VALIDATION_ERROR")
+        }
+        val deadline = SystemClock.uptimeMillis() + OPEN_APP_WAIT_MS
+        var last = "" to ""
+        do {
+            val snap = dumpUiTree()
+            last = snap.packageName to snap.activity
+            if (last.first == pkg) break
+            SystemClock.sleep(500)
+        } while (SystemClock.uptimeMillis() < deadline)
+        if (last.first != pkg) throw JamError("la app no llegó a foreground", "TIMEOUT")
+        return last
+    }
+
+    fun screenshotPng(format: String, quality: Int): ScreenshotData {
+        if (format != "png" && format != "webp") {
+            throw JamError("format debe ser png|webp", "VALIDATION_ERROR")
+        }
+        val bmp = takeScreenshotBlocking()
+        try {
+            val fmt = if (format == "webp") Bitmap.CompressFormat.WEBP_LOSSY
+            else Bitmap.CompressFormat.PNG
+            val out = ByteArrayOutputStream()
+            bmp.compress(fmt, quality.coerceIn(1, 100), out)
+            val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            if (b64.length > MAX_SCREENSHOT_B64) {
+                throw JamError(
+                    "imagen excede 4 MiB; usa format=webp, quality=80", "PAYLOAD_TOO_LARGE"
+                )
+            }
+            return ScreenshotData(b64, bmp.width, bmp.height, "takeScreenshot")
+        } finally {
+            if (!bmp.isRecycled) bmp.recycle()
+        }
+    }
+
+    private fun takeScreenshotBlocking(): Bitmap {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            throw JamError(
+                "takeScreenshot requiere API 30+ (fallback screencap = Fase 3c)",
+                "INTERNAL_ERROR"
+            )
+        }
+        val latch = CountDownLatch(1)
+        var bitmap: Bitmap? = null
+        var error: JamError? = null
+        takeScreenshot(
+            Display.DEFAULT_DISPLAY,
+            mainExecutor,
+            object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                    try {
+                        val hb = result.hardwareBuffer
+                        try {
+                            // Copiar ANTES de close(): sin copy el bitmap sale corrupto.
+                            bitmap = Bitmap.wrapHardwareBuffer(hb, result.colorSpace)
+                                ?.copy(Bitmap.Config.ARGB_8888, false)
+                                ?: throw IllegalStateException("wrapHardwareBuffer nulo")
+                        } finally {
+                            hb.close()
+                        }
+                    } catch (t: Throwable) {
+                        error = JamError("captura corrupta: ${t.message}", "INTERNAL_ERROR")
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    error = if (errorCode == AccessibilityService.ERROR_TAKE_SCREENSHOT_SECURE_WINDOW) {
+                        JamError("superficie protegida", "SECURE_SURFACE")
+                    } else {
+                        JamError("takeScreenshot falló: $errorCode", "INTERNAL_ERROR")
+                    }
+                    latch.countDown()
+                }
+            }
+        )
+        if (!latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            throw JamError("timeout screenshot", "TIMEOUT")
+        }
+        error?.let { throw it }
+        return bitmap ?: throw JamError("bitmap nulo", "INTERNAL_ERROR")
+    }
+
     // ---- gestos ----
 
     private fun dispatchTap(x: Int, y: Int): Boolean =
@@ -318,6 +425,9 @@ class JevAccessibilityService : AccessibilityService() {
         private const val GESTURE_TIMEOUT_MS = 3000L
         private const val POLL_MS = 250L
         private const val MAX_WAIT_MS = 30_000L
+        private const val OPEN_APP_WAIT_MS = 5000L
+        private const val SCREENSHOT_TIMEOUT_MS = 5000L
+        private const val MAX_SCREENSHOT_B64 = 3_500_000
 
         @Volatile
         var instance: JevAccessibilityService? = null
