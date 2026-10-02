@@ -147,3 +147,18 @@ Hallazgos (todos con fix aplicado y verificado):
   que instalará el oficial `moe.shizuku.privileged.api`.
 - Tras renombrar el paquete hay que desinstalar el viejo
   (`adb uninstall dev.jev.android` puede fallar si ya no está; inocuo).
+
+## 6. ADB por Wi-Fi (canal estable, 2026-10-02)
+
+El USB se cae cada minutos. Con el LG7n en la misma LAN que el PC:
+
+```bash
+adb tcpip 5555            # adbd pasa a TCP (requiere USB una vez)
+adb connect 192.168.100.180:5555
+# desenchufar el USB; queda solo el transporte Wi-Fi
+adb devices               # 192.168.100.180:5555 device
+```
+
+Medido: shell `echo` 79–151 ms (vs 63 ms USB) — algo más lento pero
+sin cortes. El puerto se pierde al reiniciar (repetir `tcpip` por USB).
+Si hay 2 transportes, prefijar `-s 192.168.100.180:5555`.
