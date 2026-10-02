@@ -55,12 +55,14 @@ def _rank(c: Candidate) -> int:
     return 2
 
 
-def normalize(dump: dict, limit: int = MAX_CANDIDATES) -> NormalizedState:
+def normalize(dump: dict, limit: int = MAX_CANDIDATES,
+              screen_h: int = 0) -> NormalizedState:
     nodes = dump.get("nodes", [])
     kept: list[Candidate] = []
     for n in nodes:
         if not _keep(n):
             continue
+        b = n.get("bounds") or [0, 0, 0, 0]
         kept.append(Candidate(
             id=n.get("id", ""),
             cls=short_class(n.get("class") or ""),
@@ -69,6 +71,8 @@ def normalize(dump: dict, limit: int = MAX_CANDIDATES) -> NormalizedState:
             resource_id=n.get("resource_id") or "",
             clickable=bool(n.get("clickable")),
             editable=bool(n.get("editable")),
+            focused=bool(n.get("focused")),
+            bounds=(b[0], b[1], b[2], b[3]) if len(b) == 4 else (0, 0, 0, 0),
         ))
     kept.sort(key=_rank)  # estable: conserva orden BFS dentro de cada tier
     return NormalizedState(
@@ -77,6 +81,7 @@ def normalize(dump: dict, limit: int = MAX_CANDIDATES) -> NormalizedState:
         snapshot_id=dump.get("snapshot_id", -1),
         candidates=kept[:limit],
         raw_count=len(nodes),
+        screen_height=screen_h,
     )
 
 

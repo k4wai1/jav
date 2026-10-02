@@ -13,11 +13,14 @@ class Candidate:
     resource_id: str = ""
     clickable: bool = False
     editable: bool = False
+    focused: bool = False  # Fase 5: type exige foco explícito
+    bounds: tuple[int, int, int, int] = (0, 0, 0, 0)  # l,t,r,b (Fase 5: título)
 
     def compact(self) -> str:
+        focus = " (focused)" if (self.editable and self.focused) else ""
         quoted = self.text or ""
         if quoted:
-            return f'[{self.id}] {self.cls} "{quoted}"'
+            return f'[{self.id}] {self.cls} "{quoted}"{focus}'
         if self.desc:
             return f'[{self.id}] {self.cls} desc="{self.desc}"'
         rid = self.resource_id.split("/")[-1] if self.resource_id else ""
@@ -31,6 +34,7 @@ class NormalizedState:
     snapshot_id: int
     candidates: list[Candidate] = field(default_factory=list)
     raw_count: int = 0
+    screen_height: int = 0  # Fase 5: fallback posicional del título
 
     def compact_lines(self) -> list[str]:
         return [c.compact() for c in self.candidates]

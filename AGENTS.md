@@ -114,6 +114,17 @@ Ktor, Tink/security-crypto, SDK de Tailscale, KSP/KAPT, Espresso.
 13. **Preferir `tap_node(id, snapshot_id)` sobre `tap(selector)`**
     cuando el cliente ya tiene snapshot fresco: el primero no dumpea
     internamente (el `tap` por selector sí).
+14. **Precondiciones deterministas obligatorias** (bucle Jev): cada fase
+    que pueda enviar verifica en código (título del chat, texto en input,
+    botón real). Jev elige el target; la compuerta la pone el código.
+    Sin compuerta verde no hay acción sensible.
+15. **Blacklist de acciones** (`reenviar|forward|compartir|share|
+    eliminar|delete`): filtrar en criterios y abortar si Jev lo elige
+    (`FORBIDDEN_TARGET`). Nunca tapear dentro de un chat ajeno buscando
+    reintentos (abre UIs de selección/reenvío).
+16. **Forense por corrida**: `logs/run-<ts>.jsonl` con fase, snapshot,
+    opciones, respuestas y acción por paso. Sin forense, un incidente
+    es indiagnosticable.
 
 ## 6. Protocolo y tools
 
@@ -222,3 +233,21 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `tap(selector)`; el `snapshot_id` del `wait_for_node` es usable
    directo si no hubo evento; reintento `STALE_SNAPSHOT` en el bucle,
    no en la app.
+
+**2026-10-02 — post-incidente, compuertas antes de envíos:**
+
+1. Envío real a chat equivocado en pruebas: causas = sin compuerta
+   de identidad + verificación solo-local + sin precondiciones.
+   Respuesta: `VERIFY_CHAT` con título estricto, blacklist, dry-run
+   por defecto, forense JSONL por corrida. (§5.14–16)
+2. `noop` entra al enum del loop (fases de solo-verificación;
+   se loguea, no toca el dispositivo).
+3. Avance de fase sobre fase que PREGUNTÓ (no la avanzada):
+   la acción se rige por `asked`, no por `self.phase` post-salto.
+   (Bug cazado por forense: el gate de SEND nunca disparaba.)
+4. Reintentos VERIFY solo fuera de chats; dentro → `WRONG_CHAT`
+   sin tapear (evita UIs de selección/reenvío).
+5. `screen_height` vía `adb shell wm size` (cacheado) para el
+   fallback posicional del título; `bounds` expuesto en `read_screen`.
+6. Dry-run ×N antes de cualquier envío real; `--confirm-real-send`
+   explícito para desactivarlo.

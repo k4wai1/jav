@@ -7,10 +7,32 @@ from ..ui_normalizer import format_state, normalize
 from . import _base as B
 
 
+_SCREEN_H = 0
+
+
+def screen_height() -> int:
+    """Altura en px (cacheada; `adb shell wm size`). 0 si no se puede."""
+    global _SCREEN_H
+    if _SCREEN_H:
+        return _SCREEN_H
+    import re
+    import subprocess
+    try:
+        out = subprocess.run(["adb", "shell", "wm", "size"],
+                             capture_output=True, text=True,
+                             timeout=10).stdout
+        m = re.search(r"(\d+)x(\d+)", out)
+        if m:
+            _SCREEN_H = int(m.group(2))
+    except Exception:
+        pass
+    return _SCREEN_H
+
+
 async def _dump() -> tuple[dict, NormalizedState]:
     jam = await B.jam_client()
     try:
-        return jam, normalize(await jam.dump_ui())
+        return jam, normalize(await jam.dump_ui(), screen_h=screen_height())
     except Exception:
         await jam.__aexit__()
         raise
@@ -27,10 +49,12 @@ async def read_screen() -> dict:
         "activity": st.activity,
         "snapshot_id": st.snapshot_id,
         "raw_count": st.raw_count,
+        "screen_height": screen_height(),
         "candidates": [
             {"id": c.id, "label": c.compact(), "clickable": c.clickable,
-             "editable": c.editable, "text": c.text, "desc": c.desc,
-             "resource_id": c.resource_id}
+             "editable": c.editable, "focused": c.focused,
+             "text": c.text, "desc": c.desc,
+             "resource_id": c.resource_id, "bounds": list(c.bounds)}
             for c in st.candidates
         ],
         "render": format_state(st),
