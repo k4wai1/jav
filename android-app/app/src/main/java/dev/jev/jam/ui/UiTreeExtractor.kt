@@ -70,13 +70,15 @@ object UiTreeExtractor {
         root: A11yNode?,
         packageName: String,
         snapshotId: Long,
-        maxNodes: Int = MAX_NODES
+        maxNodes: Int = MAX_NODES,
+        activity: String = ""
     ): UiSnapshot {
+        val now = System.currentTimeMillis()
         if (root == null || maxNodes < 1) {
-            return UiSnapshot(snapshotId, packageName, secure = root == null, nodes = emptyList())
+            return UiSnapshot(snapshotId, packageName, activity, now, emptyList())
         }
         if (!root.isVisibleToUser) {
-            return UiSnapshot(snapshotId, packageName, secure = false, nodes = emptyList())
+            return UiSnapshot(snapshotId, packageName, activity, now, emptyList())
         }
         val nodes = ArrayList<UiNode>(256)
         val queue = ArrayDeque<Pair<String, A11yNode>>()
@@ -125,6 +127,6 @@ object UiTreeExtractor {
             val (_, leftover) = queue.removeFirst()
             if (leftover !== root) leftover.recycle()
         }
-        return UiSnapshot(snapshotId, packageName, secure = false, nodes = nodes)
+        return UiSnapshot(snapshotId, packageName, activity, now, nodes)
     }
 }

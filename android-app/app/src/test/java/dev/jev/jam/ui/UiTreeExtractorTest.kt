@@ -1,7 +1,6 @@
 package dev.jev.jam.ui
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,12 +11,12 @@ import org.junit.Test
 class UiTreeExtractorTest {
 
     @Test
-    fun `arbol vacio con raiz nula es secure`() {
+    fun `arbol vacio con raiz nula`() {
         val snap = UiTreeExtractor.extract(null, "p", 7L)
-        assertTrue(snap.secure)
         assertTrue(snap.nodes.isEmpty())
         assertEquals(7L, snap.snapshotId)
         assertEquals("p", snap.packageName)
+        assertEquals("", snap.activity)
     }
 
     @Test
@@ -31,7 +30,6 @@ class UiTreeExtractorTest {
             )
         )
         val snap = UiTreeExtractor.extract(root, "p", 1L)
-        assertFalse(snap.secure)
         assertEquals(listOf("n_0", "n_1", "n_2", "n_3"), snap.nodes.map { it.id })
         assertEquals(listOf("a", "a1", "b").sorted(), snap.nodes.drop(1).map { it.text.orEmpty() }.sorted())
         // BFS: n_0=root -> [n_1(a), n_2(b)]; n_1=a -> [n_3(a1)]; hojas vacías
@@ -96,9 +94,9 @@ class UiTreeExtractorTest {
         assertEquals(listOf(100, 200, 900, 280), n.bounds)
         assertTrue(n.clickable)
         assertTrue(n.editable)
-        assertFalse(n.scrollable)
+        assertEquals(false, n.scrollable)
         assertTrue(n.enabled)
-        assertFalse(n.checked)
+        assertEquals(false, n.checked)
         assertTrue(n.focused)
         assertTrue(n.visible)
     }

@@ -87,8 +87,8 @@ Ktor, Tink/security-crypto, SDK de Tailscale, KSP/KAPT, Espresso.
    (el fallback 29 queda sin verificar hasta tener equipo).
 8. **Recorrido del árbol iterativo** (stack/BFS), máx. 500 nodos/snapshot.
    Nunca bloquear `onAccessibilityEvent`; marcar `ui_dirty` y servir
-   snapshot bajo demanda. `dump_ui` devuelve `snapshot_id` monotónico;
-   `tap_node`/`type` lo exigen (`STALE_SNAPSHOT` si cambió la UI).
+   snapshot bajo demanda. `dump_ui` devuelve `snapshot_id` monotónico
+   persistido; `tap_node`/`type` lo exigen (`STALE_SNAPSHOT` si cambió la UI).
 9. Re-detección de IP tailnet con **`ConnectivityManager.NetworkCallback`**
    (el broadcast `CONNECTIVITY_CHANGE` está restringido desde Android 7)
    + override manual en ajustes.
@@ -96,6 +96,11 @@ Ktor, Tink/security-crypto, SDK de Tailscale, KSP/KAPT, Espresso.
     `navigationBarBackground`) aparecen en `dump_ui` pero nunca son
     target de acción: **filtrarlos en `ui_normalizer.py`** (Fase 4),
     no en el extractor.
+11. **`FLAG_SECURE` no oculta el árbol de accesibilidad** (TalkBack
+    funciona en banca); solo bloquea capturas. Por eso `dump_ui` no
+    lleva campo `secure`: la semántica de superficie protegida vive
+    solo en `screenshot` → `SECURE_SURFACE`. `root == null` significa
+    "sin ventana activa" (típicamente transitorio), no "seguro".
 
 ## 6. Protocolo y tools
 
@@ -107,6 +112,11 @@ Ktor, Tink/security-crypto, SDK de Tailscale, KSP/KAPT, Espresso.
   o no se verifica → `dispatchGesture` al centro de `bounds`.
   **Siempre verificar** (`wait_for_node`/`dump_ui`) y reportar `via`.
   `ACTION_SET_TEXT` para type (nunca teclado simulado).
+- Acciones **no devuelven snapshot**: el servidor no dumpea tras actuar
+  (latencia incondicional por un ahorro condicional). El cliente verifica
+  con `wait_for_node` / `dump_ui` cuando le importa.
+- `type` **exige foco explícito**: si el nodo no está `focused` →
+  `NOT_FOCUSED`. El cliente hace `tap` previo; nada de taps implícitos.
 - Sin key de Jev → stub `{mock: true}`. Jev nunca inventa opciones.
 - Acciones compuestas (`run_sequence`) prohibidas: granularidad para el loop.
 - Política single-client: un solo cliente WS activo; el segundo → `BUSY`.
@@ -171,3 +181,17 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 5. KJ5 corre el clon Shizuku+ (`af.shizuku.plus.api`): no usar como
    referencia; Fase 3 instalará el oficial `moe.shizuku.privileged.api`.
 6. Onboarding UI mínima entra en Fase 1 (banco visual del `dump_ui`).
+
+**2026-10-02 — pre-Fase 2, latencia y `secure` re-ratificados:**
+
+1. Criterio de latencia: **≤300 ms para ≤150 nodos; ~2 ms/nodo;
+   peor caso ~1 s a 500 nodos** (medido: 13n/40 ms, 66n/106 ms,
+   124n/264 ms). El "~30 ms" de `ARCHITECTURE §3` era teórico.
+   Optimización del IPC por nodo (2–3×): candidata a Fase 4+.
+2. **`secure` eliminado de `dump_ui`**: `FLAG_SECURE` no oculta el árbol
+   (TalkBack); `root == null` = sin ventana activa (transitorio).
+   Superficie protegida solo en `screenshot` → `SECURE_SURFACE`.
+   (`AccessibilityWindowInfo.isSecure()` no existe en API 34.)
+3. Contrato de acciones: **sin post-snapshot** en respuestas
+   (el servidor no dumpea tras actuar); **`type` exige foco**
+   (`NOT_FOCUSED` si no; el cliente tapea explícito antes).

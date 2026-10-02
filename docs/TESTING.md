@@ -69,6 +69,28 @@ paquete está en stopped o por restricciones de broadcasts implícitos.
 Usar broadcast **explícito**: `am broadcast -a … -n pkg/.Clase`.
 (Así se dispararon los dumps temporales de §2b.)
 
+## 3. Fase 2 — bucle WS end-to-end (2026-10-02, LG7n API 31)
+
+```bash
+adb forward tcp:38472 tcp:38472
+cd mcp-server && uv sync && uv run python scripts/fase2_check.py
+```
+
+El script: token desde logcat (`JamWs token=…`), abre WhatsApp,
+`hello` → `get_foreground` → `dump_ui` → `tap` (selector descubierto:
+navegación "Atrás") → `tap_node` → `dump_ui` → check `STALE_SNAPSHOT`.
+
+Medido: `hello` con scopes `['read','ui']`; `foreground` WhatsApp;
+`dump1` 153 nodos; **`tap ok via=action_click`** (resource suffix
+`whatsapp_toolbar_home`); `tap_node` con snapshot previo → `STALE_SNAPSHOT`
+(correcto: el tap cambió la UI); `dump2` snapshot 11→13; snapshot viejo
+rechazado con `STALE_SNAPSHOT`. **OK fase2.**
+
+Fixes que salieron del propio test: `hello` debe responder **plano**
+(PROTOCOL §2, sin envoltura `result`); `GestureResultCallback` es clase
+**anidada** de `AccessibilityService` (no existe top-level en API 34);
+`JsonArrayBuilder.add(String)` no resolvió → `JsonPrimitive` explícito.
+
 ## 3. Gotchas encontrados
 
 - `settings put` del servicio **solo pega si `accessibility_enabled=1`

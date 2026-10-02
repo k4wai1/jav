@@ -2,7 +2,7 @@
 
 > Documento vinculante. Toda decisión de implementación que contradiga este archivo
 > requiere una enmienda explícita aquí antes de codear. Estado: **cerrada** (2026-09-30).
-> Enmiendas pre-0b registradas en `AGENTS.md §9`.
+> Enmiendas pre-0b y pre-Fase-2 registradas en `AGENTS.md §9`.
 
 ## 1. Visión
 
@@ -33,26 +33,28 @@ por WebSocket. El MCP Python traduce tools → comandos y orquesta el bucle
 | 7 | Shell | OFF por defecto. `shell` **bloquea hasta 60 s** esperando grant (notificación: 1 comando = SHA-256 exacto / 5 min / 30 min). Expira sola |
 | 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay TECNO API 31) |
 | 9 | Nombre y banco (2026-10-01) | App = **Jam** (`dev.jev.jam`). Banco principal = **TECNO KJ5 (API 33, sin root)**; LG7n (API 31, Magisk) secundario. Aceptación Fase 1: nodos con `text`/`resource_id` coinciden ≥95% con `uiautomator`, latencia in-app < 100 ms. KJ5 trae un clon **Shizuku+** (`af.shizuku.plus.api`), no el oficial: Fase 3 exige instalar `moe.shizuku.privileged.api` oficial |
+| 10 | Latencia y `secure` (2026-10-02) | Criterio re-ratificado: **≤300 ms para ≤150 nodos; ~2 ms/nodo; peor caso ~1 s a 500**. Bucle Jev ≈ 500–800 ms/paso. **`secure` fuera de `dump_ui`** (FLAG_SECURE no oculta el árbol); solo `screenshot` → `SECURE_SURFACE`. Acciones sin post-snapshot; `type` exige foco (`NOT_FOCUSED`) |
 
-## 3. Verdad del terreno (medido 2026-09-30)
+## 3. Verdad del terreno (medido 2026-09-30…10-02)
 
 **Host:** Debian 13, Celeron 847 (2 núcleos @ 1.1 GHz), 3.7 GiB RAM
-(~1.7 libres) + 7.5 GiB swap, JDK 21, adb/uv/python/node/rust presentes,
-**sin Android SDK ni Gradle** (Fase 0 los instala en `~/Android/Sdk`).
-Disco: `/` 11 GB libres, `/home` 34 GB libres → toolchain y caches a `/home`.
+(~1.7 libres) + 7.5 GiB swap, JDK 21, adb/uv/python/node/rust presentes.
+Toolchain en `~/Android/Sdk`. `/home` 34 GB libres.
 
-**Dispositivo:** TECNO LG7n, Android 12 (API 31), arm64-v8a, 8 núcleos,
-7.8 GB RAM, **Magisk root (no lo usa la app)**, Shizuku + Termux instalados,
-pantalla 720×1640.
+**Dispositivos:** TECNO KJ5 (Android 13/API 33, sin root, banco principal);
+TECNO LG7n (Android 12/API 31, Magisk root — la app no lo usa).
 
-**Latencias reales host→USB (incluyen ~63 ms de ida/vuelta ADB):**
+**Latencias host→USB (incluyen ~63 ms de ida/vuelta ADB):**
 `shell echo` 63 ms · `dumpsys window` 80 ms · `input tap` **151 ms**
 · `pm list` 299 ms · `screencap` **1409 ms** · `uiautomator dump` **4353 ms**.
 
-Conclusión: el cuello es **percepción**, no input
-(`uiautomator` 4.3 s vs árbol de accesibilidad in-process ~30 ms ≈ 140×).
-Por eso AccessibilityService es el camino primario de percepción,
-no por la latencia de tap.
+**Latencias in-app (`dump_ui`, medidas en dispositivo):**
+13 nodos → 40 ms (5 ms en caliente) · 66 nodos → 106 ms ·
+124 nodos → 264 ms. Escalado **~2 ms/nodo** (IPC por nodo; uiautomator
+sigue siendo 16× más lento a igual carga).
+
+Conclusión: el cuello es **percepción**, no input. AccessibilityService
+es el camino primario de percepción por el árbol in-process, no por el tap.
 
 ## 4. Arquitectura
 
@@ -67,10 +69,9 @@ HOST Debian 13 (agente + opencode)
   WS 127.0.0.1:38472 (adb forward) │ WSS <ip-tailnet>:38472 (opt-in)
                  ▼ USB / red                    ▼ tailnet
 ┌──────────────────────────────────────────────────────────────┐
-│ TECNO (Android 12, app non-root)                             │
+│ TECNO (Android 12/13, app non-root)                          │
 │  ForegroundService ── 2 listeners WS (loopback + tailnet)    │
 │  JevAccessibilityService ── UI tree + tap/type/scroll        │
-│                             + takeScreenshot (API 30+)       │
 │  ShizukuBridge ── newProcess/UserService (UID shell):        │
 │                   pm, am, settings, input, screencap         │
 │  MainActivity (solo onboarding: 3 estados + token + QR)      │
@@ -80,17 +81,17 @@ HOST Debian 13 (agente + opencode)
 **Cascada de ejecución por operación:**
 percepción → AccessibilityService (obligatorio; `snapshot_id` anti-staleness) ·
 tap: `ACTION_CLICK` si `clickable`, `dispatchGesture` si no, **siempre verificar** (`via` reportado) ·
-type: `ACTION_SET_TEXT` ·
+type: `ACTION_SET_TEXT` con foco explícito previo ·
 lifecycle/shell/settings → Shizuku (UID shell) ·
 `open_app` → Shizuku `am start` (fallback `monkey`), nunca Intent desde background ·
 screenshot → `takeScreenshot()` (30+) → `screencap` vía Shizuku (API 29);
-`FLAG_SECURE` → `SECURE_SURFACE`.
+`FLAG_SECURE` → `SECURE_SURFACE` (solo screenshot; el árbol no se oculta).
 
 ## 5. Modelo de privilegios (app non-root)
 
 ```
 App (UID normal)
-├── AccessibilityService ── UI tree + gestos + takeScreenshot
+├── AccessibilityService ── UI tree + gestos
 │      (usuario lo habilita en Ajustes → Accesibilidad)
 └── ShizukuBridge ── permiso runtime API_V23
        └── Shell UID 2000: pm, am, settings, input, screencap
@@ -179,6 +180,7 @@ Shell `adb_shell`/`shell`: denylist de irreversibles
 | dev.rikka.shizuku:api + :provider | **13.1.5** | verificar en primer build |
 | org.java-websocket:Java-WebSocket | **1.5.7** | API estable |
 | bcprov-jdk18on + bcpkix-jdk18on | **1.86** | fallback 1.78.1 |
+| junit (tests) | 4.13.2 | `testImplementation`, sin Robolectric |
 
 Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 `minSdk 29`, `compileSdk/targetSdk 34`, R8 solo en release, `allowBackup=false`.
@@ -193,14 +195,15 @@ Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 
 | Fase | Entregable | Aceptación medible |
 |---|---|---|
-| 0a | `ARCHITECTURE.md`, `AGENTS.md`, `PROTOCOL.md` | revisión del auditor (este archivo) |
+| 0a | `ARCHITECTURE.md`, `AGENTS.md`, `PROTOCOL.md` | revisión del auditor |
 | 0b | Toolchain en `~/Android/Sdk` | `sdkmanager --list_installed` OK |
 | 0c | Scaffold + manifest + onboarding stub | `assembleDebug` compila |
 | 0d | APK vacío instalado | app visible en el TECNO + grep `su` vacío + `docs/BUILD.md` |
-| 1 | AccessibilityService + `dump_ui` + `takeScreenshot` | nodos ≡ `uiautomator dump`; latencia in-app < 100 ms |
-| 2 | WS + seguridad (token → WSS tailnet) + tap/type/scroll/back | cliente Python controla app real; sin token → rechazado; remoto sin TLS → rechazado |
-| 3 | Shizuku + open_app/force_stop/grant/shell | `pm grant`, `am start`, `screencap` OK; sin Shizuku → degradación honesta |
-| 4 | MCP + normalizer + tools device/app/ui | agente abre WhatsApp y lee pantalla |
+| 1 | AccessibilityService + `dump_ui` + onboarding | anclas ≥95% vs `uiautomator` (estático 100%); latencia §3 |
+| 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back + cliente Python | cliente Python controla WhatsApp real; sin token → rechazado |
+| 2b | WSS tailnet + cert self-signed + token en Keystore | remoto sin TLS → rechazado; pinning TOFU |
+| 3 | Shizuku + open_app/force_stop/grant/shell (+ `screenshot` fallback) | `pm grant`, `am start`, `screencap` OK; sin Shizuku → degradación honesta |
+| 4 | MCP + normalizer + tools device/app/ui (+ optimización IPC) | agente abre WhatsApp y lee pantalla |
 | 5 | jev_client + loop + escalada de texto | "escribe a Juan: voy pronto" end-to-end |
 | 6 | grupo `adb`, audit log, kill switch, docs, hardening | denylist operativa; auditoría consultable |
 
@@ -211,7 +214,13 @@ Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 - **Java-WebSocket NIO en Android:** verificar en Fase 2; plan B servidor WS
   bloqueante propio (~200 líneas, 0 deps).
 - **BC + Keystore:** firma SHA256withRSA OK desde API 23; sin registro JCA global.
-- **API 29 sin verificar:** fallback `screencap` diseñado pero no probado (solo TECNO API 31).
+- **API 29 sin verificar:** fallback `screencap` diseñado pero no probado.
+- **USB inestable:** ambos TECNO se caen del bus cada minutos; mitigar con
+  ventanas de comandos cortas y `adb connect` por Wi-Fi cuando sea posible.
+- **Optimización IPC (~2 ms/nodo):** el coste está en las calls por nodo
+  (`getChild`, `getBoundsInScreen`). Candidata a Fase 4+ si el bucle lo pide.
+- **KJ5 corre Shizuku+ clon:** Fase 3 instala el oficial
+  `moe.shizuku.privileged.api` (el LG7n ya lo trae).
 
 ## 11. Inspiración
 

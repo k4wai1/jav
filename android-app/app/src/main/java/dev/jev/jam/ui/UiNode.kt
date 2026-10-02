@@ -1,16 +1,19 @@
 package dev.jev.jam.ui
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
 /**
  * Nodo normalizado de UI. Schema exacto: PROTOCOL.md §5.
  * `nodes` es array plano; el parentesco va por `children` (ids).
- * La anotación @Serializable llega en la Fase 2 con el socket.
  */
+@Serializable
 data class UiNode(
     val id: String,
     val text: String?,
-    val contentDesc: String?,
-    val className: String?,
-    val resourceId: String?,
+    @SerialName("content_desc") val contentDesc: String?,
+    @SerialName("class") val className: String?,
+    @SerialName("resource_id") val resourceId: String?,
     /** [left, top, right, bottom] en píxeles de pantalla. */
     val bounds: List<Int>,
     val clickable: Boolean,
@@ -23,10 +26,11 @@ data class UiNode(
     val children: List<String>
 )
 
+@Serializable
 data class UiSnapshot(
-    val snapshotId: Long,
-    val packageName: String,
-    /** true si no hay ventana activa (p.ej. FLAG_SECURE): nodes == []. */
-    val secure: Boolean,
-    val nodes: List<UiNode>
+    @SerialName("snapshot_id") val snapshotId: Long,
+    @SerialName("package") val packageName: String,
+    val activity: String = "",
+    val timestamp: Long = 0L,
+    val nodes: List<UiNode> = emptyList()
 )
