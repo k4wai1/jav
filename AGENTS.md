@@ -2,6 +2,9 @@
 
 > Reglas vinculantes para cualquier agente o programador que toque este repo.
 > Si una regla bloquea el trabajo, se enmienda aquí primero, no se rodea.
+>
+> Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
+> (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
 ## 1. Filosofía
 
