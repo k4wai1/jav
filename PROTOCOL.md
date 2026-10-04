@@ -101,7 +101,7 @@ lo exigen y fallan con `STALE_SNAPSHOT` si cambió la UI.
 ```json
 {"id": "n_0", "text": "Buscar", "content_desc": null,
  "class": "android.widget.EditText",
- "resource_id": "com.whatsapp:id/search_input",
+ "resource_id": "com.ejemplo.generico:id/campo_busqueda",
  "bounds": [100, 200, 900, 280],
  "clickable": true, "editable": true, "scrollable": false,
  "enabled": true, "checked": false, "focused": false,

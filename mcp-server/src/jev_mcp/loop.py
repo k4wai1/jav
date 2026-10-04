@@ -1,9 +1,11 @@
 """Motor observe→decide→mutate→verify. Genérico; la tarea define preguntas.
 
 Cada iteración = 1 llamada Jev (batch decide+verify). Acciones en enum
-cerrado: tap_node | type_text | scroll | done | abort | noop.
+cerrado: tap_node | type_text | scroll | done | abort | noop | escalate.
 `noop` es no-op explícito para fases de solo-verificación (se loguea,
-no toca el dispositivo). Nada más llega al dispositivo.
+no toca el dispositivo). `escalate` es no-op que escala a Sistema 2
+(se loguea con fase/candidatas/conf, no toca el dispositivo).
+Nada más llega al dispositivo.
 """
 from __future__ import annotations
 
@@ -14,7 +16,8 @@ import time
 from . import jev_client
 from .tools import ui as ui_tools
 
-CLOSED_ACTIONS = {"tap_node", "type_text", "scroll", "done", "abort", "noop"}
+CLOSED_ACTIONS = {"tap_node", "type_text", "scroll", "done", "abort", "noop",
+                  "escalate"}
 MAX_STALE_STREAK = 3
 
 
@@ -23,6 +26,13 @@ async def _execute(action: dict) -> dict:
     if kind == "noop":
         return {"ok": True, "verified": True,
                 "evidence": {"noop": True}}
+    if kind == "escalate":
+        # Como noop: no toca el dispositivo; loguea y escala a Sistema 2.
+        return {"ok": True, "verified": True,
+                "evidence": {"escalated": True,
+                             "reason": action.get("reason", "ESCALATE"),
+                             "conf": action.get("conf"),
+                             "tau": action.get("tau")}}
     if kind == "tap_node":
         return await ui_tools.tap_node(action["node_id"], action["snapshot_id"])
     if kind == "type_text":

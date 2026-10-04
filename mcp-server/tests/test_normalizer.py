@@ -54,3 +54,22 @@ def test_wa_home_fixture():
     assert tiers == sorted(tiers)
     assert any("Buscar" in (c.text or c.desc) for c in st.candidates)
     print("\n" + format_state(st)[:1200])
+
+
+def test_poda_cadena_documentada():
+    # Cadena real: 500 raw (extractor) → 60 (normalizer vigente)
+    # ⊂ 255 Choice (254+N ONE, capacidad Jev). El 254+NONE es capacidad,
+    # no tope vigente (subir 60→254 pendiente Fase 5).
+    assert MAX_CANDIDATES == 60
+    assert MAX_CANDIDATES <= 254
+    dump = {"package": "p", "snapshot_id": 1, "nodes": [
+        {"id": f"n_{i}", "text": f"item {i}", "content_desc": None,
+         "class": "android.widget.Button", "resource_id": f"x:id/b{i}",
+         "bounds": [0, 0, 1, 1], "clickable": True, "editable": False,
+         "scrollable": False, "enabled": True, "checked": False,
+         "focused": False, "visible": True, "children": []}
+        for i in range(200)
+    ]}
+    st = normalize(dump)
+    assert len(st.candidates) == MAX_CANDIDATES
+    assert st.raw_count == 200

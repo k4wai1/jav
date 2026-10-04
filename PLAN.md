@@ -11,44 +11,90 @@
 - Tools MCP = primitivas agnósticas (`get_node_hierarchy`, `tap_node`, `tap_point`,
   `input_text`, `swipe`, `keyevent`, `launch_app`, `get_foreground`, `screenshot`).
 - Cero lógica acoplada a apps concretas en los controladores de UI.
-- System 1 (MCP/local, determinista) ejecuta; System 2 (orquestador) planifica.
+  `tasks/*` son solo plugins-ejemplo fuera del core (sin literales normativos).
+- Dual-Tier genérico (ver `ARCHITECTURE.md §6`): System 1 (Jev, juicio
+  discriminativo single-pass, Choice ≤255 / Score / Noul, poda ≤254+NONE,
+  compuertas tau/críticas/Noul) ejecuta; System 2 (LLM frontera) solo
+  planifica hitos, anomalías visuales, fallos persistentes y redacta texto.
+- Stack y seguridad no negociables: Java-WebSocket (nunca Ktor/Netty/SSE/HTTP),
+  binds `127.0.0.1:38472` + IP tailnet con WSS obligatorio (nunca `0.0.0.0`
+  por defecto), token bearer en `hello` incluso en loopback,
+  `shell` OFF hasta Fase 6 (`METHOD_NOT_ALLOWED`).
 
-## Fases
+## Fases (por capacidades, ninguna menciona app concreta)
 
 ### Fase 0 — Scaffold app + Shizuku + FGS
 - [x] 0a/0b: app `dev.jev.jam`, Shizuku provider, FGS `specialUse`.
 - [ ] 0c: permiso `FOREGROUND_SERVICE_SPECIAL_USE` (verificar en build release).
 
-### Fase 1 — dump_ui (accesibilidad)
+### Fase 1 — Percepción por accesibilidad (`dump_ui`)
 - [x] Recorrido BFS ≤500 nodos, `snapshot_id` monotónico, tests JVM 6/6.
-- [x] Aceptación relajada: anclas ≥95%, latencia <100 ms (medido 100%, 40 ms).
+- [x] Aceptación relajada: anclas ≥95%, latencia <100 ms en pantallas típicas
+  (medido 100%, 40 ms; ~2 ms/nodo, peor caso ~1 s a 500 nodos).
+- [x] Contrato: sin campo `secure` en `dump_ui` (`SECURE_SURFACE` solo en
+  `screenshot`); `root == null` = sin ventana activa.
 
-### Fase 2 — Protocolo WS + single-client
-- [x] Listener loopback + token bearer, rate limit, frame 4 MiB.
-- [ ] 2b: WSS + certificado + Keystore (bind tailnet). **Pendiente.**
+### Fase 2 — Transporte WS + single-client + handshake
+- [x] Listeners loopback (WS) + tailnet (WSS) con token bearer, scopes
+  `read`/`ui`/`shell`/`admin`, rate limit, frame 4 MiB, `BUSY` al 2.º cliente.
+- [ ] 2b: WSS + certificado self-signed + token en Keystore (bind tailnet). **Pendiente.**
 
-### Fase 3 — Acciones (Shizuku)
-- [x] 3a: `open_app`, `force_stop`, `screenshot` (`takeScreenshot`, API 30+).
-- [ ] Deuda: preferir `tap_node(id, snapshot_id)` sobre `tap(selector)`.
+### Fase 3 — Ejecución (Shizuku + gestos + captura)
+- [x] 3a: `open_app` (`am start` por Shizuku, fallback `monkey`),
+  `force_stop`, `screenshot` (`takeScreenshot`, API 30+).
+- [ ] Deuda: preferir `tap_node(id, snapshot_id)` sobre `tap(selector)`;
+  `ACTION_CLICK` primero + `dispatchGesture` fallback + `via` verificado;
+  `type` por `ACTION_SET_TEXT` con foco explícito.
+- [ ] `shell` diferido a Fase 6; dispatcher lo rechaza con
+  `METHOD_NOT_ALLOWED` explícito.
 
-### Fase 4 — Normalización + mapeo tool↔método
-- [x] `ui_normalizer.py` (filtrar nodos de decoración del sistema).
+### Fase 4 — Normalización + Dual-Tier en el host
+- [x] `ui_normalizer.py` (filtrar decoración del sistema; base de la poda §6.3).
+- [ ] Completar poda determinista (cadena vigente 500 raw → 60 normalizer
+  ⊂ 255 Choice; subir normalizer 60→254 **pendiente Fase 5**),
+  tabla numerada con centroides, PII mask local, anti-prompt-injection
+  (contenido UI = `data`, nunca instrucción).
 - [ ] Mapeo tool MCP ↔ método: `open_app`, `close_app`↔`force_stop`,
-  `get_app_state`↔`dump_ui`+normalizar, `get_foreground_app`, `adb_shell`↔`shell`.
-- [ ] Desacoplar `mcp-server/src/jev_mcp/tasks/whatsapp.py`: convertirlo en
-  primitivas genéricas + contrato en `docs/specs/` (evitar optimizar solo WhatsApp).
+  `get_app_state`↔`dump_ui`+normalizar, `get_foreground_app`,
+  `adb_shell`↔`shell` (gateado).
+- [x] Desacoplar ejemplo en `tasks/` (41f1d31, 2026-10-04): plugin fino sobre
+  `core/` + contrato v2 en `docs/specs/tasks-generic.md` (tau, escalado,
+  `text_match`/`guards`/`titles` parametrizados, forense).
 
-### Fase 6 — Shell con seguridad cerrada
-- [ ] `shell` no expuesto hasta cerrar denylist, grant (1 cmd/5 min/30 min) y audit.
-- [ ] Dispatcher debe rechazar `shell` con `METHOD_NOT_ALLOWED` explícito.
+### Fase 5 — Bucle Jev genérico + compuertas + forense
+- [x] `gate_tau(conf, tau)` en `core/guards.py` (puro, genérico) + `TAU=0.70`
+  parametrizable en plugin + `escalate` en enum de `loop.py` (como noop,
+  sin tocar dispositivo) + `guarded_action` acepta `escalate` (código en
+  working tree; falta end-to-end con Jev real).
+- [ ] Pendiente explícito: subir normalizer 60→254; tau/escalate end-to-end
+  con Jev real; forense con `conf`/`tau` por paso.
+- [ ] `jev_client` + `loop` (`observe→decide→mutate→verify`,
+  `CLICK`/`TYPE`/`SCROLL`/`DONE`/`ESCALATE`, `needs_system_2`),
+  `dry_run` por defecto en acciones sensibles, `STALE_SNAPSHOT`×3 →
+  `UI_UNSTABLE`, fallback sin-árbol → `screenshot` a S2.
+- [ ] Compuertas obligatorias: tau ~0.70 → escalar; críticas →
+  S2/humano; Noul (bloqueos semánticos) → escalar sin reintentos ciegos.
+- [ ] Forense por corrida `logs/run-<ts>.jsonl` (fase, snapshot, opciones,
+  respuestas con `conf`/`tau`, acción por paso). Sin forense no hay certificación.
 
-## Próxima tarea
+### Fase 6 — Shell con seguridad cerrada + hardening
+- [ ] `shell` solo con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
+  bloqueo 60 s), audit ring 500 (`get_audit`), kill switch (tile + notificación).
+- [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jev-mcp/`,
+  docs y hardening finales.
 
-1. `@explorer`: mapear `mcp-server/src/jev_mcp/tasks/whatsapp.py` y `loop.py`
-   (rutas + líneas + puntos de acoplamiento a la app).
-2. `@architect`: contrato `docs/specs/tasks-generic.md` para desacoplar.
-3. `@coder`: implementar el contrato.
-4. `@judge`: `uv run pytest` + `./gradlew :app:testDebugUnitTest`.
+## Próxima tarea (consolidar core genérico, cero envíos reales)
+
+1. `@architect`: eleva `docs/specs/tasks-generic.md` a v2 dual-tier
+   (hecho 2026-10-04) — `TaskProtocol`, helpers parametrizados, umbrales
+   tau, política de escalado, forense.
+2. `@coder`: implementa el contrato v2 en `core/` + adelgaza `tasks/` a
+   plugin-ejemplo (sin literales normativos, sin nombres propios).
+3. `@judge`: `uv run pytest` + `./gradlew :app:testDebugUnitTest` +
+   dry-run forense (`logs/run-<ts>.jsonl` con paso sensible `planned`
+   sin tocar el dispositivo).
+4. Explícito: **no enviar mensajes reales ni operar sobre chats/cuentas
+   reales**; la validación es dry-run + verificación determinista.
 
 ## Deuda / anotaciones (AGENTS.md §9)
 - Latencia IPC por nodo (2–3×): candidata a Fase 4+.

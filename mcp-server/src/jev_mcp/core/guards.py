@@ -47,17 +47,18 @@ def require_verified(verified: bool, key: str, code: str) -> dict | None:
 
 def guarded_action(key: str, cands: dict, snap: int, *,
                    forbidden: bool) -> dict | None:
-    """Valida clave tap:/type:/done/abort contra cands+snapshot.
+    """Valida clave tap:/type:/done/abort/escalate contra cands+snapshot.
 
     None = pasa (el plugin construye la acción con sus datos);
-    dict = abort FORBIDDEN_TARGET. Clave o nodo inválido →
-    `InvalidAction` (el plugin la traduce a JevHallucination).
-    Puro.
+    dict = abort FORBIDDEN_TARGET / abort JEV_ABORT / escalate LOW_CONF.
+    Clave o nodo inválido → `InvalidAction` (el plugin la traduce a
+    JevHallucination). Poda semántica solo en normalizer; el extractor
+    solo poda invisibles + tope 500. Puro.
     """
-    if key in ("abort", "done") or ":" not in key:
-        if key not in ("abort", "done"):
+    if key in ("abort", "done", "escalate") or ":" not in key:
+        if key not in ("abort", "done", "escalate"):
             raise InvalidAction(f"clave fuera de criteria: {key}")
-        if key == "done":
+        if key in ("done", "escalate"):
             return None
         return {"kind": "abort", "key": key, "code": "JEV_ABORT",
                 "reason": "Jev eligió abort"}
@@ -71,4 +72,22 @@ def guarded_action(key: str, cands: dict, snap: int, *,
         return {"kind": "abort", "key": key, "code": "FORBIDDEN_TARGET",
                 "reason": f"target prohibido: {label}"}
     _ = snap  # el snapshot lo estampa el plugin en la acción construida
+    return None
+
+
+def gate_tau(conf: float, tau: float) -> dict | None:
+    """Si conf < tau → {kind: escalate, reason: LOW_CONF}. Puro.
+
+    Mecanismo del core; el valor de `tau` es dato del plugin
+    (TaskProtocol.TAU). Conf/tau no numéricos → escalado conservador.
+    """
+    try:
+        c = float(conf)
+        t = float(tau)
+    except (TypeError, ValueError):
+        return {"kind": "escalate", "reason": "LOW_CONF",
+                "conf": conf, "tau": tau}
+    if c < t:
+        return {"kind": "escalate", "reason": "LOW_CONF",
+                "conf": c, "tau": t}
     return None

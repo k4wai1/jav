@@ -119,3 +119,28 @@ async def test_abort_con_motivo():
 
     r = await loop.run(AbortTask([]), ask_fn=ask)
     assert not r["ok"] and r["evidence"]["code"] == "NO_MATCH", r
+
+
+@pytest.mark.asyncio
+async def test_escalate_aceptado_sin_tocar_dispositivo(monkeypatch):
+    assert "escalate" in loop.CLOSED_ACTIONS
+    # _execute no debe llamar a tools UI: si lo intenta, el test falla.
+    async def _boom(*a, **kw):
+        raise AssertionError("escalate no debe tocar el dispositivo")
+    monkeypatch.setattr(ui_tools, "tap_node", _boom)
+    monkeypatch.setattr(ui_tools, "type_text", _boom)
+    monkeypatch.setattr(ui_tools, "scroll", _boom)
+    r = await loop._execute({"kind": "escalate", "reason": "LOW_CONF",
+                             "conf": 0.5, "tau": 0.70})
+    assert r["ok"] and r["verified"]
+    assert r["evidence"]["escalated"] is True
+
+    async def ask(state, questions):
+        return {"next": {"kind": "choice", "key": "a", "p": 1.0,
+                         "confidence": 1.0, "raw": {}}}, {"cost": 0.0}
+
+    task = ScriptTask([{"kind": "escalate", "reason": "LOW_CONF"},
+                       {"kind": "done"}])
+    r = await loop.run(task, ask_fn=ask)
+    assert r["ok"] and r["verified"], r
+    assert r["history"][0]["action"]["kind"] == "escalate"

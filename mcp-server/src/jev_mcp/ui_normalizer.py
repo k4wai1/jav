@@ -1,4 +1,9 @@
-"""Normalizer: árbol crudo de Jam (153+ nodos) → ~20-40 candidatos.
+"""Normalizer: árbol crudo de Jam (≤500 nodos) → ≤60 candidatos.
+
+Cadena real: 500 raw (extractor: invisibles fuera + tope 500)
+→ 60 (aquí: decoración/contenedores fuera + tope MAX_CANDIDATES=60)
+⊂ 255 Choice (capacidad Jev: 254 + 1 NONE). El 254+NONE es capacidad,
+no tope vigente (subir 60→254 pendiente Fase 5).
 
 Reglas (AGENTS.md §5.10+):
 1. Fuera decoración del sistema (statusBar/navBarBackground).

@@ -39,10 +39,11 @@ Comparación de anclas (`text` o `resource_id` no nulos):
 
 ## 2b. Verificación en árboles reales (2026-10-02, LG7n API 31)
 
-Procedimiento: receiver temporal `DUMP_WA`/`DUMP_SELF` (eliminado tras
+Banco no-normativo: una app de mensajería comercial + Ajustes del sistema.
+Procedimiento: receiver temporal `DUMP_*` (eliminado tras
 verificar) + `uiautomator dump` + comparativa de anclas por script.
 
-- **WhatsApp (chat, 124 nodos)**: anclas 73/86 = **84.9%** vs
+- **Mensajería (chat vivo, 124 nodos)**: anclas 73/86 = **84.9%** vs
   **piso de ruido uia-vs-uia = 80.2%** (el chat es vivo: timestamps y
   mensajes cambian entre dumps). Diferencia sistemática restante =
   nodos invisibles que uiautomator incluye y nosotros podamos por diseño.
@@ -59,8 +60,8 @@ verificar) + `uiautomator dump` + comparativa de anclas por script.
   package `""`, `nodes []`, nunca "seguro". La semántica de superficie
   protegida vive solo en `screenshot` → `SECURE_SURFACE`
   (`AccessibilityWindowInfo.isSecure()` no existe en API 34).
-  El cold-start de WhatsApp devolvió `nodes=0` por timing, no por flag:
-  reintentar en caliente.
+  El cold-start de la app de banco devolvió `nodes=0` por timing,
+  no por flag: reintentar en caliente.
 - **Bug encontrado y corregido**: `snapshot_id` era campo de instancia;
   al recrearse el servicio se reiniciaba (visto: `snapshot=1` repetido).
   Ahora persiste en `SharedPreferences` (`jam.snapshot_id`) en cada dump.
@@ -79,13 +80,14 @@ adb forward tcp:38472 tcp:38472
 cd mcp-server && uv sync && uv run python scripts/fase2_check.py
 ```
 
-El script: token desde logcat (`JamWs token=…`), abre WhatsApp,
-`hello` → `get_foreground` → `dump_ui` → `tap` (selector descubierto:
-navegación "Atrás") → `tap_node` → `dump_ui` → check `STALE_SNAPSHOT`.
+El script: token desde logcat (`JamWs token=…`), abre la app de banco
+(`open_app` genérico), `hello` → `get_foreground` → `dump_ui` → `tap`
+(selector descubierto: navegación "Atrás") → `tap_node` → `dump_ui` →
+check `STALE_SNAPSHOT`.
 
-Medido: `hello` con scopes `['read','ui']`; `foreground` WhatsApp;
-`dump1` 153 nodos; **`tap ok via=action_click`** (resource suffix
-`whatsapp_toolbar_home`); `tap_node` con snapshot previo → `STALE_SNAPSHOT`
+Medido: `hello` con scopes `['read','ui']`; `foreground` = app de banco;
+`dump1` 153 nodos; **`tap ok via=action_click`** (sufijo de resource
+genérico de toolbar); `tap_node` con snapshot previo → `STALE_SNAPSHOT`
 (correcto: el tap cambió la UI); `dump2` snapshot 11→13; snapshot viejo
 rechazado con `STALE_SNAPSHOT`. **OK fase2.**
 
@@ -105,8 +107,8 @@ adb forward tcp:38472 tcp:38472
 cd mcp-server && uv run python scripts/fase3_check.py
 ```
 
-1. `force_stop(com.whatsapp)` → `get_foreground` ya no es WhatsApp.
-2. `open_app(com.whatsapp)` → `get_foreground` = `com.whatsapp`.
+1. `force_stop(<pkg-banco>)` → `get_foreground` ya no es esa app.
+2. `open_app(<pkg-banco>)` → `get_foreground` = `<pkg-banco>`.
 3. `screenshot` → `img_base64` > 1000 chars, `w`/`h` > 0; comparar
    visualmente con `adb exec-out screencap -p`.
 4. Superficie segura → `SECURE_SURFACE` (app bancaria si hay; si no,
@@ -118,8 +120,8 @@ cd mcp-server && uv run python scripts/fase3_check.py
 ## 5. Fase 3a — resultados (2026-10-02, LG7n, Shizuku 13.6.0 oficial)
 
 `uv run python scripts/fase3_check.py` → **OK fase3a**:
-`open_app` lleva a WhatsApp (verificado `HomeActivity`);
-`force_stop` lo saca; `open_app` devuelve package/activity;
+`open_app` lleva a la app de banco (verificado `HomeActivity`);
+`force_stop` la saca; `open_app` devuelve package/activity;
 `screenshot` 720×1640 vía `takeScreenshot`; `shell` y método
 desconocido → `METHOD_NOT_ALLOWED`.
 
@@ -170,10 +172,11 @@ Si hay 2 transportes, prefijar `-s 192.168.100.180:5555`.
 
 `JEV_TOKEN=… uv run python scripts/fase4_check.py` → **OK fase4**.
 Cliente MCP por stdio contra `server.py`: `device_status` →
-`open_app(com.whatsapp)` verificado → `read_screen` (58/134 candidatos,
-sin decoración) → `tap_text("Buscar")` → `via=gesture` (el campo no es
-clickable: cae al fallback, verificado en app real) → `read_screen`
-(EditText `search_input` enfocado) → `type_text("Felix")` → `chars=5`.
+`open_app(<pkg-banco>)` verificado → `read_screen` (58/134 candidatos,
+sin decoración) → `tap_text("<texto-búsqueda>")` → `via=gesture`
+(el campo no es clickable: cae al fallback, verificado en app real) →
+`read_screen` (EditText de búsqueda enfocado) → `type_text("<texto-prueba>")`
+→ `chars=N`.
 
 Latencias reales por tool (Wi-Fi, incluyen forward):
 `device_status` 1978 ms · `open_app` 3064 ms (poll de foreground) ·

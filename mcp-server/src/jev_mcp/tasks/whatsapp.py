@@ -26,6 +26,8 @@ from ..tools import ui as ui_tools
 
 # ---- datos del plugin (core no conoce ninguno) ----
 
+TAU: float = 0.70  # umbral de confianza del plugin (spec v2 §4); core solo aplica gate_tau
+
 PACKAGE = "com.whatsapp"
 WA = PACKAGE  # alias histórico
 LEVELS = ["0%", "25%", "50%", "75%", "100%"]
@@ -47,6 +49,8 @@ FORBIDDEN_DESC = re.compile(_guards.FORBIDDEN_DEFAULT, re.I)
 
 norm = _tm.norm
 skeleton = _tm.skeleton
+gate_tau = _guards.gate_tau
+guarded_action = _guards.guarded_action
 
 
 def name_hit(contact: str, cand: dict) -> bool:
@@ -102,6 +106,7 @@ class SendWhatsappTask:
     S_FOCUS = 4
     S_SEND = 6
     MAX_VERIFY_TRIES = 2
+    TAU: float = TAU  # dato del plugin; mecanismo en core.guards.gate_tau
 
     def __init__(self, contact: str, text: str):
         self.contact = contact
@@ -334,6 +339,15 @@ class SendWhatsappTask:
         if state.get("error"):
             return {"kind": "abort", "code": state["error"],
                     "reason": state.get("error_text", "")}
+        nxt = answers.get("next_action", {}) or {}
+        # Gate tau (spec v2 §4): conf < TAU → escalate a Sistema 2, sin tapear.
+        # Mecanismo en core, dato TAU en el plugin. Abort pasa siempre (seguro).
+        if nxt.get("key") not in ("abort", ""):
+            conf = nxt.get("conf", nxt.get("p", nxt.get("confidence", 1.0)))
+            esc = _guards.gate_tau(conf, self.TAU)
+            if esc is not None:
+                esc["key"] = nxt.get("key", "")
+                return esc
         phase = self.PHASES[min(self.phase, len(self.PHASES) - 1)]
         if phase == "VERIFY_CHAT":
             return self._interpret_verify(answers, state)
