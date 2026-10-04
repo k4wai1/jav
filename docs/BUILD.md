@@ -47,8 +47,8 @@ APK: `android-app/app/build/outputs/apk/debug/app-debug.apk` (16 MB).
 
 - `grep -rn 'su -c\|exec(.*su\|ProcessBuilder(.*su' app/src/` → **vacío** ✓
 - `strings classes{,2,3,4,5}.dex | grep -c 'su -c'` → **0** ✓
-- `apkanalyzer manifest print`: `package=dev.jev.android`, 2 servicios,
-  `ShizukuProvider` (`dev.jev.android.shizuku` + `INTERACT_ACROSS_USERS_FULL`),
+- `apkanalyzer manifest print`: `package=dev.jev.jam`, 2 servicios,
+  `ShizukuProvider` (`dev.jev.jam.shizuku` + `INTERACT_ACROSS_USERS_FULL`),
   permiso `moe.shizuku.manager.permission.API_V23` fusionado,
   `FOREGROUND_SERVICE_SPECIAL_USE`, property FGS ✓
 
@@ -60,9 +60,9 @@ Android 13 (API 33)**, sin root, con Shizuku y Tailscale instalados
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk   # Success
-adb shell am start -n dev.jev.android/.MainActivity
+adb shell am start -n dev.jev.jam/.MainActivity
 adb shell 'dumpsys activity activities | grep -m1 mFocusedApp'
-# mFocusedApp=ActivityRecord{… dev.jev.android/.MainActivity} ✓
+# mFocusedApp=ActivityRecord{… dev.jev.jam/.MainActivity} ✓
 ```
 
 `uiautomator dump` confirma el paquete en foreground con `android:id/content`

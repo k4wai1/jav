@@ -2,7 +2,8 @@
 
 App non-root (ver `../AGENTS.md`): expone percepción (AccessibilityService)
 y ejecución (gestos + shell UID 2000 vía Shizuku) por WebSocket.
-Fase 0 = APK instalable con onboarding stub; la lógica llega en Fases 1–3.
+Fases 1–3 implementadas (dump_ui, WS, acciones + screenshot); la lógica
+de shell con seguridad cerrada llega en Fase 6.
 
 ## Compilar (Debian 13, máquina pequeña)
 
@@ -24,7 +25,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 app/src/main/
 ├── AndroidManifest.xml            # MainActivity + 2 servicios + ShizukuProvider
-├── java/dev/jev/android/
+├── java/dev/jev/jam/
 │   ├── MainActivity.kt            # onboarding (stub en Fase 0)
 │   └── service/
 │       ├── JevAccessibilityService.kt  # UI tree + gestos (Fase 1)

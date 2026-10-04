@@ -1,4 +1,9 @@
-"""send_whatsapp(contact, text): bucle observe→decide→mutate→verify.
+"""Plugin de ejemplo: send_whatsapp(contact, text), bucle observe→decide→mutate→verify.
+
+Implementa TaskProtocol (ver docs/specs/tasks-generic.md §2) sobre el core
+genérico (`core.text_match/guards/titles`). Todo lo específico de la app
+vive aquí: PACKAGE, RES_KEYS, predicados + regex propias, FORBIDDEN propio,
+PHASES, compuerta SEND, verify_final, go_home por press_back.
 
 Fases: SEARCH → TYPE_CONTACT → PICK → VERIFY_CHAT → FOCUS_MSG →
 TYPE_MSG → SEND → VERIFY → DONE.
@@ -11,109 +16,83 @@ from __future__ import annotations
 import os
 import re
 import time
-import unicodedata
 
 from .. import jev_client
+from ..core import guards as _guards
+from ..core import text_match as _tm
+from ..core import titles as _titles
 from ..tools import app as app_tools
 from ..tools import ui as ui_tools
 
-WA = "com.whatsapp"
+# ---- datos del plugin (core no conoce ninguno) ----
+
+PACKAGE = "com.whatsapp"
+WA = PACKAGE  # alias histórico
 LEVELS = ["0%", "25%", "50%", "75%", "100%"]
 
-FORBIDDEN_DESC = re.compile(
-    r"reenviar|forward|compartir|share|eliminar|delete|borrar", re.I)
+RES_KEYS = ("contact_name", "conversation_name", "conversation_contact",
+            "title", "toolbar_title", "conversacion")
+
+SEARCH_RES = ("search",)
+SEARCH_PAT = r"busca|search"
+MSG_BOX_RES = ("entry", "input", "mensaje")
+MSG_BOX_PAT = r"mensaje|message"
+SEND_RES = ("send",)
+SEND_PAT = r"enviar|\bsend\b"
+
+FORBIDDEN_DESC = re.compile(_guards.FORBIDDEN_DEFAULT, re.I)
 
 
-def norm(s: str) -> str:
-    return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower()
+# ---- re-exports de core (compat: tests/tools importaban de aquí) ----
 
-
-def skeleton(s: str) -> str:
-    return re.sub(r"[aeiou\s]", "", norm(s))
+norm = _tm.norm
+skeleton = _tm.skeleton
 
 
 def name_hit(contact: str, cand: dict) -> bool:
     """Coincidencia tolerante: 'Felix' casa con 'Félex'/'FELIX'/'felex'."""
-    words = [w for w in norm(contact).split() if len(w) > 2]
-    hay = f"{norm(cand.get('text'))} {norm(cand.get('desc'))}"
-    for w in words:
-        if w in hay:
-            return True
-        sk = skeleton(w)
-        if len(sk) >= 3 and sk in skeleton(hay):
-            return True
-    return False
+    return _tm.name_hit(contact, cand)
 
 
 def title_matches_strict(contact: str, title: str) -> bool:
     """El título ES el contacto (+ apellido simple o paréntesis).
+
     Casa: 'Felix', 'Felix García', 'Felix (trabajo)'.
     No casa: 'Félix el del bar', 'Amigos de Felix', ''.
     Ante la duda, NO matchea (abort seguro > envío equivocado)."""
-    a, b = norm(contact), norm(title or "")
-    if not a or not b:
-        return False
-    if b == a:
-        return True
-    if b.startswith(a + "("):
-        return True
-    if b.startswith(a + " "):
-        rest = b[len(a) + 1:].strip()
-        if rest and " " not in rest:
-            return True
-    return False
+    return _tm.title_matches_strict(contact, title)
 
 
 def find_chat_title(state: dict, contact: str) -> dict | None:
     """Título del chat abierto que matchea estricto, o None."""
-    cands = state.get("candidates", [])
-    for c in cands:
-        if c.get("editable"):
-            continue
-        rid = c.get("resource_id") or ""
-        if any(k in rid for k in ("contact_name", "conversation_name",
-                                  "conversation_contact", "title",
-                                  "toolbar_title", "conversacion")):
-            if title_matches_strict(contact, c.get("text")):
-                return c
-    h = state.get("screen_height") or 0
-    if h:
-        top = h * 0.15
-        for c in cands:
-            if c.get("editable"):
-                continue
-            b = c.get("bounds") or [0, 0, 0, 0]
-            if len(b) == 4 and b[1] < top and title_matches_strict(contact, c.get("text")):
-                return c
-    return None
+    return _titles.find_title(state, contact, rid_keys=RES_KEYS)
 
 
 def is_forbidden(c: dict) -> bool:
-    t = f"{c.get('desc') or ''} {c.get('text') or ''}"
-    return bool(FORBIDDEN_DESC.search(t))
+    return _guards.is_forbidden(c)
 
 
 def is_search_trigger(c: dict) -> bool:
     # Sin exigir clickable: el fallback a gesto cubre nodos no clicables
     # (AGENTS §5.13). Jev elige por texto/descripción.
     t = f"{c.get('text')} {c.get('desc')}"
-    return bool(re.search(r"busca|search", t, re.I))
+    return bool(re.search(SEARCH_PAT, t, re.I))
 
 
 def is_msg_box(c: dict) -> bool:
     if not c.get("editable"):
         return False
-    rid = c.get("resource_id") or ""
+    rid = (c.get("resource_id") or "").lower()
     t = f"{c.get('text')} {c.get('desc')}"
-    return ("entry" in rid or "input" in rid or "mensaje" in rid.lower()
-            or bool(re.search(r"mensaje|message", t, re.I)))
+    return (any(k in rid for k in MSG_BOX_RES)
+            or bool(re.search(MSG_BOX_PAT, t, re.I)))
 
 
 def is_send(c: dict) -> bool:
     rid = c.get("resource_id") or ""
     t = f"{c.get('text')} {c.get('desc')}"
     return bool(c.get("clickable")) and (
-        "send" in rid or bool(re.search(r"enviar|\bsend\b", t, re.I)))
+        any(k in rid for k in SEND_RES) or bool(re.search(SEND_PAT, t, re.I)))
 
 
 class SendWhatsappTask:
@@ -377,36 +356,19 @@ class SendWhatsappTask:
         snap = state.get("snapshot_id", -1)
         if key == "done":
             return {"kind": "done", "key": key}
-        action = self._action_for(key, state, snap, asked)
-        if action.get("kind") in ("tap_node", "type_text") and action.get("node_id"):
-            sig = (action["kind"], action["node_id"])
-            prev = [(h["action"].get("kind"), h["action"].get("node_id"))
-                    for h in history[-2:]]
-            if len(prev) == 2 and all(s == sig for s in prev):
-                return {"kind": "abort", "key": key, "code": "STUCK_SAME",
-                        "reason": f"misma acción 3× seguidas: {sig}"}
+        try:
+            action = self._action_for(key, state, snap, asked)
+        except _guards.InvalidAction as e:
+            raise jev_client.JevHallucination(str(e)) from e
+        stuck = _guards.check_stuck_same(action, history)
+        if stuck is not None:
+            stuck["key"] = key
+            return stuck
         return action
 
     def _has_any_title(self, state: dict) -> bool:
         """¿Hay algún título de pantalla (estamos dentro de un chat/vista)?"""
-        h = state.get("screen_height") or 0
-        for c in self._cands(state):
-            if c.get("editable"):
-                continue
-            rid = c.get("resource_id") or ""
-            if any(k in rid for k in ("contact_name", "conversation_name",
-                                      "title", "toolbar_title", "conversacion")):
-                if (c.get("text") or "").strip():
-                    return True
-        if h:
-            top = h * 0.15
-            for c in self._cands(state):
-                if c.get("editable"):
-                    continue
-                b = c.get("bounds") or [0, 0, 0, 0]
-                if len(b) == 4 and b[1] < top and (c.get("text") or "").strip():
-                    return True
-        return False
+        return _titles.has_any_title(state, rid_keys=RES_KEYS)
 
     def _interpret_verify(self, answers: dict, state: dict) -> dict:
         key = answers.get("next_action", {}).get("key", "")
@@ -440,20 +402,21 @@ class SendWhatsappTask:
 
     def _action_for(self, key: str, state: dict, snap: int, phase: str) -> dict:
         cands = {c["id"]: c for c in self._cands(state)}
-        if key in ("abort", "done") or ":" not in key:
-            if key not in ("abort", "done"):
-                raise jev_client.JevHallucination(f"clave fuera de criteria: {key}")
-            if key == "done":
-                return {"kind": "done", "key": key}
-            return {"kind": "abort", "key": key, "code": "JEV_ABORT",
-                    "reason": "Jev eligió abort"}
+        # Validación núcleo en core (membresía + blacklist); el plugin
+        # solo construye la acción con sus datos.
+        nid0 = key.split(":", 1)[1] if ":" in key else ""
+        try:
+            veto = _guards.guarded_action(
+                key, cands, snap,
+                forbidden=bool(nid0 and nid0 in cands and is_forbidden(cands[nid0])))
+        except _guards.InvalidAction as e:
+            raise jev_client.JevHallucination(str(e)) from e
+        if veto is not None:
+            return veto
+        if key == "done":
+            return {"kind": "done", "key": key}
         kind, nid = key.split(":", 1)
-        if nid not in cands:
-            raise jev_client.JevHallucination(f"nodo {nid} no está en el estado")
         cand = cands[nid]
-        if is_forbidden(cand):
-            return {"kind": "abort", "key": key, "code": "FORBIDDEN_TARGET",
-                    "reason": f"target prohibido: {cand.get('label')}"}
         if kind == "tap":
             self.last_pick_id = nid  # todo tap cuenta para exclusion en reintentos
             if phase == "SEND":
@@ -464,9 +427,12 @@ class SendWhatsappTask:
             if not cand.get("editable"):
                 return {"kind": "abort", "key": key, "code": "NOT_EDITABLE",
                         "reason": "target no editable"}
-            if phase in ("FOCUS_MSG", "TYPE_MSG", "SEND") and not self.chat_verified:
-                return {"kind": "abort", "key": key, "code": "NO_VERIFY",
-                        "reason": "chat sin verificar; no se escribe"}
+            blocked = _guards.require_verified(
+                self.chat_verified or phase not in ("FOCUS_MSG", "TYPE_MSG", "SEND"),
+                key, "NO_VERIFY")
+            if blocked is not None:
+                blocked["reason"] = "chat sin verificar; no se escribe"
+                return blocked
             txt = self.contact if phase in ("SEARCH", "TYPE_CONTACT", "PICK") else self.text
             return {"kind": "type_text", "key": key, "node_id": nid,
                     "snapshot_id": snap, "text": txt}
@@ -474,9 +440,11 @@ class SendWhatsappTask:
 
     def _guarded_send(self, nid: str, snap: int, state: dict) -> dict:
         """SEND solo si: chat verificado + texto en input + botón send real."""
-        if not self.chat_verified:
-            return {"kind": "abort", "key": f"tap:{nid}", "code": "NO_VERIFY",
-                    "reason": "chat sin verificar; no se envía"}
+        blocked = _guards.require_verified(self.chat_verified, f"tap:{nid}",
+                                           "NO_VERIFY")
+        if blocked is not None:
+            blocked["reason"] = "chat sin verificar; no se envía"
+            return blocked
         want = norm(self.text)
         filled = any(c.get("editable") and want and want in norm(c.get("text"))
                      for c in self._cands(state))

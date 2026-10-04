@@ -10,7 +10,8 @@ cd android-app
 # Report: app/build/test-results/testDebugUnitTest/
 ```
 
-Cubre: raíz nula → `secure`, ids BFS contiguos, poda de invisibles,
+Cubre: raíz nula → package `""`, `nodes []` (sin campo `secure`),
+ids BFS contiguos, poda de invisibles,
 tope 500 determinista, mapeo de campos/bounds, `snapshot_id`.
 Estado: **6/6 en verde.**
 
@@ -32,7 +33,7 @@ adb logcat -d | grep JamUi
 ```
 
 Resultado medido (2026-10-01, pantalla de onboarding):
-`dump snapshot=1 nodes=13 ms=40 secure=false`.
+`dump snapshot=1 nodes=13 ms=40` (sin campo `secure`: contrato vigente).
 Comparación de anclas (`text` o `resource_id` no nulos):
 **9/9 = 100%** (criterio: ≥95%). Latencia **40 ms** (criterio: < 100 ms).
 
@@ -51,13 +52,15 @@ verificar) + `uiautomator dump` + comparativa de anclas por script.
 - **Escalado medido**: ~2 ms/nodo (IPC por nodo). El umbral < 100 ms
   vale para pantallas típicas (≤50 nodos); árboles grandes escalan lineal,
   con tope 500 (peor caso ~1 s). Sigue siendo 16× mejor que uiautomator.
-- **FLAG_SECURE**: `AccessibilityWindowInfo.isSecure()` **no existe**
-  (verificado en `android.jar` API 34). Experimento con `FLAG_SECURE`
-  en ventana propia: `rootInActiveWindow` devuelve el árbol completo
-  (el sistema solo oculta ventanas seguras **ajenas**). Heurística final:
-  `root == null → secure=true` (cubre ventanas ajenas seguras ycold-start),
-  documentada en `dumpUiTree()`. El cold-start de WhatsApp devolvió
-  `nodes=0, secure=true` por timing, no por flag: reintentar en caliente.
+- **Superficie protegida (contrato vigente)**: `FLAG_SECURE` no oculta
+  el árbol de accesibilidad (TalkBack funciona en banca); solo bloquea
+  capturas. Por eso `dump_ui` **no lleva campo `secure`** y
+  `root == null` significa "sin ventana activa" (transitorio) →
+  package `""`, `nodes []`, nunca "seguro". La semántica de superficie
+  protegida vive solo en `screenshot` → `SECURE_SURFACE`
+  (`AccessibilityWindowInfo.isSecure()` no existe en API 34).
+  El cold-start de WhatsApp devolvió `nodes=0` por timing, no por flag:
+  reintentar en caliente.
 - **Bug encontrado y corregido**: `snapshot_id` era campo de instancia;
   al recrearse el servicio se reiniciaba (visto: `snapshot=1` repetido).
   Ahora persiste en `SharedPreferences` (`jam.snapshot_id`) en cada dump.
@@ -146,7 +149,7 @@ Hallazgos (todos con fix aplicado y verificado):
   responden. **No verificado con `newProcess` real** — queda para Fase 3,
   que instalará el oficial `moe.shizuku.privileged.api`.
 - Tras renombrar el paquete hay que desinstalar el viejo
-  (`adb uninstall dev.jev.android` puede fallar si ya no está; inocuo).
+  (`adb uninstall dev.jev.jam` puede fallar si ya no está; inocuo).
 
 ## 6. ADB por Wi-Fi (canal estable, 2026-10-02)
 
