@@ -39,21 +39,25 @@ Notas de mapeo (la propuesta original nombraba modelos inexistentes):
   `@explorer` (rutas + líneas + resumen).
 - Toda modificación técnica va precedida por un contrato en `docs/specs/`
   redactado por `@architect` y validado por `@judge`.
-- Prohibida la lógica acoplada a aplicaciones particulares (WhatsApp u otras)
+- Prohibida la lógica acoplada a aplicaciones o dominios particulares
   dentro de los controladores de UI. Las tools MCP operan solo sobre primitivas:
   `get_node_hierarchy`, `tap_node`, `tap_point`, `input_text`, `swipe`,
   `keyevent`, `launch_app`, `get_foreground`, `screenshot`.
 - Lectura de UI = accesibilidad (Accessibility/UIAutomator XML). La visión
   (`screenshot`) es evidencia/fallback, nunca la fuente primaria de coordenadas.
 
-## 3. System 1 vs System 2
+## 3. System 1 vs System 2 (Dual-Tier genérico, ver ARCHITECTURE §6)
 
-- **System 1 (MCP/local, determinista):** acciones reactivas inmediatas sobre
-  selectores/`bounds` ya resueltos. Si el elemento existe y coincide, el servidor
-  actúa sin razonamiento extra (`tap_node`, esperar teclado, `swipe`).
-- **System 2 (orquestador):** planificación cognitiva multi-paso (abrir app,
-  buscar contacto, redactar, enviar) sujeta a las compuertas deterministas de
-  `AGENTS.md §5.14` (verificación de identidad/precondiciones antes de enviar).
+- **System 1 (Jev, juicio discriminativo single-pass):** resuelve cada paso
+  en 1 llamada (Choice ≤255 + conf / Score / Noul) sobre la tabla UI
+  numerada y podada (≤254+NONE). Si el elemento existe y `conf ≥ tau`,
+  el servidor actúa (`tap_node`, `swipe`, `type` con foco); si no,
+  `ESCALATE`. Nunca genera texto libre ni coordenadas.
+- **System 2 (orquestador / LLM frontera):** planifica hitos, diagnostica
+  anomalías visuales (fallback sin-árbol vía `screenshot`), fallos
+  persistentes y redacta texto semántico, sujeto a las compuertas
+  deterministas de `AGENTS.md §5.14` (identidad/precondiciones/tau antes
+  de actuar).
 
 ## 4. Flujo operativo
 
