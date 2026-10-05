@@ -1,33 +1,72 @@
-"""Motor observe→decide→mutate→verify. Genérico; la tarea define preguntas.
+"""Agente simple y general: run_goal(goal: str) (generic-dual-tier §1, §6).
 
-Cada iteración = 1 llamada Jev (batch decide+verify). Acciones en enum
-cerrado: tap_node | type_text | scroll | done | abort | noop | escalate.
-`noop` es no-op explícito para fases de solo-verificación (se loguea,
-no toca el dispositivo). `escalate` es no-op que escala a Sistema 2
-(se loguea con fase/candidatas/conf, no toca el dispositivo).
-Nada más llega al dispositivo.
+Ciclo observe→decide→mutate→verify, un paso = una primitiva. Sin
+paquetes, contactos ni fases prefijadas; sin literales de dominio.
+
+- S1 Jev (jev_client.ask_decision, single-pass) decide
+  [TAP,TYPE,SCROLL_DOWN,SCROLL_UP,BACK,DONE,ESCALATE] + target 0..253|NONE
+  + needs_system_2 + conf. Misma OPENROUTER_API_KEY que S2.
+- S2 GLM-5.3 (s2_client.advise) solo ante ESCALATE / conf < TAU (0.70) /
+  redacción abierta / bloqueo semántico. Nunca toca el dispositivo.
+- Cada llamada LLM pasa por CostTracker (log [COST] + `cost` en forense
+  + acumulado jev_cost/s2_cost/total_cost en el resultado).
+- Compuertas §7: estructurales siempre (JSON válido, target en tabla
+  vigente, visible, coords en pantalla, snapshot fresco); críticas /
+  irreversibles exigen preview + confirm:true (sin él se planean sin
+  ejecutar: needs_confirm). FORBIDDEN solo opt-in por goal (forbidden?).
+- type exige foco explícito: sin focused → tap previo explícito (nada
+  implícito). Acciones no devuelven snapshot; el cliente verifica.
+- snapshot mismatch ×3 → UI_UNSTABLE; misma (kind,node_id) ×3 → STUCK_SAME.
 """
 from __future__ import annotations
 
 import json
-import os
 import time
 
-from . import jev_client
+from . import jev_client, s2_client
+from .core import guards as _guards
+from .core import loop_helpers as _h
+from .core.cost import CostTracker
+from .core.cost import glm_model_id as _glm_id
+from .core.cost import jev_model_id as _jev_id
 from .tools import ui as ui_tools
 
-CLOSED_ACTIONS = {"tap_node", "type_text", "scroll", "done", "abort", "noop",
-                  "escalate"}
+TAU = 0.70
 MAX_STALE_STREAK = 3
+STUCK_N = 2  # 2 previas iguales + actual = ×3 → STUCK_SAME
+
+CLOSED_ACTIONS = {"tap_node", "type_text", "scroll", "back", "done",
+                  "abort", "noop", "escalate"}
+
+
+class ObserveError(Exception):
+    def __init__(self, code: str, error: str):
+        super().__init__(f"{code}: {error}")
+        self.code = code
+        self.error = error
+
+
+async def _default_observe() -> dict:
+    res = await ui_tools.read_screen()
+    if not res.get("ok"):
+        ev = res.get("evidence", {}) or {}
+        raise ObserveError(ev.get("code", "OBSERVE_FAILED"),
+                           ev.get("error", "read_screen falló"))
+    return res.get("evidence", {})
+
+
+async def _default_verify(goal: str, observe_fn) -> tuple[bool, dict]:
+    """verify_final determinista: re-lee pantalla. Nunca solo-Jev."""
+    st = await observe_fn()
+    return True, {"goal": goal, "snapshot": st.get("snapshot_id"),
+                  "n_cands": len(st.get("candidates", []))}
 
 
 async def _execute(action: dict) -> dict:
     kind = action.get("kind")
     if kind == "noop":
-        return {"ok": True, "verified": True,
-                "evidence": {"noop": True}}
+        return {"ok": True, "verified": True, "evidence": {"noop": True}}
     if kind == "escalate":
-        # Como noop: no toca el dispositivo; loguea y escala a Sistema 2.
         return {"ok": True, "verified": True,
                 "evidence": {"escalated": True,
                              "reason": action.get("reason", "ESCALATE"),
@@ -41,24 +80,48 @@ async def _execute(action: dict) -> dict:
     if kind == "scroll":
         return await ui_tools.scroll(action.get("direction", "down"),
                                      action.get("node_id"))
+    if kind == "back":
+        return await ui_tools.press_back()
     raise jev_client.JevHallucination(f"acción fuera del enum: {kind}")
 
 
-def _is_sensitive(task, action: dict) -> bool:
-    hook = getattr(task, "is_sensitive", None)
-    return bool(hook(action)) if callable(hook) else False
+def _history_summary(history: list, last: int = 3) -> str:
+    parts = []
+    for h in history[-last:]:
+        a = h.get("action", {})
+        parts.append(f"{a.get('kind')}:{a.get('node_id', '-')}")
+    return "; ".join(parts)
 
 
-async def run(task, max_steps: int = 20, timeout_s: float = 60,
-              ask_fn=None, dry_run: bool = False,
-              log_path: str | None = None) -> dict:
-    ask_fn = ask_fn or jev_client.ask
+async def run_goal(goal: str, *, max_steps: int = 20,
+                   timeout_s: float = 60,
+                   log_path: str | None = None,
+                   confirm: bool = False,
+                   forbidden: str | None = None,
+                   _observe=None, _decide=None, _advise=None,
+                   _execute_fn=None, _verify=None) -> dict:
+    """Ejecuta un objetivo en lenguaje natural sobre Android.
+
+    goal: texto libre del operador. Sin paquetes ni contactos.
+    confirm: true habilita acciones críticas/irreversibles (con preview
+    auditada); sin él se planean sin ejecutar (needs_confirm).
+    forbidden: pattern regex opt-in; sin él no hay filtro.
+    Devuelve {ok, verified, evidence, hint}-compatible + costes y forense
+    en log_path (JSONL por paso: conf, tau, cost).
+    """
+    observe_fn = _observe or _default_observe
+    decide_fn = _decide or jev_client.ask_decision
+    advise_fn = _advise or s2_client.advise
+    execute_fn = _execute_fn or _execute
+    run_id = str(int(time.time()))
+    tracker = CostTracker(run_id=run_id)
     t0 = time.time()
     history: list = []
     stale_streak = 0
-    calls = 0
-    total_cost = 0.0
+    jev_calls = 0
+    s2_calls = 0
     step = 0
+    s2_hint = ""
     logf = open(log_path, "a", encoding="utf-8") if log_path else None
 
     def log(entry: dict) -> None:
@@ -67,107 +130,257 @@ async def run(task, max_steps: int = 20, timeout_s: float = 60,
         logf.write(json.dumps(entry, ensure_ascii=False) + "\n")
         logf.flush()
 
+    def costs() -> dict:
+        return {"jev_cost": tracker.jev_cost, "s2_cost": tracker.s2_cost,
+                "total_cost": tracker.total_cost_usd,
+                "jev_calls": jev_calls, "s2_calls": s2_calls}
+
+    def done(ok: bool, evidence: dict, steps: int) -> dict:
+        d = {"ok": ok, "verified": bool(ok), "evidence": evidence,
+             "steps": steps, "duration_ms": int((time.time() - t0) * 1000),
+             "history": history}
+        d.update(costs())
+        return d
+
     try:
         while step < max_steps and (time.time() - t0) < timeout_s:
             step += 1
-            state = await task.observe()
-            questions = task.questions(state, history)
-            answers, usage = await ask_fn(state, questions)
-            calls += 1
-            total_cost += float(usage.get("cost", 0.0) or 0.0)
             try:
-                action = task.interpret(answers, state, history)
-            except jev_client.JevHallucination as e:
-                log({"step": step, "phase": _phase(task),
-                     "snapshot": state.get("snapshot_id"),
-                     "answers": _short(answers), "error": str(e)})
-                return _fail("JEV_HALLUCINATION", str(e), history, step,
-                             t0, calls, total_cost)
-            if action.get("kind") not in CLOSED_ACTIONS:
-                log({"step": step, "phase": _phase(task), "error": "bad-kind",
-                     "action": action})
-                return _fail("JEV_HALLUCINATION",
-                             f"acción inválida: {action.get('kind')}",
-                             history, step, t0, calls, total_cost)
-            entry = {"step": step, "phase": _phase(task),
-                     "snapshot": state.get("snapshot_id"),
-                     "n_cands": len(state.get("candidates", [])),
-                     "cands": [(c.get("id"), c.get("label"))
-                               for c in state.get("candidates", [])],
-                     "options": list((questions.get("next_action") or {})
-                                     .get("criteria", {}).keys()),
-                     "answers": _short(answers),
-                     "chosen_action": action}
-            if action["kind"] == "done":
-                ok, evidence = await task.verify_final(state)
+                state = await observe_fn()
+            except ObserveError as e:
+                log({"step": step, "goal": goal, "error": str(e)})
+                r = done(False, {"code": e.code, "error": e.error}, step)
+                r["hint"] = "revisa conexión con Jam"
+                return r
+            rows, by_idx = _h.build_table(state.get("candidates", []))
+            snapshot = state.get("snapshot_id", -1)
+            screen_h = state.get("screen_height", 0) or 0
+
+            # --- S1 single-pass ---
+            try:
+                decision, usage = await decide_fn(
+                    goal, rows, snapshot,
+                    history_summary=_history_summary(history),
+                    s2_hint=s2_hint)
+            except jev_client.JevError as e:
+                log({"step": step, "snapshot": snapshot, "error": str(e)})
+                return done(False, {"code": "JEV_ERROR", "error": str(e)}, step)
+            jev_calls += 1
+            in_tok, out_tok, pcost = jev_client._usage_tokens(usage)
+            step_cost = tracker.track(_jev_id(), in_tok, out_tok,
+                                      step=step, tier="s1",
+                                      provider_cost=pcost)
+            conf = decision.get("conf", 0.0)
+
+            entry = {"step": step, "goal": goal, "snapshot": snapshot,
+                     "n_cands": len(rows), "conf": conf, "tau": TAU,
+                     "cost": step_cost, "decision": decision}
+
+            bad = _h.check_decision_json(decision)
+            if bad:
+                entry["error"] = bad
+                log(entry)
+                return done(False, bad, step)
+            action = decision["action"]
+
+            async def escalate(reason: str, need_text: bool = False) -> dict | None:
+                """Vía S2: asesora, loguea, retoma en S1. Nunca tapea.
+
+                Devuelve resultado final si S2 pide stop; None si continuar.
+                """
+                nonlocal s2_calls, s2_hint
+                s2_out, s2_usage = await advise_fn(
+                    goal, reason=reason,
+                    table_lines=[f"{r['idx']} {r['label']}" for r in rows],
+                    history_summary=_history_summary(history),
+                    need_text=need_text)
+                s2_calls += 1
+                si, so, spc = _s2_tokens(s2_usage)
+                s2_cost = tracker.track(_glm_id(), si, so, step=step,
+                                        tier="s2", provider_cost=spc)
+                entry["escalated"] = True
+                entry["s2_reason"] = reason
+                entry["s2"] = s2_out
+                entry["cost_s2"] = s2_cost
+                log(entry)
+                history.append({"step": step,
+                                "action": {"kind": "escalate",
+                                           "reason": reason, "conf": conf},
+                                "result": {"ok": True, "evidence": s2_out},
+                                "snapshot": snapshot})
+                s2_hint = str(s2_out.get("criteria") or
+                              " ".join(s2_out.get("plan", [])))
+                if s2_out.get("stop"):
+                    ok, evidence = await (_verify(goal, observe_fn)
+                                          if _verify
+                                          else _default_verify(goal, observe_fn))
+                    entry2 = {"step": step, "final": {"ok": ok},
+                              "cost_total": tracker.total_cost_usd}
+                    log(entry2)
+                    return done(ok, evidence, step)
+                return None
+
+            if _guards.gate_tau(conf, TAU) is not None and action != "DONE":
+                fin = await escalate(f"LOW_CONF conf={conf} < tau={TAU}")
+                if fin is not None:
+                    return fin
+                continue
+            if action == "ESCALATE":
+                fin = await escalate("S1 pidió escalado",
+                                     need_text=bool(decision.get("needs_system_2")))
+                if fin is not None:
+                    return fin
+                continue
+            if action == "DONE":
+                ok, evidence = await (_verify(goal, observe_fn)
+                                      if _verify else _default_verify(goal, observe_fn))
                 entry["final"] = {"ok": ok, "evidence": evidence}
                 log(entry)
-                return _done(ok, evidence, history, step, t0, calls, total_cost)
-            if action["kind"] == "abort":
+                return done(ok, evidence, step)
+
+            target = decision.get("target", "NONE")
+            row = by_idx.get(target) if isinstance(target, int) else None
+            needs_node = action in ("TAP", "TYPE") or (
+                action in ("SCROLL_DOWN", "SCROLL_UP") and target != "NONE")
+            if isinstance(target, int) and target not in by_idx:
+                err = {"code": "JEV_HALLUCINATION",
+                       "error": f"target {target} fuera de la tabla vigente"}
+                entry["error"] = err
                 log(entry)
-                return _fail(action.get("code", "JEV_ABORT"),
-                             action.get("reason", "abort de Jev"),
-                             history, step, t0, calls, total_cost)
-            if dry_run and _is_sensitive(task, action):
+                return done(False, err, step)
+            if needs_node and row is None:
+                fin = await escalate(f"NO_TARGET para {action}")
+                if fin is not None:
+                    return fin
+                continue
+            if row is not None:
+                bad_row = _h.validate_target(row, screen_h)
+                if bad_row:
+                    entry["error"] = bad_row
+                    log(entry)
+                    return done(False, bad_row, step)
+                if _guards.is_forbidden(
+                        {"text": row["label"], "desc": ""}, pattern=forbidden):
+                    err = {"code": "FORBIDDEN_TARGET",
+                           "error": f"target prohibido por goal: {row['label']}"}
+                    entry["error"] = err
+                    log(entry)
+                    return done(False, err, step)
+
+            internal = _to_internal(action, row, snapshot, decision)
+            stuck = _guards.check_stuck_same(internal, history, n=STUCK_N)
+            if stuck is not None:
+                entry["error"] = stuck
+                log(entry)
+                return done(False, {"code": stuck["code"],
+                                    "error": stuck["reason"]}, step)
+
+            # TYPE: texto solo vía S2 (S1 nunca redacta); foco explícito.
+            text = ""
+            if action == "TYPE":
+                text = decision.get("type_text", "") or ""
+                if not text:
+                    s2_out, s2_usage = await advise_fn(
+                        goal, reason="open-text",
+                        table_lines=[f"{r['idx']} {r['label']}" for r in rows],
+                        history_summary=_history_summary(history),
+                        need_text=True)
+                    s2_calls += 1
+                    si, so, spc = _s2_tokens(s2_usage)
+                    tracker.track(_glm_id(), si, so, step=step, tier="s2",
+                                  provider_cost=spc)
+                    text = s2_out.get("text", "") or ""
+                    entry["s2_text_len"] = len(text)
+                    if not text:
+                        fin = await escalate("S2 sin texto para TYPE")
+                        if fin is not None:
+                            return fin
+                        continue
+                internal["text"] = text
+                if not row.get("focused", False):
+                    focus_act = {"kind": "tap_node", "node_id": row["id"],
+                                 "snapshot_id": snapshot,
+                                 "key": f"tap:{row['id']}"}
+                    res = await execute_fn(focus_act)
+                    entry["focus_tap"] = {"action": focus_act,
+                                         "ok": res.get("ok")}
+                    log(entry)
+                    history.append({"step": step, "action": focus_act,
+                                    "result": res, "snapshot": snapshot})
+                    if not res.get("ok"):
+                        ev = res.get("evidence", {}) or {}
+                        return done(False, {"code": ev.get("code", "?"),
+                                            "error": ev.get("error", "?")}, step)
+                    continue  # re-observar; el TYPE va en el próximo paso
+
+            label = row["label"] if row else ""
+            if _h.is_sensitive(goal, label + " " + text) and not confirm:
+                preview = {"action": action, "target_id": row["id"] if row else None,
+                           "label": label, "text": text or None,
+                           "snapshot": snapshot}
                 entry["planned"] = True
+                entry["preview"] = preview
                 log(entry)
-                return {"ok": True, "verified": False,
-                        "evidence": {"dry_run": True, "planned_send": action,
-                                     "phase": _phase(task),
-                                     "snapshot": state.get("snapshot_id")},
-                        "steps": step,
-                        "duration_ms": int((time.time() - t0) * 1000),
-                        "jev_calls": calls, "jev_cost": total_cost,
-                        "history": history}
-            res = await _execute(action)
+                r = done(True, {"planned": True, "preview": preview,
+                                "needs_confirm": True}, step)
+                r["verified"] = False
+                r["needs_confirm"] = True
+                r["hint"] = ("acción crítica: re-ejecuta con confirm=true "
+                             "tras revisar el preview")
+                return r
+
+            res = await execute_fn(internal)
             entry["result"] = {"ok": res.get("ok"),
                                "evidence": res.get("evidence")}
             log(entry)
-            history.append({"step": step, "action": action, "result": res,
-                            "snapshot": state.get("snapshot_id")})
+            history.append({"step": step, "action": internal, "result": res,
+                            "snapshot": snapshot})
             if not res.get("ok"):
-                code = res.get("evidence", {}).get("code", "?")
-                if code == "STALE_SNAPSHOT" and stale_streak < MAX_STALE_STREAK:
-                    stale_streak += 1
-                    continue
+                code = (res.get("evidence", {}) or {}).get("code", "?")
                 if code == "STALE_SNAPSHOT":
-                    return _fail("UI_UNSTABLE", "3 STALE seguidos", history,
-                                 step, t0, calls, total_cost)
-                return _fail(code, res.get("evidence", {}).get("error", "?"),
-                             history, step, t0, calls, total_cost)
+                    stale_streak += 1
+                    if stale_streak >= MAX_STALE_STREAK:
+                        return done(False, {"code": "UI_UNSTABLE",
+                                            "error": "3 STALE seguidos"}, step)
+                    continue
+                err = (res.get("evidence", {}) or {}).get("error", "?")
+                return done(False, {"code": code, "error": err}, step)
             stale_streak = 0
         code = "TIMEOUT" if (time.time() - t0) >= timeout_s else "STUCK"
-        return _fail(code, f"{step} pasos sin done", history, step, t0,
-                     calls, total_cost)
+        return done(False, {"code": code,
+                            "error": f"{step} pasos sin done"}, step)
     finally:
         if logf is not None:
             logf.close()
 
 
-def _phase(task) -> str:
-    phases = getattr(task, "PHASES", [])
-    idx = getattr(task, "phase", "?")
-    if isinstance(idx, int) and 0 <= idx < len(phases):
-        return phases[idx]
-    return str(idx)
+def _s2_tokens(usage: dict) -> tuple[int, int, float | None]:
+    if not isinstance(usage, dict):
+        return 0, 0, None
+    try:
+        return (int(usage.get("in_tokens", 0) or 0),
+                int(usage.get("out_tokens", 0) or 0), None)
+    except (TypeError, ValueError):
+        return 0, 0, None
 
 
-def _short(answers: dict) -> dict:
-    return {n: {"key": a.get("key"), "p": round(float(a.get("p", 0.0)), 3)}
-            for n, a in (answers or {}).items()
-            if isinstance(a, dict)}
-
-
-def _done(ok: bool, evidence: dict, history: list, steps: int,
-          t0: float, calls: int, cost: float) -> dict:
-    return {"ok": ok, "verified": bool(ok), "evidence": evidence,
-            "steps": steps, "duration_ms": int((time.time() - t0) * 1000),
-            "jev_calls": calls, "jev_cost": cost, "history": history}
-
-
-def _fail(code: str, error: str, history: list, steps: int,
-          t0: float, calls: int, cost: float) -> dict:
-    return {"ok": False, "verified": False,
-            "evidence": {"code": code, "error": error},
-            "steps": steps, "duration_ms": int((time.time() - t0) * 1000),
-            "jev_calls": calls, "jev_cost": cost, "history": history}
+def _to_internal(action: str, row: dict | None, snapshot: int,
+                 decision: dict) -> dict:
+    if action == "TAP":
+        return {"kind": "tap_node", "node_id": row["id"],
+                "snapshot_id": snapshot, "key": f"tap:{row['id']}"}
+    if action == "TYPE":
+        return {"kind": "type_text", "node_id": row["id"],
+                "snapshot_id": snapshot, "text": decision.get("type_text", ""),
+                "key": f"type:{row['id']}"}
+    if action in ("SCROLL_DOWN", "SCROLL_UP"):
+        direction = "down" if action == "SCROLL_DOWN" else "up"
+        d = {"kind": "scroll", "direction": direction,
+             "key": f"scroll:{direction}"}
+        if row is not None:
+            d["node_id"] = row["id"]
+            d["key"] = f"scroll:{direction}:{row['id']}"
+        return d
+    if action == "BACK":
+        return {"kind": "back", "key": "back"}
+    raise jev_client.JevHallucination(f"acción fuera del enum: {action}")

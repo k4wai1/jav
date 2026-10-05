@@ -1,4 +1,4 @@
-"""Jam MCP server (stdio). Tools → Jam por WS. Bucle Jev en `loop.py` + tareas en `tasks/` (Fase 5)."""
+"""Jam MCP server (stdio). Tools → Jam por WS. Agente genérico run_goal en `loop.py` (contrato docs/specs/generic-dual-tier.md)."""
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP

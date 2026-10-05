@@ -1,146 +1,185 @@
-"""Tests del loop con decisiones guionizadas (sin dispositivo ni Jev)."""
+"""Tests de run_goal genérico con observar/decidir/ejecutar guionizados."""
 import pytest
 
 from jev_mcp import jev_client, loop
-from jev_mcp.tools import ui as ui_tools
-
-STATE = {"package": "com.whatsapp", "snapshot_id": 7, "candidates": []}
 
 
-class ScriptTask:
-    """Tarea guionizada: answers fijos por paso, done al final."""
-
-    def __init__(self, actions):
-        self.actions = list(actions)
-        self.i = 0
-
-    async def observe(self):
-        return dict(STATE)
-
-    def questions(self, state, history):
-        return {"next": {"type": "choice", "instructions": "x",
-                         "criteria": {"a": "a", "b": "b"}}}
-
-    def interpret(self, answers, state, history):
-        a = self.actions[self.i]
-        self.i += 1
-        return a
-
-    async def verify_final(self, state):
-        return True, {"by": "test"}
+def state(n_cands=2, snap=7):
+    cands = [{
+        "id": f"n_{i}", "label": f"Item {i}", "text": f"Item {i}", "desc": "",
+        "bounds": [0, 100 + 100 * i, 720, 200 + 100 * i],
+        "clickable": True, "editable": False, "focused": False,
+        "visible": True,
+    } for i in range(n_cands)]
+    return {"package": "com.example.settings", "activity": "Main",
+            "snapshot_id": snap, "screen_height": 1600,
+            "candidates": cands, "raw_count": n_cands}
 
 
-def ans(kind="tap_node", **kw):
-    d = {"kind": kind}
-    d.update(kw)
-    return d
+def dec(action="TAP", target=0, conf=0.95, s2=False, text=""):
+    return {"action": action, "target": target, "needs_system_2": s2,
+            "conf": conf, "type_text": text}
 
 
-@pytest.mark.asyncio
-async def test_happy_path(monkeypatch):
-    async def fake_tap(node_id, snapshot_id):
-        return {"ok": True, "verified": True, "evidence": {"via": "gesture"}}
-    monkeypatch.setattr(ui_tools, "tap_node", fake_tap)
+def script_decide(decisions):
+    calls = []
 
-    async def ask(state, questions):
-        return {"next": {"kind": "choice", "key": "a", "p": 1.0,
-                         "confidence": 1.0, "raw": {}}}, {"cost": 0.0}
+    async def fn(goal, rows, snapshot, history_summary="", s2_hint=""):
+        calls.append({"rows": len(rows), "snapshot": snapshot,
+                      "hint": s2_hint})
+        d = decisions[min(len(decisions) - 1, len(calls) - 1)]
+        return dict(d), {"in_tokens": 100, "out_tokens": 10}
+    fn.calls = calls
+    return fn
 
-    task = ScriptTask([ans(node_id="n_1", snapshot_id=7), {"kind": "done"}])
-    r = await loop.run(task, ask_fn=ask)
-    assert r["ok"] and r["verified"]
-    assert r["steps"] == 2 and len(r["history"]) == 1
+
+def ok_exec(executed):
+    async def fn(action):
+        executed.append(action)
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+    return fn
+
+
+async def fake_advise(goal, reason="", table_lines=None,
+                      history_summary="", need_text=False):
+    return ({"plan": ["reintentar"], "text": "hola" if need_text else "",
+             "criteria": "", "stop": False},
+            {"in_tokens": 50, "out_tokens": 5})
 
 
 @pytest.mark.asyncio
-async def test_stale_retry_then_ok(monkeypatch):
-    calls = {"n": 0}
+async def test_happy_tap_done():
+    executed = []
+    decide = script_decide([dec("TAP", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec(executed))
+    assert r["ok"] and r["verified"], r
+    assert r["steps"] == 2 and len(executed) == 1
+    assert executed[0]["kind"] == "tap_node"
+    assert r["jev_calls"] == 2 and r["s2_calls"] == 0
+    assert r["total_cost"] > 0  # 100 in-tokens Jev a tarifa normativa
 
-    async def flaky(node_id, snapshot_id):
-        calls["n"] += 1
-        if calls["n"] < 3:
-            return {"ok": False, "verified": False,
-                    "evidence": {"code": "STALE_SNAPSHOT", "error": "viejos"}}
-        return {"ok": True, "verified": True, "evidence": {}}
-    monkeypatch.setattr(ui_tools, "tap_node", flaky)
 
-    async def ask(state, questions):
-        return {"next": {"kind": "choice", "key": "a", "p": 1.0,
-                         "confidence": 1.0, "raw": {}}}, {"cost": 0.0}
+def _c(s):
+    async def fn():
+        return s
+    return fn
 
-    task = ScriptTask([ans(node_id="n_1", snapshot_id=7),
-                       ans(node_id="n_1", snapshot_id=8),
-                       ans(node_id="n_1", snapshot_id=9),
-                       {"kind": "done"}])
-    r = await loop.run(task, ask_fn=ask)
+
+@pytest.mark.asyncio
+async def test_low_conf_escalates_without_touching_device():
+    executed = []
+    advised = []
+
+    async def advise(goal, reason="", table_lines=None,
+                     history_summary="", need_text=False):
+        advised.append(reason)
+        return ({"plan": ["p"], "text": "", "criteria": "", "stop": False},
+                {"in_tokens": 0, "out_tokens": 0})
+
+    decide = script_decide([dec("TAP", 0, conf=0.4), dec("DONE", "NONE")])
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=advise,
+                            _execute_fn=ok_exec(executed))
     assert r["ok"], r
-    assert calls["n"] == 3
+    assert executed == []  # ESCALATE nunca tapea
+    assert advised and "LOW_CONF" in advised[0]
+    assert r["s2_calls"] == 1
 
 
 @pytest.mark.asyncio
-async def test_stale_x3_aborta(monkeypatch):
-    async def stale(node_id, snapshot_id):
+async def test_sensitive_needs_confirm():
+    executed = []
+    decide = script_decide([dec("TAP", 0)])
+    r = await loop.run_goal("enviar informe al equipo",
+                            _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec(executed))
+    assert r["ok"] and not r["verified"] and r["needs_confirm"], r
+    assert executed == []
+    assert r["evidence"]["preview"]["action"] == "TAP"
+
+    executed2 = []
+    decide2 = script_decide([dec("TAP", 0), dec("DONE", "NONE")])
+    r2 = await loop.run_goal("enviar informe al equipo",
+                             _observe=_c(state()),
+                             _decide=decide2, _advise=fake_advise,
+                             _execute_fn=ok_exec(executed2), confirm=True)
+    assert r2["ok"] and len(executed2) == 1, r2
+
+
+@pytest.mark.asyncio
+async def test_stale_x3_aborta():
+    async def stale(action):
         return {"ok": False, "verified": False,
                 "evidence": {"code": "STALE_SNAPSHOT", "error": "viejos"}}
-    monkeypatch.setattr(ui_tools, "tap_node", stale)
 
-    async def ask(state, questions):
-        return {"next": {"kind": "choice", "key": "a", "p": 1.0,
-                         "confidence": 1.0, "raw": {}}}, {"cost": 0.0}
-
-    task = ScriptTask([ans(node_id="n_1", snapshot_id=i) for i in range(9)]
-                      + [{"kind": "done"}])
-    r = await loop.run(task, ask_fn=ask)
+    decide = script_decide([dec("TAP", 0), dec("TAP", 1)] * 4)
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=stale)
     assert not r["ok"] and r["evidence"]["code"] == "UI_UNSTABLE", r
 
 
 @pytest.mark.asyncio
-async def test_hallucination():
-    class BadTask(ScriptTask):
-        def interpret(self, answers, state, history):
-            raise jev_client.JevHallucination("clave rara")
-
-    async def ask(state, questions):
-        return {}, {"cost": 0.0}
-
-    r = await loop.run(BadTask([{"kind": "done"}]), ask_fn=ask)
+async def test_target_fuera_de_tabla_es_hallucination():
+    decide = script_decide([dec("TAP", 250)])
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state(2)),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec([]))
     assert r["evidence"]["code"] == "JEV_HALLUCINATION", r
 
 
 @pytest.mark.asyncio
-async def test_abort_con_motivo():
-    async def ask(state, questions):
-        return {"next": {"kind": "abort", "reason": "no veo el chat",
-                         "code": "NO_MATCH"}}, {"cost": 0.0}
-
-    class AbortTask(ScriptTask):
-        def interpret(self, answers, state, history):
-            return answers["next"]
-
-    r = await loop.run(AbortTask([]), ask_fn=ask)
-    assert not r["ok"] and r["evidence"]["code"] == "NO_MATCH", r
+async def test_forbidden_opt_in():
+    decide = script_decide([dec("TAP", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("mirar items",
+                            _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec([]), forbidden=r"Item")
+    assert r["evidence"]["code"] == "FORBIDDEN_TARGET", r
+    r2 = await loop.run_goal("mirar items",
+                             _observe=_c(state()),
+                             _decide=script_decide(
+                                 [dec("TAP", 0), dec("DONE", "NONE")]),
+                             _advise=fake_advise,
+                             _execute_fn=ok_exec([]))
+    assert r2["ok"], r2  # sin pattern no hay filtro
 
 
 @pytest.mark.asyncio
-async def test_escalate_aceptado_sin_tocar_dispositivo(monkeypatch):
-    assert "escalate" in loop.CLOSED_ACTIONS
-    # _execute no debe llamar a tools UI: si lo intenta, el test falla.
-    async def _boom(*a, **kw):
-        raise AssertionError("escalate no debe tocar el dispositivo")
-    monkeypatch.setattr(ui_tools, "tap_node", _boom)
-    monkeypatch.setattr(ui_tools, "type_text", _boom)
-    monkeypatch.setattr(ui_tools, "scroll", _boom)
-    r = await loop._execute({"kind": "escalate", "reason": "LOW_CONF",
-                             "conf": 0.5, "tau": 0.70})
-    assert r["ok"] and r["verified"]
-    assert r["evidence"]["escalated"] is True
+async def test_tabla_topada_254_mas_none(capsys):
+    decide = script_decide([dec("DONE", "NONE")])
+    st = state(300)
+    r = await loop.run_goal("mirar items", _observe=_c(st),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec([]))
+    assert r["ok"], r
+    assert decide.calls[0]["rows"] == 254
+    out = capsys.readouterr().out
+    assert "[COST]" in out
 
-    async def ask(state, questions):
-        return {"next": {"kind": "choice", "key": "a", "p": 1.0,
-                         "confidence": 1.0, "raw": {}}}, {"cost": 0.0}
 
-    task = ScriptTask([{"kind": "escalate", "reason": "LOW_CONF"},
-                       {"kind": "done"}])
-    r = await loop.run(task, ask_fn=ask)
-    assert r["ok"] and r["verified"], r
-    assert r["history"][0]["action"]["kind"] == "escalate"
+@pytest.mark.asyncio
+async def test_hallucination_en_decide():
+    async def bad(goal, rows, snapshot, history_summary="", s2_hint=""):
+        raise jev_client.JevHallucination("clave rara")
+
+    r = await loop.run_goal("x", _observe=_c(state()),
+                            _decide=bad, _advise=fake_advise,
+                            _execute_fn=ok_exec([]))
+    assert r["evidence"]["code"] in ("JEV_HALLUCINATION", "JEV_ERROR"), r
+
+
+@pytest.mark.asyncio
+async def test_forense_incluye_cost(tmp_path):
+    logf = str(tmp_path / "run.jsonl")
+    decide = script_decide([dec("TAP", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec([]), log_path=logf)
+    assert r["ok"], r
+    import json
+    lines = [json.loads(l) for l in open(logf, encoding="utf-8")]
+    assert any("cost" in e for e in lines)

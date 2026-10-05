@@ -1,6 +1,7 @@
-"""Core genérico del MCP (System1 determinista): mecanismos, cero datos de app.
+"""Core genérico del MCP (determinista): mecanismos, cero datos de dominio.
 
-Puro y sin I/O: todo lo específico de cada app (PACKAGE, resource_id,
-regex de UI, contactos) vive en el plugin `tasks/<app>.py`, que importa
-de aquí (dependencia plugin → core, nunca al revés).
+Puro y sin I/O: compuertas (guards), ayudas del loop (loop_helpers),
+costes (cost), coincidencia de texto (text_match) y títulos (titles).
+Ningún paquete concreto, regex de UI de una app o literal de dominio
+vive aquí. El agente general `run_goal` (loop.py) consume este core.
 """

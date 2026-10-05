@@ -2,7 +2,6 @@
 import pytest
 
 from jev_mcp.core.guards import (
-    FORBIDDEN_DEFAULT,
     InvalidAction,
     check_stuck_same,
     gate_tau,
@@ -12,11 +11,10 @@ from jev_mcp.core.guards import (
 )
 
 
-def test_forbidden_default_and_custom():
-    assert is_forbidden({"text": "Reenviar a…", "desc": ""})
-    assert is_forbidden({"text": "Forward", "desc": ""})
-    assert not is_forbidden({"text": "Ana", "desc": "Enviar mensaje"})
-    assert "reenviar" in FORBIDDEN_DEFAULT
+def test_forbidden_opt_in():
+    # Sin pattern no hay filtro (el default global está eliminado).
+    assert is_forbidden({"text": "cualquier cosa", "desc": ""}) is False
+    assert is_forbidden({"text": "x", "desc": ""}, pattern=None) is False
     assert is_forbidden({"text": "blip", "desc": ""}, pattern=r"blip")
     assert not is_forbidden({"text": "blip", "desc": ""}, pattern=r"blop")
 

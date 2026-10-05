@@ -254,3 +254,39 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    fallback posicional del título; `bounds` expuesto en `read_screen`.
 6. Dry-run ×N antes de cualquier envío real; `--confirm-real-send`
    explícito para desactivarlo.
+
+**2026-10-05 — giro a agente simple 100% general (dual-tier S1+S2):**
+
+1. Visión vinculante: agente simple y general `run_goal(goal: str)`,
+   cero paquetes/parámetros prefijados. Nada de WhatsApp/contactos/
+   `VERIFY_CHAT`/`WRONG_CHAT` de chats/dry-run-de-chats como mecanismo
+   del core. Contrato en `docs/specs/generic-dual-tier.md` (sustituye
+   operativamente a `docs/specs/tasks-generic.md` v2).
+2. Dual-tier: **S1 Jev (OpenRouter)** decide en un pass
+   `[TAP,TYPE,SCROLL_DOWN,SCROLL_UP,BACK,DONE,ESCALATE] + target
+   0..253+NONE + needs_system_2**; **S2 GLM 5.3 (misma
+   `OPENROUTER_API_KEY`)** ante `ESCALATE` / `conf<0.70` / redacción
+   abierta. Poda **0..253+NONE = 255 Choice**. `CostTracker:
+   track(model, in/out tokens) → USD`, log `[COST]`.
+3. Tarifas: **Jev $0.042 in / $0.00 out por MTok** (normativo);
+   **GLM-5.3 con tasa configurable vía env** (default documentado como
+   placeholder ajustable, p.ej. `GLM_RATE_IN`/`GLM_RATE_OUT`, nunca
+   hardcodear como verdad oficial).
+4. Seguridad: §5.14-16 y §6 nacieron de un envío real a chat
+   equivocado y **no se derogan en silencio**. Se retiran los
+   **literales app-específicos** (`com.whatsapp`, `contact_name`,
+   `VERIFY_CHAT`/`WRONG_CHAT` de chats, dry-run-de-chats, regex
+   `reenviar|forward|compartir|share|eliminar|delete|borrar` como
+   default global) y se sustituyen por política **genérica**:
+   validaciones estructurales siempre (coords en pantalla, nodo
+   visible, JSON válido, snapshot fresco) + confirmación explícita
+   para acciones críticas/irreversibles (enviar/comprar/borrar/cuenta)
+   con preview + `confirm:true` del operador, auditadas en forense.
+   El default `FORBIDDEN` pasa a **opt-in por goal** (el operador
+   declara sus patrones si el goal lo exige), nunca global.
+5. `tasks/` se elimina (`whatsapp.py`, único acoplado; `core`/`loop`/
+   `server`/`tools` ya limpios). `core/guards.py:10`
+   (`FORBIDDEN_DEFAULT`, consumido solo por el plugin) muere con él.
+   `tests/test_guards.py:2` y `scripts/fase5_check.py` que lo importan
+   quedan rotos a propósito y **los actualiza `@coder`** (fuera del
+   alcance de `@architect`, que no toca código).

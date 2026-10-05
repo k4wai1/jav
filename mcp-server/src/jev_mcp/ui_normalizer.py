@@ -1,9 +1,9 @@
-"""Normalizer: árbol crudo de Jam (≤500 nodos) → ≤60 candidatos.
+"""Normalizer: árbol crudo de Jam (≤500 nodos) → ≤254 candidatos.
 
 Cadena real: 500 raw (extractor: invisibles fuera + tope 500)
-→ 60 (aquí: decoración/contenedores fuera + tope MAX_CANDIDATES=60)
-⊂ 255 Choice (capacidad Jev: 254 + 1 NONE). El 254+NONE es capacidad,
-no tope vigente (subir 60→254 pendiente Fase 5).
+→ 254 (aquí: decoración/contenedores fuera + tope MAX_CANDIDATES=254)
+⊂ 255 Choice (capacidad Jev: 254 + 1 NONE). Tope vigente = capacidad
+(contrato generic-dual-tier §4: 0..253 + NONE = 255 Choice).
 
 Reglas (AGENTS.md §5.10+):
 1. Fuera decoración del sistema (statusBar/navBarBackground).
@@ -11,7 +11,7 @@ Reglas (AGENTS.md §5.10+):
    el extractor solo sirve la ventana en foco).
 3. Fuera contenedores sin interacción propia.
 4. Dentro: clickable, editable, scrollable o con texto/desc.
-5. Tope 60, prioridad editable > clickable-con-texto > resto (estable).
+5. Tope 254, prioridad editable > clickable-con-texto > resto (estable).
 6. Formato compacto `[n_42] EditText "Buscar"`.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ CONTAINERS = {
     "androidx.viewpager.widget.ViewPager",
 }
 
-MAX_CANDIDATES = 60
+MAX_CANDIDATES = 254
 
 
 def short_class(cls: str) -> str:

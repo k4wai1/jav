@@ -60,6 +60,12 @@
 - [x] Desacoplar ejemplo en `tasks/` (41f1d31, 2026-10-04): plugin fino sobre
   `core/` + contrato v2 en `docs/specs/tasks-generic.md` (tau, escalado,
   `text_match`/`guards`/`titles` parametrizados, forense).
+- [ ] Giro 2026-10-05 (contrato `docs/specs/generic-dual-tier.md`):
+  `run_goal(goal: str)` general, S1 Jev + S2 GLM 5.3 (misma key),
+  poda 0..253+NONE=255 Choice, CostTracker con RATES + env overrides.
+  **`tasks/` se elimina** (whatsapp.py único acoplado); `FORBIDDEN_DEFAULT`
+  muere con él (opt-in por goal). `tests/test_guards.py:2` y
+  `scripts/fase5_check.py` los reescribe `@coder`.
 
 ### Fase 5 — Bucle Jev genérico + compuertas + forense
 - [x] `gate_tau(conf, tau)` en `core/guards.py` (puro, genérico) + `TAU=0.70`
@@ -68,10 +74,11 @@
   working tree; falta end-to-end con Jev real).
 - [ ] Pendiente explícito: subir normalizer 60→254; tau/escalate end-to-end
   con Jev real; forense con `conf`/`tau` por paso.
-- [ ] `jev_client` + `loop` (`observe→decide→mutate→verify`,
-  `CLICK`/`TYPE`/`SCROLL`/`DONE`/`ESCALATE`, `needs_system_2`),
-  `dry_run` por defecto en acciones sensibles, `STALE_SNAPSHOT`×3 →
-  `UI_UNSTABLE`, fallback sin-árbol → `screenshot` a S2.
+- [ ] `jev_client` (S1) + `s2_client` (GLM 5.3, misma key) + `run_goal`
+  (`observe→decide→mutate→verify`, `[TAP,TYPE,SCROLL_DOWN,SCROLL_UP,BACK,
+  DONE,ESCALATE]` + target 0..253+NONE + `needs_system_2`),
+  sensible sin `confirm:true` → `planned` sin ejecutar, `STALE_SNAPSHOT×3→
+  UI_UNSTABLE`, fallback sin-árbol → `screenshot` a S2, CostTracker `[COST]`.
 - [ ] Compuertas obligatorias: tau ~0.70 → escalar; críticas →
   S2/humano; Noul (bloqueos semánticos) → escalar sin reintentos ciegos.
 - [ ] Forense por corrida `logs/run-<ts>.jsonl` (fase, snapshot, opciones,
@@ -83,18 +90,17 @@
 - [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jev-mcp/`,
   docs y hardening finales.
 
-## Próxima tarea (consolidar core genérico, cero envíos reales)
+## Próxima tarea (agente general `run_goal`, cero literales de dominio)
 
-1. `@architect`: eleva `docs/specs/tasks-generic.md` a v2 dual-tier
-   (hecho 2026-10-04) — `TaskProtocol`, helpers parametrizados, umbrales
-   tau, política de escalado, forense.
-2. `@coder`: implementa el contrato v2 en `core/` + adelgaza `tasks/` a
-   plugin-ejemplo (sin literales normativos, sin nombres propios).
+1. `@architect`: contrato `docs/specs/generic-dual-tier.md` (hecho 2026-10-05) —
+   `run_goal(goal: str)`, S1/S2, poda 255 Choice, CostTracker, compuertas genéricas.
+2. `@coder`: implementa el contrato, elimina `tasks/`, sube normalizer 60→254,
+   reescribe `tests/test_guards.py` y `scripts/fase5_check.py` contra `run_goal`.
 3. `@judge`: `uv run pytest` + `./gradlew :app:testDebugUnitTest` +
-   dry-run forense (`logs/run-<ts>.jsonl` con paso sensible `planned`
-   sin tocar el dispositivo).
-4. Explícito: **no enviar mensajes reales ni operar sobre chats/cuentas
-   reales**; la validación es dry-run + verificación determinista.
+   `grep -rniE 'whatsapp|com\.whatsapp|contact_name|verify_chat|wrong_chat' src/` vacío +
+   forense `logs/run-<ts>.jsonl` con `cost` por paso y líneas `[COST]`.
+4. Explícito: **sin paquetes/contactos prefijados**; acción crítica/irreversible
+   solo con preview + `confirm:true` del operador, auditada en forense.
 
 ## Deuda / anotaciones (AGENTS.md §9)
 - Latencia IPC por nodo (2–3×): candidata a Fase 4+.

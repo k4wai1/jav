@@ -57,10 +57,10 @@ def test_wa_home_fixture():
 
 
 def test_poda_cadena_documentada():
-    # Cadena real: 500 raw (extractor) → 60 (normalizer vigente)
-    # ⊂ 255 Choice (254+N ONE, capacidad Jev). El 254+NONE es capacidad,
-    # no tope vigente (subir 60→254 pendiente Fase 5).
-    assert MAX_CANDIDATES == 60
+    # Cadena real: 500 raw (extractor) → 254 (normalizer vigente)
+    # ⊂ 255 Choice (254 + NONE, capacidad Jev). Tope vigente = capacidad
+    # (contrato generic-dual-tier §4: 0..253 + NONE = 255 Choice).
+    assert MAX_CANDIDATES == 254
     assert MAX_CANDIDATES <= 254
     dump = {"package": "p", "snapshot_id": 1, "nodes": [
         {"id": f"n_{i}", "text": f"item {i}", "content_desc": None,
@@ -68,8 +68,8 @@ def test_poda_cadena_documentada():
          "bounds": [0, 0, 1, 1], "clickable": True, "editable": False,
          "scrollable": False, "enabled": True, "checked": False,
          "focused": False, "visible": True, "children": []}
-        for i in range(200)
+        for i in range(300)
     ]}
     st = normalize(dump)
     assert len(st.candidates) == MAX_CANDIDATES
-    assert st.raw_count == 200
+    assert st.raw_count == 300
