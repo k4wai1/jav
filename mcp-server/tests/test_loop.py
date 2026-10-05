@@ -1169,3 +1169,76 @@ async def test_s2_empty_never_types_without_payload():
     assert [a["kind"] for a in executed] != ["type_text"]
     assert not any(a["kind"] == "type_text" for a in executed), executed
     assert r["evidence"]["code"] == "STUCK_SAME", r
+
+
+# --- Deuda AGENTS.md 2026-10-02: reintento STALE en el bucle ---
+
+
+@pytest.mark.asyncio
+async def test_stale_retry_recovers_once(tmp_path):
+    """STALE → re-observe UNA vez + retry misma acción → ok.
+
+    Repro genérica de run-1791243353 (type/tap con snapshot viejo por
+    mutación entre dump y ejecución): el bucle re-observa, re-resuelve
+    por id y reintenta UNA vez. Sin literales de dominio.
+    """
+    logf = str(tmp_path / "run.jsonl")
+    snaps = {"n": 0}
+
+    async def obs_fresco():
+        snaps["n"] += 1
+        return state(2, snap=100 + snaps["n"])
+
+    calls = {"n": 0}
+
+    async def exe_stale_once(action):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            assert action["kind"] == "tap_node"
+            return {"ok": False, "verified": False,
+                    "evidence": {"code": "STALE_SNAPSHOT",
+                                 "error": "snapshot obsoleto"}}
+        assert action["kind"] == "tap_node"
+        # El retry usa el snapshot fresco y el mismo node_id.
+        assert action["snapshot_id"] == 100 + snaps["n"], action
+        assert action["node_id"] == "n_0", action
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+
+    decide = script_decide([dec("TAP", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("mirar items", _observe=obs_fresco,
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=exe_stale_once,
+                            _verify_done=fake_verify_ok,
+                            log_path=logf)
+    assert r["ok"] and r["verified"], r
+    assert calls["n"] == 2, calls  # 1 STALE + 1 retry ok
+    lines = [json.loads(l) for l in open(logf, encoding="utf-8")]
+    assert any(e.get("stale_retry") is True for e in lines), lines
+    assert any(e.get("stale_recovered") is True for e in lines), lines
+
+
+@pytest.mark.asyncio
+async def test_stale_retry_twice_aborts_unstable():
+    """STALE en intento + STALE en retry → UI_UNSTABLE.
+
+    Segundo STALE cuenta en el streak existente y aborta honesto,
+    sin tercer intento ciego.
+    """
+    async def obs_fresco():
+        return state(2, snap=50)
+
+    calls = {"n": 0}
+
+    async def exe_siempre_stale(action):
+        calls["n"] += 1
+        return {"ok": False, "verified": False,
+                "evidence": {"code": "STALE_SNAPSHOT",
+                             "error": "snapshot obsoleto"}}
+
+    decide = script_decide([dec("TAP", 0)] * 4)
+    r = await loop.run_goal("mirar items", _observe=obs_fresco,
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=exe_siempre_stale)
+    assert not r["ok"] and r["evidence"]["code"] == "UI_UNSTABLE", r
+    assert calls["n"] == 2, calls  # intento + UNA reintentada, nada más
+    assert r["steps"] == 1, r

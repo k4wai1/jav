@@ -513,21 +513,119 @@ async def run_goal(goal: str, *, max_steps: int = 20,
             res = await execute_fn(internal)
             if not res.get("ok"):
                 ev = res.get("evidence", {}) or {}
-                log({"step": step, "phase": "s2_direct_type",
-                     "snapshot": current_snapshot,
-                     "s2_command": _redacted_command(cmd),
-                     "text_payload_hash": text_payload_hash,
-                     "s2_text_len": len(text_payload),
-                     "result": {"ok": False, "evidence": ev}})
-                history.append({"step": step,
-                                "action": {"kind": "type_text",
-                                           "node_id": row["id"],
-                                           "s2_direct": True},
-                                "result": res,
-                                "snapshot": current_snapshot})
-                return done(False, {"code": ev.get("code", "?"),
-                                    "error": ev.get("error", "?")},
-                            max(step, 1))
+                if ev.get("code") == "STALE_SNAPSHOT":
+                    # Deuda AGENTS.md 2026-10-02: reintento en el bucle,
+                    # no en la app. Re-observa UNA vez, re-resuelve por id
+                    # y reintenta la misma acción UNA vez; segundo STALE →
+                    # UI_UNSTABLE. Genérico, sin literales de dominio.
+                    log({"step": step, "phase": "s2_direct_type",
+                         "snapshot": current_snapshot,
+                         "s2_command": _redacted_command(cmd),
+                         "text_payload_hash": text_payload_hash,
+                         "s2_text_len": len(text_payload),
+                         "result": {"ok": False, "evidence": ev},
+                         "stale_retry": True, "attempt": 1})
+                    history.append({"step": step,
+                                    "action": {"kind": "type_text",
+                                               "node_id": row["id"],
+                                               "s2_direct": True},
+                                    "result": res,
+                                    "snapshot": current_snapshot})
+                    try:
+                        fresh = await observe_fn()
+                    except ObserveError as e2:
+                        log({"step": step, "phase": "s2_direct_type",
+                             "snapshot": current_snapshot,
+                             "stale_retry": True, "attempt": 1,
+                             "reobserve": {"ok": False, "code": e2.code}})
+                        history.append({"step": step,
+                                        "action": {"kind": "type_text",
+                                                   "node_id": row["id"],
+                                                   "s2_direct": True,
+                                                   "stale_retry": True},
+                                        "result": {"ok": False,
+                                                   "evidence": {
+                                                       "code": e2.code}},
+                                        "snapshot": current_snapshot})
+                        return done(False, {
+                            "code": "UI_UNSTABLE",
+                            "error": ("STALE + re-observe fallido "
+                                      f"({e2.code}); UI mutando")}, max(step, 1))
+                    frows, _ = _h.build_table(
+                        fresh.get("candidates", []),
+                        fresh.get("screen_width", 0) or 0,
+                        fresh.get("screen_height", 0) or 0)
+                    fsnap = fresh.get("snapshot_id", current_snapshot)
+                    fsh = fresh.get("screen_height", 0) or screen_h
+                    nid = row.get("id", "")
+                    nrow = next((r for r in frows if r.get("id") == nid),
+                                None)
+                    if nrow is None or _h.validate_target(nrow, fsh):
+                        log({"step": step, "phase": "s2_direct_type",
+                             "snapshot": fsnap, "stale_retry": True,
+                             "target_vanished": nrow is None,
+                             "node_id": nid})
+                        pending_state = fresh
+                        return None
+                    if (not nrow.get("editable")
+                            or not nrow.get("focused")
+                            or not nrow.get("visible", True)):
+                        pending_state = fresh
+                        return None
+                    retry_internal = {"kind": "type_text",
+                                      "node_id": nid,
+                                      "snapshot_id": fsnap,
+                                      "text": text_payload,
+                                      "key": f"type:{nid}"}
+                    res2 = await execute_fn(retry_internal)
+                    if not res2.get("ok"):
+                        ev2 = res2.get("evidence", {}) or {}
+                        log({"step": step, "phase": "s2_direct_type",
+                             "snapshot": fsnap,
+                             "s2_command": _redacted_command(cmd),
+                             "text_payload_hash": text_payload_hash,
+                             "result": {"ok": False, "evidence": ev2},
+                             "stale_retry": True, "attempt": 2})
+                        history.append({"step": step,
+                                        "action": {"kind": "type_text",
+                                                   "node_id": nid,
+                                                   "s2_direct": True,
+                                                   "stale_retry": True},
+                                        "result": res2, "snapshot": fsnap})
+                        if ev2.get("code") == "STALE_SNAPSHOT":
+                            return done(False, {
+                                "code": "UI_UNSTABLE",
+                                "error": ("STALE reintentado una vez; "
+                                          "UI mutando")}, max(step, 1))
+                        return done(False, {
+                            "code": ev2.get("code", "?"),
+                            "error": ev2.get("error", "?")}, max(step, 1))
+                    log({"step": step, "phase": "s2_direct_type",
+                         "snapshot": fsnap, "stale_retry": True,
+                         "recovered": True})
+                    res = res2
+                    current_snapshot = fsnap
+                    row = nrow
+                    rebuilt = _h.prepare_input_verification(row,
+                                                            text_payload)
+                    if rebuilt is not None:
+                        verification = rebuilt
+                else:
+                    log({"step": step, "phase": "s2_direct_type",
+                         "snapshot": current_snapshot,
+                         "s2_command": _redacted_command(cmd),
+                         "text_payload_hash": text_payload_hash,
+                         "s2_text_len": len(text_payload),
+                         "result": {"ok": False, "evidence": ev}})
+                    history.append({"step": step,
+                                    "action": {"kind": "type_text",
+                                               "node_id": row["id"],
+                                               "s2_direct": True},
+                                    "result": res,
+                                    "snapshot": current_snapshot})
+                    return done(False, {"code": ev.get("code", "?"),
+                                        "error": ev.get("error", "?")},
+                                max(step, 1))
             try:
                 post_state = await observe_fn()
             except ObserveError as e:
@@ -1341,6 +1439,118 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     return done(False, abort, step)
                 stale_streak = 0
                 continue
+            code = (res.get("evidence", {}) or {}).get("code", "?")
+            if (code == "STALE_SNAPSHOT"
+                    and internal.get("kind") in ("tap_node", "type_text")):
+                # Deuda AGENTS.md 2026-10-02: reintento en el bucle, no en
+                # la app. Re-observa UNA vez, re-resuelve el target por id
+                # en la tabla nueva y reintenta la misma acción UNA vez;
+                # segundo STALE → UI_UNSTABLE (cuenta en el streak
+                # existente). Genérico, sin literales de dominio.
+                stale_streak += 1
+                entry["result"] = {"ok": False,
+                                   "evidence": res.get("evidence")}
+                entry["stale_retry"] = True
+                entry["stale_attempt"] = 1
+                log(entry)
+                history.append({"step": step, "action": internal,
+                                "result": res, "snapshot": snapshot})
+                try:
+                    fresh_state = await observe_fn()
+                except ObserveError as e2:
+                    if e2.code == "STALE_SNAPSHOT":
+                        stale_streak += 1
+                    rentry = {"step": step, "phase": "stale_retry",
+                              "snapshot": snapshot,
+                              "node_id": internal.get("node_id"),
+                              "reobserve": {"ok": False, "code": e2.code},
+                              "stale_streak": stale_streak}
+                    log(rentry)
+                    if e2.code == "STALE_SNAPSHOT":
+                        return done(False, {
+                            "code": "UI_UNSTABLE",
+                            "error": ("STALE + re-observe fallido "
+                                      f"({e2.code}); UI mutando")}, step)
+                    r = done(False, {"code": e2.code, "error": e2.error},
+                             step)
+                    r["hint"] = "revisa conexión con Jam"
+                    return r
+                frows, _ = _h.build_table(
+                    fresh_state.get("candidates", []),
+                    fresh_state.get("screen_width", 0) or 0,
+                    fresh_state.get("screen_height", 0) or 0)
+                fsnap = fresh_state.get("snapshot_id", snapshot)
+                fsh = fresh_state.get("screen_height", 0) or screen_h
+                nid = internal.get("node_id", "")
+                nrow = next((r for r in frows if r.get("id") == nid), None)
+                if nrow is None or _h.validate_target(nrow, fsh):
+                    log({"step": step, "phase": "stale_retry",
+                         "snapshot": fsnap, "node_id": nid,
+                         "target_vanished": nrow is None,
+                         "stale_streak": stale_streak})
+                    pending_state = fresh_state
+                    if stale_streak >= MAX_STALE_STREAK:
+                        return done(False, {"code": "UI_UNSTABLE",
+                                            "error": "3 STALE seguidos"},
+                                    step)
+                    continue
+                retry_internal = dict(internal)
+                retry_internal["snapshot_id"] = fsnap
+                res2 = await execute_fn(retry_internal)
+                if res2.get("ok"):
+                    stale_streak = 0
+                    if action == "TYPE":
+                        rentry = {"step": step, "goal": goal,
+                                  "snapshot": fsnap,
+                                  "n_cands": len(frows), "conf": conf,
+                                  "tau": TAU, "fast_tau": FAST_TAU,
+                                  "fast_path": False, "coalesced": False,
+                                  "screen_goal": screen_goal,
+                                  "operator_verbatim": operator_verbatim,
+                                  "cost": entry.get("cost"),
+                                  "decision": decision,
+                                  "stale_retry": True, "stale_attempt": 2,
+                                  "stale_recovered": True,
+                                  "slot": slot,
+                                  "text_payload_hash": _payload_hash(text),
+                                  "s2_text_len": len(text)}
+                        fin = await _verify_type(
+                            rentry, history, step, fresh_state, nrow,
+                            text, res2, fsnap, observe_fn,
+                            retry_internal, slot=slot)
+                        if fin is not None:
+                            return fin
+                        continue
+                    rentry2 = dict(entry)
+                    rentry2["snapshot"] = fsnap
+                    rentry2["stale_attempt"] = 2
+                    rentry2["stale_recovered"] = True
+                    rentry2["result"] = {"ok": True,
+                                         "evidence": res2.get("evidence")}
+                    abort = await _coalesce_verify(rentry2, fsnap)
+                    log(rentry2)
+                    history.append({"step": step,
+                                    "action": retry_internal,
+                                    "result": res2, "snapshot": fsnap})
+                    if abort is not None:
+                        return done(False, abort, step)
+                    continue
+                code2 = (res2.get("evidence", {}) or {}).get("code", "?")
+                stale_streak += 1
+                log({"step": step, "phase": "stale_retry",
+                     "snapshot": fsnap, "node_id": nid,
+                     "result": {"ok": False,
+                                "evidence": res2.get("evidence")},
+                     "stale_attempt": 2, "stale_streak": stale_streak})
+                history.append({"step": step, "action": retry_internal,
+                                "result": res2, "snapshot": fsnap})
+                return done(False, {
+                    "code": "UI_UNSTABLE" if code2 == "STALE_SNAPSHOT"
+                    else code2,
+                    "error": ("STALE reintentado una vez; UI mutando"
+                              if code2 == "STALE_SNAPSHOT"
+                              else (res2.get("evidence", {}) or {}).get(
+                                  "error", "?"))}, step)
             log(entry)
             history.append({"step": step, "action": internal, "result": res,
                             "snapshot": snapshot})
