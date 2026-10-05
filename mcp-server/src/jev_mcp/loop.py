@@ -16,7 +16,9 @@ paquetes, contactos ni fases prefijadas; sin literales de dominio.
   ejecutar: needs_confirm). FORBIDDEN solo opt-in por goal (forbidden?).
 - type exige foco explícito: sin focused → tap previo explícito (nada
   implícito). Acciones no devuelven snapshot; el cliente verifica.
-- snapshot mismatch ×3 → UI_UNSTABLE; misma (kind,node_id) ×3 → STUCK_SAME.
+- snapshot mismatch ×3 → UI_UNSTABLE; misma (kind,node_id) ×3 → STUCK_SAME;
+  misma decisión (action+target) ×3 sin cambio útil de snapshot → STUCK_SAME;
+  S2 mock/stub → S2_UNAVAILABLE inmediato (nunca ciclar en giro).
 """
 from __future__ import annotations
 
@@ -122,6 +124,9 @@ async def run_goal(goal: str, *, max_steps: int = 20,
     s2_calls = 0
     step = 0
     s2_hint = ""
+    prev_dec_sig: tuple | None = None
+    prev_snapshot: int | None = None
+    same_dec_streak = 0
     logf = open(log_path, "a", encoding="utf-8") if log_path else None
 
     def log(entry: dict) -> None:
@@ -183,18 +188,56 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 return done(False, bad, step)
             action = decision["action"]
 
+            # --- anti-giro (ii): misma decisión (action+target) ×3 sin
+            # cambio de snapshot útil → STUCK_SAME. Va ANTES de la
+            # compuerta tau para cubrir también bucles de ESCALATE que
+            # nunca ejecutan (el check_stuck_same de abajo solo ve
+            # acciones ejecutadas). Genérico, sin literales de dominio.
+            dec_sig = (action, decision.get("target", "NONE"))
+            if dec_sig == prev_dec_sig and snapshot == prev_snapshot:
+                same_dec_streak += 1
+            else:
+                prev_dec_sig = dec_sig
+                prev_snapshot = snapshot
+                same_dec_streak = 1
+            if same_dec_streak >= 3:
+                err = {"code": "STUCK_SAME",
+                       "error": f"misma decisión {same_dec_streak}× "
+                                f"seguidas sin cambio útil: {dec_sig}"}
+                entry["error"] = err
+                log(entry)
+                return done(False, err, step)
+
             async def escalate(reason: str, need_text: bool = False) -> dict | None:
                 """Vía S2: asesora, loguea, retoma en S1. Nunca tapea.
 
                 Devuelve resultado final si S2 pide stop; None si continuar.
+                S2 mock/stub → abort inmediato S2_UNAVAILABLE (nunca ciclar).
                 """
                 nonlocal s2_calls, s2_hint
-                s2_out, s2_usage = await advise_fn(
-                    goal, reason=reason,
-                    table_lines=[f"{r['idx']} {r['label']}" for r in rows],
-                    history_summary=_history_summary(history),
-                    need_text=need_text)
-                s2_calls += 1
+                s2_calls += 1  # cuenta el intento (real o stub): audita S2
+                try:
+                    s2_out, s2_usage = await advise_fn(
+                        goal, reason=reason,
+                        table_lines=[f"{r['idx']} {r['label']}" for r in rows],
+                        history_summary=_history_summary(history),
+                        need_text=need_text)
+                except Exception as e:
+                    err = {"code": "S2_UNAVAILABLE",
+                           "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
+                    entry["error"] = err
+                    log(entry)
+                    r = done(False, err, step)
+                    r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
+                    return r
+                if _is_s2_mock(s2_out, s2_usage):
+                    err = {"code": "S2_UNAVAILABLE",
+                           "error": "S2 respondió mock/stub; sin plan real"}
+                    entry["error"] = err
+                    log(entry)
+                    r = done(False, err, step)
+                    r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
+                    return r
                 si, so, spc = _s2_tokens(s2_usage)
                 s2_cost = tracker.track(_glm_id(), si, so, step=step,
                                         tier="s2", provider_cost=spc)
@@ -280,12 +323,29 @@ async def run_goal(goal: str, *, max_steps: int = 20,
             if action == "TYPE":
                 text = decision.get("type_text", "") or ""
                 if not text:
-                    s2_out, s2_usage = await advise_fn(
-                        goal, reason="open-text",
-                        table_lines=[f"{r['idx']} {r['label']}" for r in rows],
-                        history_summary=_history_summary(history),
-                        need_text=True)
-                    s2_calls += 1
+                    s2_calls += 1  # intento S2 open-text (audita S2 real)
+                    try:
+                        s2_out, s2_usage = await advise_fn(
+                            goal, reason="open-text",
+                            table_lines=[f"{r['idx']} {r['label']}" for r in rows],
+                            history_summary=_history_summary(history),
+                            need_text=True)
+                    except Exception as e:
+                        err = {"code": "S2_UNAVAILABLE",
+                               "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
+                        entry["error"] = err
+                        log(entry)
+                        r = done(False, err, step)
+                        r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
+                        return r
+                    if _is_s2_mock(s2_out, s2_usage):
+                        err = {"code": "S2_UNAVAILABLE",
+                               "error": "S2 respondió mock/stub; sin texto real"}
+                        entry["error"] = err
+                        log(entry)
+                        r = done(False, err, step)
+                        r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
+                        return r
                     si, so, spc = _s2_tokens(s2_usage)
                     tracker.track(_glm_id(), si, so, step=step, tier="s2",
                                   provider_cost=spc)
@@ -352,6 +412,14 @@ async def run_goal(goal: str, *, max_steps: int = 20,
     finally:
         if logf is not None:
             logf.close()
+
+
+def _is_s2_mock(s2_out: dict | None, s2_usage: dict | None) -> bool:
+    """True si S2 respondió stub (sin key o caída): nunca seguir ciclando."""
+    for d in (s2_out, s2_usage):
+        if isinstance(d, dict) and d.get("mock") is True:
+            return True
+    return False
 
 
 def _s2_tokens(usage: dict) -> tuple[int, int, float | None]:

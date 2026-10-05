@@ -173,6 +173,56 @@ async def test_hallucination_en_decide():
 
 
 @pytest.mark.asyncio
+async def test_s2_mock_aborta_s2_unavailable():
+    """S2 stub (mock:true) → abort S2_UNAVAILABLE, nunca ciclar en giro."""
+    executed = []
+
+    async def mock_advise(goal, reason="", table_lines=None,
+                          history_summary="", need_text=False):
+        return ({"plan": ["re-observar"], "text": "", "criteria": "",
+                 "stop": False, "mock": True},
+                {"in_tokens": 0, "out_tokens": 0, "mock": True})
+
+    decide = script_decide([dec("TAP", 0, conf=0.4)] * 5)
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=mock_advise,
+                            _execute_fn=ok_exec(executed))
+    assert not r["ok"] and r["evidence"]["code"] == "S2_UNAVAILABLE", r
+    assert r["hint"] == "falta OPENROUTER_API_KEY o S2 caído", r
+    assert executed == [] and r["steps"] == 1
+
+
+@pytest.mark.asyncio
+async def test_s2_excepcion_aborta_s2_unavailable():
+    """S2 caído (excepción HTTP) → abort S2_UNAVAILABLE, sin traceback."""
+
+    async def down_advise(goal, reason="", table_lines=None,
+                          history_summary="", need_text=False):
+        raise RuntimeError("404 guardrails")
+
+    decide = script_decide([dec("TAP", 0, conf=0.4)] * 5)
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=down_advise,
+                            _execute_fn=ok_exec([]))
+    assert not r["ok"] and r["evidence"]["code"] == "S2_UNAVAILABLE", r
+    assert r["hint"] == "falta OPENROUTER_API_KEY o S2 caído", r
+    assert r["steps"] == 1
+
+
+@pytest.mark.asyncio
+async def test_misma_decision_x3_aborta_stuck_same():
+    """Misma (action+target) ×3 sin cambio útil → STUCK_SAME (vía ESCALATE)."""
+    executed = []
+    decide = script_decide([dec("TAP", 0, conf=0.4)] * 5)
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec(executed))
+    assert not r["ok"] and r["evidence"]["code"] == "STUCK_SAME", r
+    assert executed == []  # todo fue ESCALATE: nunca se tocó el dispositivo
+    assert r["steps"] == 3 and r["s2_calls"] == 2, r
+
+
+@pytest.mark.asyncio
 async def test_forense_incluye_cost(tmp_path):
     logf = str(tmp_path / "run.jsonl")
     decide = script_decide([dec("TAP", 0), dec("DONE", "NONE")])

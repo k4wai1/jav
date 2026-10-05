@@ -22,10 +22,11 @@ log = logging.getLogger("cost")
 # --- defaults normativos / placeholder -------------------------------------
 JEV_DEFAULT_IN = 0.042
 JEV_DEFAULT_OUT = 0.0
-# PLACEHOLDER — ajustar contra factura OpenRouter (GLM-5.3 sin tasa oficial
-# fijada en contrato; configurable via GLM_RATE_IN / GLM_RATE_OUT).
-GLM_PLACEHOLDER_IN = 1.0  # PLACEHOLDER — ajustar contra factura OpenRouter
-GLM_PLACEHOLDER_OUT = 1.0  # PLACEHOLDER — ajustar contra factura OpenRouter
+# PLACEHOLDER verificable 2026-10-05, override por GLM_RATE_IN/OUT.
+# Post-promo documentada: $0.15 in / $0.50 out por MTok (ajustar contra
+# factura OpenRouter; nunca verdad oficial hardcodeada).
+GLM_PLACEHOLDER_IN = 0.15  # PLACEHOLDER verificable 2026-10-05, override por GLM_RATE_IN/OUT
+GLM_PLACEHOLDER_OUT = 0.50  # PLACEHOLDER verificable 2026-10-05, override por GLM_RATE_IN/OUT
 
 
 def _env_float(name: str, default: float) -> float:
@@ -40,7 +41,7 @@ def jev_model_id() -> str:
 
 
 def glm_model_id() -> str:
-    return os.environ.get("GLM_MODEL", "z-ai/glm-5.3")
+    return os.environ.get("GLM_MODEL", "z-ai/glm-5.3-flash")
 
 
 def jev_rates() -> tuple[float, float]:
@@ -73,7 +74,7 @@ RATES: dict[str, tuple[float, float]] = {
         float(os.environ.get("JEV_RATE_IN", JEV_DEFAULT_IN)),
         float(os.environ.get("JEV_RATE_OUT", JEV_DEFAULT_OUT)),
     ),
-    os.environ.get("GLM_MODEL", "z-ai/glm-5.3"): (
+    os.environ.get("GLM_MODEL", "z-ai/glm-5.3-flash"): (
         float(os.environ.get("GLM_RATE_IN", GLM_PLACEHOLDER_IN)),
         float(os.environ.get("GLM_RATE_OUT", GLM_PLACEHOLDER_OUT)),
     ),

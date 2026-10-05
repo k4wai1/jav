@@ -68,8 +68,8 @@ conf: float [0,1]
 
 ## 3. S2 — GLM 5.3 (misma key, solo ante escalado)
 
-- Modelo vía env `GLM_MODEL` (default documentado `z-ai/glm-5.3`
-  o identificador OpenRouter equivalente vigente; si el id cambia, se
+- Modelo vía env `GLM_MODEL` (default documentado `z-ai/glm-5.3-flash`
+  — id OpenRouter verificado 2026-10-05; si el id cambia, se
   actualiza por env sin enmienda). **Misma `OPENROUTER_API_KEY`**; sin
   key → stub honesto.
 - Disparadores (OR): S1 emite `ESCALATE` · `conf < 0.70` ·
@@ -116,8 +116,10 @@ def track(model: str, in_tok: int, out_tok: int) -> float: ...
   - **GLM-5.3: tasa configurable vía env, nunca hardcodeada como
     verdad oficial.** Env: `GLM_RATE_IN` / `GLM_RATE_OUT`
     (USD por MTok, floats). El default en código es **placeholder
-    ajustable** documentado como tal (p.ej. `1.00/1.00` marcado
-    `# PLACEHOLDER — ajustar contra factura OpenRouter`), no verdad
+    ajustable** documentado como tal (`0.15/0.50` verificado
+    2026-10-05 contra tarifa post-promo documentada, marcado
+    `# PLACEHOLDER verificable 2026-10-05, override por
+    GLM_RATE_IN/OUT`), no verdad
     oficial. Overrides análogos `JEV_RATE_IN` / `JEV_RATE_OUT`
     (defaults `0.042` / `0.0`) para no recompilar ante cambio de precio.
 - Fórmula: `usd = in_tok/1e6*rate_in + out_tok/1e6*rate_out`.

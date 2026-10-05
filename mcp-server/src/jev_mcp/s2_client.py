@@ -1,7 +1,7 @@
 """Cliente S2 GLM-5.3 vía OpenRouter (contrato generic-dual-tier §3).
 
 Misma OPENROUTER_API_KEY que S1. Modelo via env GLM_MODEL (default
-`z-ai/glm-5.3` o identificador OpenRouter equivalente vigente; si el id
+`z-ai/glm-5.3-flash`, id OpenRouter verificado 2026-10-05; si el id
 cambia se actualiza por env sin enmienda).
 
 Disparadores (los evalúa el loop): S1 emite ESCALATE · conf < 0.70 ·
@@ -28,7 +28,7 @@ TIMEOUT_S = 15.0
 
 
 def model_id() -> str:
-    return os.environ.get("GLM_MODEL", "z-ai/glm-5.3")
+    return os.environ.get("GLM_MODEL", "z-ai/glm-5.3-flash")
 
 
 def is_mock() -> bool:
