@@ -60,6 +60,13 @@ MAX_STALE_STREAK = 3
 STUCK_N = 2  # 2 previas iguales + actual = ×3 → STUCK_SAME
 BOOTSTRAP_DELAY_S = 0.6  # estabilización tras open_app antes del re-dump
 
+# Hint conservador temporal ante S2_EMPTY_RESPONSE (P0-4, 100% EN):
+# UNA re-pregunta S1; sin TYPE sin payload ni DONE sin veredicto.
+DEGRADED_S1_HINT = (
+    "System-2 unavailable (empty response). Proceed conservatively: "
+    "only TAP a visible field, BACK, or ESCALATE; "
+    "never TYPE without text_payload, never DONE.")
+
 CLOSED_ACTIONS = {"tap_node", "type_text", "scroll", "back", "done",
                   "abort", "noop", "escalate", "open_app"}
 
@@ -182,6 +189,11 @@ async def run_goal(goal: str, *, max_steps: int = 20,
     prev_dec_sig: tuple | None = None
     prev_snapshot: int | None = None
     same_dec_streak = 0
+    # P0-4: racha de S2 vacíos (máx 1 degradación por snapshot; reset al
+    # avanzar snapshot o ante S2 válido) + hint conservador de un solo uso.
+    s2_empty_streak = 0
+    s2_empty_snap: int | None = None
+    degraded_hint_once = False
     logf = open(log_path, "a", encoding="utf-8") if log_path else None
 
     def log(entry: dict) -> None:
@@ -206,6 +218,31 @@ async def run_goal(goal: str, *, max_steps: int = 20,
         r = done(False, {"code": "S2_UNAVAILABLE", "error": error}, steps)
         r["hint"] = hint
         return r
+
+    def bump_s2_empty(snapshot: int) -> int:
+        """Racha de S2 vacíos acotada por snapshot (P0-4).
+
+        Mismo snapshot → streak+1; snapshot nuevo → streak=1 (reset al
+        avanzar). El llamante aborta si ≥2, o degrada UNA vez.
+        """
+        nonlocal s2_empty_streak, s2_empty_snap
+        if snapshot == s2_empty_snap:
+            s2_empty_streak += 1
+        else:
+            s2_empty_streak = 1
+            s2_empty_snap = snapshot
+        return s2_empty_streak
+
+    def reset_s2_empty() -> None:
+        """S2 válido: cierra el incidente (sin cargo extra en CostTracker)."""
+        nonlocal s2_empty_streak, s2_empty_snap
+        s2_empty_streak = 0
+        s2_empty_snap = None
+
+    def arm_degraded_hint() -> None:
+        """Arma la re-pregunta S1 conservadora de un solo uso (P0-4)."""
+        nonlocal degraded_hint_once
+        degraded_hint_once = True
 
     async def s2_direct(reason: str, rows: list, current_app: str,
                         need_text: bool = False,
@@ -295,6 +332,73 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                             "error": f"command no aplicable: {command!r}"},
                     max(step, 1))
 
+    async def _verify_type(entry: dict, history: list, step: int,
+                           pre_state: dict, row: dict | None, text: str,
+                           res: dict, snapshot: int, observe_fn,
+                           internal: dict) -> dict | None:
+        """Read-back tras TYPE REPLACE (P0-2, patrón M2).
+
+        None = verificado (el llamante hace `continue`). Dict = resultado
+        final `input_unverified` SIN retype ciego. La acción ya se ejecutó:
+        se registra en historial + forense aunque el read falle
+        (log-antes-de-observar). En forense solo hash/longitud +
+        fingerprints, nunca texto crudo.
+        """
+        before_fp = _h.screen_fingerprint(
+            (pre_state or {}).get("candidates", []))
+        verification = _h.prepare_input_verification(row, text)
+        entry["result"] = {"ok": True, "evidence": res.get("evidence")}
+        entry["text_payload_hash"] = _payload_hash(text)
+        entry["s2_text_len"] = len(text)
+        entry["fingerprint_before"] = before_fp
+        if verification is None:
+            entry["input_verified"] = False
+            entry["input_unverified_reason"] = (
+                "target no verificable (no-editable/password/texto vacío)")
+            history.append({"step": step, "action": internal,
+                            "result": res, "snapshot": snapshot})
+            log(entry)
+            return done(False, {
+                "code": "input_unverified",
+                "error": ("Text was sent to a target that cannot be "
+                          "read back. Inspect before retrying.")}, step)
+        try:
+            post_state = await observe_fn()
+        except ObserveError as e:
+            entry["input_verified"] = False
+            entry["input_unverified_reason"] = f"read-back observe: {e.code}"
+            history.append({"step": step, "action": internal,
+                            "result": res, "snapshot": snapshot})
+            log(entry)
+            r = done(False, {"code": e.code, "error": e.error}, step)
+            r["hint"] = "revisa conexión con Jam"
+            return r
+        entry["fingerprint_after"] = _h.screen_fingerprint(
+            post_state.get("candidates", []))
+        first = [post_state]
+
+        async def _reobserve():
+            if first:
+                return first.pop()
+            return await observe_fn()
+
+        ok_v, vinfo = await _h.confirm_input(
+            verification, _reobserve,
+            timeout_ms=_h.INPUT_TIMEOUT_MS, poll_ms=_h.POLL_MS)
+        entry["input_verified"] = ok_v
+        entry["input_attempts"] = vinfo.get("attempts")
+        entry["input_snapshot"] = vinfo.get("snapshot")
+        history.append({"step": step, "action": internal,
+                        "result": res, "snapshot": snapshot})
+        log(entry)
+        if not ok_v:
+            return done(False, {
+                "code": "input_unverified",
+                "error": ("Text was sent, but its complete value could not "
+                          "be confirmed on screen within timeout. "
+                          "Inspect before retrying.")}, step)
+        return None
+
     try:
         # --- Bootstrap §5.3: observe → S2-director → [OPEN_APP → open_app
         # + ~600 ms + re-observe] | [HINT/TYPE → guidance/payload]. Antes
@@ -312,11 +416,28 @@ async def run_goal(goal: str, *, max_steps: int = 20,
         try:
             bcmd, busage = await s2_direct("bootstrap", brows, bapp)
         except s2_client.S2EmptyResponse as e:
+            bcmd, busage = None, {}
             err = f"S2_EMPTY_RESPONSE: {e}"[:220]
-            log({"step": 0, "phase": "bootstrap", "error": err})
-            r = s2_unavailable(err, "reintentar: null-content transitorio "
-                                   "de S2", 0)
-            return r
+            streak = bump_s2_empty(bsnap)
+            if streak >= 2:
+                log({"step": 0, "phase": "bootstrap", "error": err,
+                     "s2_empty": True, "s2_empty_streak": streak})
+                return s2_unavailable(
+                    err, "reintentar: null-content transitorio de S2", 0)
+            # P0-4: no abortar al primer vacío: UNA re-pregunta S1
+            # conservadora con el dump fresco ya en mano (pending_state).
+            arm_degraded_hint()
+            log({"step": 0, "phase": "bootstrap", "error": err,
+                 "s2_empty": True, "degraded": True,
+                 "s2_empty_streak": streak})
+            history.append({"step": 0,
+                            "action": {"kind": "bootstrap",
+                                       "command": "DEGRADED_S1"},
+                            "result": {"ok": True,
+                                       "evidence": {"s2_empty": True}},
+                            "snapshot": bsnap})
+            pending_state = bstate
+            bcmd = None
         except s2_client.S2BadCommand as e:
             err = {"code": "S2_BAD_COMMAND", "error": str(e)[:220]}
             log({"step": 0, "phase": "bootstrap", "error": err})
@@ -335,21 +456,25 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                            "error": "S2 respondió mock/stub; sin plan real"}})
             return s2_unavailable("S2 respondió mock/stub; sin plan real",
                                   "falta OPENROUTER_API_KEY o S2 caído", 0)
-        bi, bo, bpc = _s2_tokens(busage)
-        bcost = tracker.track(_glm_id(), bi, bo, step=0, tier="s2",
-                               provider_cost=bpc)
-        log({"step": 0, "phase": "bootstrap", "goal": goal,
-             "snapshot": bsnap, "current_app": bapp,
-             "s2_command": _redacted_command(bcmd), "cost_s2": bcost})
-        history.append({"step": 0,
-                        "action": {"kind": "bootstrap",
-                                   "command": bcmd.get("command")},
-                        "result": {"ok": True,
-                                   "evidence": _redacted_command(bcmd)},
-                        "snapshot": bsnap})
-        fin = await apply_s2(bcmd, bsnap)
-        if fin is not None:
-            return fin
+        if bcmd is None:
+            pass  # P0-4: bootstrap degradado (pending_state ya fijado)
+        else:
+            reset_s2_empty()  # S2 válido: cierra el incidente
+            bi, bo, bpc = _s2_tokens(busage)
+            bcost = tracker.track(_glm_id(), bi, bo, step=0, tier="s2",
+                                   provider_cost=bpc)
+            log({"step": 0, "phase": "bootstrap", "goal": goal,
+                 "snapshot": bsnap, "current_app": bapp,
+                 "s2_command": _redacted_command(bcmd), "cost_s2": bcost})
+            history.append({"step": 0,
+                            "action": {"kind": "bootstrap",
+                                       "command": bcmd.get("command")},
+                            "result": {"ok": True,
+                                       "evidence": _redacted_command(bcmd)},
+                            "snapshot": bsnap})
+            fin = await apply_s2(bcmd, bsnap)
+            if fin is not None:
+                return fin
 
         while step < max_steps and (time.time() - t0) < timeout_s:
             step += 1
@@ -368,15 +493,27 @@ async def run_goal(goal: str, *, max_steps: int = 20,
             snapshot = state.get("snapshot_id", -1)
             screen_h = state.get("screen_height", 0) or 0
             current_app = state.get("package", "") or ""
+            # P0-1: campo enfocado + contenido al state S1 (del observe si
+            # read_screen lo trae; si no, derivado de candidates).
+            ff = state.get("focused_field")
+            if not isinstance(ff, dict):
+                ff = _h.focused_field_view(state.get("candidates", []))
 
             # --- S1 single-pass (100% en inglés, §3) ---
+            eff_guidance = s2_guidance
+            if degraded_hint_once:
+                # P0-4: UNA re-pregunta conservadora (temporal, un solo uso).
+                eff_guidance = (f"{s2_guidance} {DEGRADED_S1_HINT}".strip()
+                                if s2_guidance else DEGRADED_S1_HINT)
+                degraded_hint_once = False
             try:
                 decision, usage = await decide_fn(
                     goal, rows, snapshot,
                     history_summary=_history_summary(history),
-                    s2_guidance=s2_guidance,
+                    s2_guidance=eff_guidance,
                     current_app=current_app,
-                    screen_goal=screen_goal)
+                    screen_goal=screen_goal,
+                    focused_field=ff)
             except jev_client.JevError as e:
                 log({"step": step, "snapshot": snapshot, "error": str(e)})
                 return done(False, {"code": "JEV_ERROR", "error": str(e)}, step)
@@ -435,12 +572,24 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 except s2_client.S2EmptyResponse as e:
                     err = {"code": "S2_UNAVAILABLE",
                            "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
-                    entry["error"] = err
+                    streak = bump_s2_empty(snapshot)
+                    entry["s2_empty"] = True
+                    entry["s2_empty_streak"] = streak
+                    if streak >= 2:
+                        # Persiste → abort honesto (STUCK_SAME×3 y
+                        # STALE×3 siguen contando en paralelo).
+                        entry["error"] = err
+                        log(entry)
+                        r = done(False, err, step)
+                        r["hint"] = ("reintentar: null-content transitorio "
+                                     "de S2")
+                        return r
+                    # P0-4: UNA re-pregunta S1 conservadora (sin TYPE sin
+                    # payload ni DONE sin veredicto); el loop re-observa.
+                    arm_degraded_hint()
+                    entry["degraded"] = True
                     log(entry)
-                    r = done(False, err, step)
-                    r["hint"] = ("reintentar: null-content transitorio "
-                                 "de S2")
-                    return r
+                    return None
                 except s2_client.S2BadCommand as e:
                     err = {"code": "S2_BAD_COMMAND",
                            "error": str(e)[:220]}
@@ -466,6 +615,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 si, so, spc = _s2_tokens(s2_usage)
                 s2_cost = tracker.track(_glm_id(), si, so, step=step,
                                         tier="s2", provider_cost=spc)
+                reset_s2_empty()  # S2 válido: cierra el incidente
                 entry["escalated"] = True
                 entry["s2_reason"] = reason
                 entry["s2_command"] = _redacted_command(cmd)
@@ -528,12 +678,32 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 except s2_client.S2EmptyResponse as e:
                     err = {"code": "S2_UNAVAILABLE",
                            "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
-                    entry["error"] = err
+                    streak = bump_s2_empty(final_snap)
+                    entry["s2_empty"] = True
+                    entry["s2_empty_streak"] = streak
+                    if streak >= 2:
+                        entry["error"] = err
+                        log(entry)
+                        r = done(False, err, step)
+                        r["hint"] = ("reintentar: null-content transitorio "
+                                     "de S2")
+                        return r
+                    # P0-4: DONE-rechazado (sin veredicto S2 no hay éxito):
+                    # UNA re-pregunta S1 conservadora, sigue el loop.
+                    arm_degraded_hint()
+                    entry["degraded"] = True
+                    entry["done_rejected"] = True
+                    entry["done_reject_reason"] = "S2_EMPTY_RESPONSE"
                     log(entry)
-                    r = done(False, err, step)
-                    r["hint"] = ("reintentar: null-content transitorio "
-                                 "de S2")
-                    return r
+                    history.append({
+                        "step": step,
+                        "action": {"kind": "done_verify",
+                                   "achieved": False,
+                                   "n_actions": n_eff},
+                        "result": {"ok": False,
+                                   "evidence": {"s2_empty": True}},
+                        "snapshot": final_snap})
+                    continue
                 except Exception as e:
                     err = {"code": "S2_UNAVAILABLE",
                            "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
@@ -553,6 +723,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 si, so, spc = _s2_tokens(v_usage)
                 v_cost = tracker.track(_glm_id(), si, so, step=step,
                                        tier="s2", provider_cost=spc)
+                reset_s2_empty()  # veredicto S2 válido: cierra el incidente
                 achieved = bool((v_out or {}).get("achieved", False))
                 v_ev = str((v_out or {}).get("evidence", "") or "")[:500]
                 entry["done_verify"] = {
@@ -627,6 +798,15 @@ async def run_goal(goal: str, *, max_steps: int = 20,
             # foco explícito exigible. En forense solo hash, nunca crudo.
             text = ""
             if action == "TYPE":
+                if s2_empty_streak >= 1 and not text_payload:
+                    # P0-4 degradado: nunca TYPE sin text_payload ni
+                    # open-text inventado (need_text=false forzado) →
+                    # escalate normal (si S2 sigue vacío, el streak
+                    # aborta; si se recuperó, aporta texto o guidance).
+                    fin = await escalate("DEGRADED_NO_TEXT para TYPE")
+                    if fin is not None:
+                        return fin
+                    continue
                 text = text_payload or decision.get("type_text", "") or ""
                 if not text:
                     s2_calls += 1  # intento S2 open-text (audita S2 real)
@@ -637,12 +817,23 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     except s2_client.S2EmptyResponse as e:
                         err = {"code": "S2_UNAVAILABLE",
                                "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
-                        entry["error"] = err
+                        streak = bump_s2_empty(snapshot)
+                        entry["s2_empty"] = True
+                        entry["s2_empty_streak"] = streak
+                        if streak >= 2:
+                            entry["error"] = err
+                            log(entry)
+                            r = done(False, err, step)
+                            r["hint"] = ("reintentar: null-content "
+                                         "transitorio de S2")
+                            return r
+                        # P0-4: UNA re-pregunta S1 conservadora (el TYPE
+                        # sin payload va a planned/escalate, nunca se
+                        # escribe inventado).
+                        arm_degraded_hint()
+                        entry["degraded"] = True
                         log(entry)
-                        r = done(False, err, step)
-                        r["hint"] = ("reintentar: null-content transitorio "
-                                     "de S2")
-                        return r
+                        continue
                     except s2_client.S2BadCommand as e:
                         err = {"code": "S2_BAD_COMMAND",
                                "error": str(e)[:220]}
@@ -668,6 +859,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     si, so, spc = _s2_tokens(s2_usage)
                     t_cost = tracker.track(_glm_id(), si, so, step=step,
                                            tier="s2", provider_cost=spc)
+                    reset_s2_empty()  # texto S2 válido: cierra el incidente
                     entry["s2_command"] = _redacted_command(cmd)
                     entry["cost_s2"] = t_cost
                     if cmd.get("command") != "TYPE" or not cmd.get("text"):
@@ -721,6 +913,16 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 return r
 
             res = await execute_fn(internal)
+            if action == "TYPE" and res.get("ok"):
+                # P0-2: read-back con timeout tras REPLACE (M2). Éxito →
+                # sigue; fallo → input_unverified SIN retype ciego.
+                fin = await _verify_type(
+                    entry, history, step, state, row, text, res,
+                    snapshot, observe_fn, internal)
+                if fin is not None:
+                    return fin
+                stale_streak = 0
+                continue
             entry["result"] = {"ok": res.get("ok"),
                                "evidence": res.get("evidence")}
             log(entry)

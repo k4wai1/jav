@@ -16,7 +16,7 @@ Reglas (AGENTS.md §5.10+):
 """
 from __future__ import annotations
 
-from .state import Candidate, NormalizedState
+from .state import Candidate, FocusedField, NormalizedState
 
 DECOR_SUBSTR = ("statusBarBackground", "navigationBarBackground")
 
@@ -34,9 +34,57 @@ CONTAINERS = {
 
 MAX_CANDIDATES = 254
 
+# Marcadores genéricos de secreto (clase/rid/hint/desc, case-insensitive).
+# Sin literales de app: categorías de campo, no pantallas.
+PASSWORD_MARKERS = ("password", "passwd", "passcode", "pin", "credential")
+
+# Tope de `holds`: suficiente para desambiguar escrito-vs-enviado sin
+# llevar PII larga al prompt.
+HOLDS_MAX = 140
+
 
 def short_class(cls: str) -> str:
     return cls.rsplit(".", 1)[-1] if cls else "View"
+
+
+def _is_password(n: dict) -> bool:
+    hay = (f"{n.get('class') or ''} {n.get('resource_id') or ''} "
+           f"{n.get('hint') or ''} {n.get('content_desc') or ''}").lower()
+    return any(m in hay for m in PASSWORD_MARKERS)
+
+
+def _field_label(n: dict) -> str:
+    text = (n.get("text") or "").strip()
+    if text:
+        return text
+    desc = (n.get("content_desc") or "").strip()
+    if desc:
+        return desc
+    rid = n.get("resource_id") or ""
+    if "/" in rid:
+        return rid.rsplit("/", 1)[-1]
+    return n.get("id", "")
+
+
+def the_focused_field(nodes: list[dict]) -> FocusedField | None:
+    """Campo que recibiría typing + contenido actual (patrón A2, P0-1).
+
+    Fuente: foco real de Accessibility vía `dump_ui`. Elegido = editable
+    focuseado si hay; si no, primer editable (ruido menor, no mutación).
+    Sin editables → None. Nunca inventa foco desde layout: solo lee flags
+    reales. Password → marcada (el valor nunca sale: ver as_view).
+    """
+    editables = [n for n in nodes if n.get("editable")]
+    if not editables:
+        return None
+    chosen = next((n for n in editables if n.get("focused")), editables[0])
+    secret = _is_password(chosen)
+    return FocusedField(
+        label=_field_label(chosen),
+        kind="password" if secret else "text",
+        holds=(chosen.get("text") or "").strip()[:HOLDS_MAX],
+        is_password=secret,
+    )
 
 
 def _keep(n: dict) -> bool:
@@ -89,6 +137,7 @@ def normalize(dump: dict, limit: int = MAX_CANDIDATES,
         candidates=kept[:limit],
         raw_count=len(nodes),
         screen_height=screen_h,
+        focused_field=the_focused_field(nodes),
     )
 
 

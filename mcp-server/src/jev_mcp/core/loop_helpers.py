@@ -6,8 +6,23 @@ heuristica generica de acciones criticas/irreversibles.
 """
 from __future__ import annotations
 
+import hashlib
+
+from ..ui_normalizer import PASSWORD_MARKERS
+
 # 254 interactivos (indices 0..253) + 1 NONE = 255 Choice. Nunca se supera.
 MAX_TABLE = 254
+
+# Read-back tras TYPE (patrón M2, P0-2): poll con timeout. Constantes
+# nombradas e inyectables (confirm_input acepta override) para tests.
+INPUT_TIMEOUT_MS = 2500
+POLL_MS = 60
+
+# Tope de `holds` en la vista del campo enfocado (igual que normalizer).
+HOLDS_MAX = 140
+
+# Valor enmascarado para secretos (nunca viaja ni se loguea el valor).
+PASS_MASK = "a password, not read"
 
 DECISION_ACTIONS = ("TAP", "TYPE", "SCROLL_DOWN", "SCROLL_UP",
                     "BACK", "DONE", "ESCALATE")
@@ -77,11 +92,12 @@ def _row_flags(c) -> str:
 def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
     """Poda a tabla numerada 0..253. Devuelve (rows, by_idx).
 
-    Cada fila: {idx, id, label, bounds, clickable, editable, focused,
-    scrollable, visible, class_short, flags}. Exceso >254: se conservan
-    los primeros (el normalizer ya prioriza editables >
+    Cada fila: {idx, id, label, text, resource_id, bounds, clickable,
+    editable, focused, scrollable, visible, class_short, flags}. Exceso
+    >254: se conservan los primeros (el normalizer ya prioriza editables >
     clickables-con-texto > resto en orden BFS estable); el resto se
-    alcanza por SCROLL + re-dump.
+    alcanza por SCROLL + re-dump. `text`/`resource_id` viajan en la fila
+    (no en la tabla serializada a S1) para verificación read-back.
     """
     rows: list[dict] = []
     for i, c in enumerate(candidates[:MAX_TABLE]):
@@ -93,6 +109,8 @@ def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
                 "idx": i,
                 "id": cid,
                 "label": str(label),
+                "text": str(c.get("text") or ""),
+                "resource_id": str(c.get("resource_id") or ""),
                 "bounds": list(bounds) if len(bounds) == 4 else [0, 0, 0, 0],
                 "clickable": bool(c.get("clickable")),
                 "editable": bool(c.get("editable")),
@@ -107,6 +125,8 @@ def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
                 "idx": i,
                 "id": getattr(c, "id", f"n_{i}"),
                 "label": c.compact(),
+                "text": str(getattr(c, "text", "") or ""),
+                "resource_id": str(getattr(c, "resource_id", "") or ""),
                 "bounds": list(getattr(c, "bounds", (0, 0, 0, 0))),
                 "clickable": bool(getattr(c, "clickable", False)),
                 "editable": bool(getattr(c, "editable", False)),
@@ -128,6 +148,134 @@ def serialize_table(rows: list[dict]) -> list[list]:
     return [[r["idx"], r.get("class_short", "View"),
              r.get("flags", EMPTY_FLAGS), r.get("label", "")]
             for r in rows]
+
+
+def _row_secret(row: dict) -> bool:
+    hay = (f"{row.get('class_short') or ''} {row.get('resource_id') or ''} "
+           f"{row.get('label') or ''}").lower()
+    return any(m in hay for m in PASSWORD_MARKERS)
+
+
+def focused_field_view(rows_or_cands: list) -> dict:
+    """Vista EN {label, holds} del campo enfocado (P0-1, puro).
+
+    Acepta filas de build_table o candidatos crudos (dicts o Candidate).
+    El loop la pasa a ask_decision; si read_screen ya trae
+    `focused_field`, esa vale (viene del normalizer). Password → máscara,
+    vacío/ausente → holds "empty". Sin mutación, sin literales de app.
+    """
+    first = rows_or_cands[0] if rows_or_cands else None
+    if isinstance(first, dict) and "idx" in first:
+        rows = rows_or_cands  # ya son filas de build_table
+    else:
+        rows, _ = build_table(list(rows_or_cands or []))
+    editables = [r for r in (rows or []) if r.get("editable")]
+    if not editables:
+        return {"label": "none", "holds": "empty"}
+    chosen = next((r for r in editables if r.get("focused")), editables[0])
+    if _row_secret(chosen):
+        return {"label": chosen.get("label") or chosen.get("id") or "none",
+                "holds": PASS_MASK}
+    text = (chosen.get("text") or "")[:HOLDS_MAX]
+    if not text and chosen.get("label"):
+        text = str(chosen["label"])[:HOLDS_MAX]
+    return {"label": chosen.get("label") or chosen.get("id") or "none",
+            "holds": text if text else "empty"}
+
+
+def prepare_input_verification(row: dict | None, text: str) -> dict | None:
+    """Target exact-span para read-back tras TYPE (patrón M2, P0-2).
+
+    None si no-editable / password / texto vacío (no verificable: el
+    loop aborta input_unverified en vez de retypear a ciegas).
+    Si no: {target: {id, resource_id, hint, bounds}, text}.
+    """
+    if not isinstance(row, dict) or not row.get("editable"):
+        return None
+    if not text or _row_secret(row):
+        return None
+    return {"target": {
+                "id": row.get("id", ""),
+                "resource_id": row.get("resource_id", "") or "",
+                "hint": str(row.get("label", "") or ""),
+                "bounds": list(row.get("bounds") or [0, 0, 0, 0]),
+            },
+            "text": text}
+
+
+def input_matches(candidates: list, verification: dict) -> bool:
+    """Exact-span: misma identidad Y text==esperado en exactamente 1 (M2).
+
+    Identidad = mismo resource_id estable, o fallback id+hint+bounds si
+    no hay rid. `candidates`: dicts crudos post-observe (con text,
+    resource_id, id, label, bounds).
+    """
+    target = (verification or {}).get("target", {})
+    want = (verification or {}).get("text", "")
+    tid, trid = target.get("id", ""), target.get("resource_id", "")
+    thint, tbounds = target.get("hint", ""), list(target.get("bounds") or [])
+    hits = 0
+    for c in candidates or []:
+        if not isinstance(c, dict):
+            continue
+        rid = c.get("resource_id", "") or ""
+        same = bool(trid and rid and rid == trid)
+        if not same and not trid:
+            same = (c.get("id") == tid
+                    and str(c.get("label", "") or "") == thint
+                    and list(c.get("bounds") or []) == tbounds)
+        if same and (c.get("text", "") or "") == want:
+            hits += 1
+    return hits == 1
+
+
+async def confirm_input(verification: dict, observe_fn,
+                        timeout_ms: int = INPUT_TIMEOUT_MS,
+                        poll_ms: int = POLL_MS) -> tuple[bool, dict]:
+    """Poll read-back hasta inputMatches o timeout (M2, P0-2). Sin retype.
+
+    observe_fn: async () -> state-dict con candidates. Devuelve
+    (ok, {snapshot, attempts}). Fallo de lectura = no-match transitorio
+    (sigue poll hasta timeout); timeout → (False, ...) y el loop cierra
+    input_unverified SIN segundo type_text.
+    """
+    import asyncio
+    import time
+
+    t0 = time.monotonic()
+    attempts = 0
+    last_snap = -1
+    while True:
+        try:
+            st = await observe_fn()
+        except Exception:
+            st = None
+        if isinstance(st, dict):
+            last_snap = st.get("snapshot_id", last_snap)
+            if input_matches(st.get("candidates", []), verification):
+                return True, {"snapshot": last_snap, "attempts": attempts}
+        attempts += 1
+        if (time.monotonic() - t0) * 1000 >= timeout_ms:
+            return False, {"snapshot": last_snap, "attempts": attempts}
+        await asyncio.sleep(max(poll_ms, 1) / 1000)
+
+
+def screen_fingerprint(candidates: list) -> str:
+    """Firma de pantalla por contenido (id+texto, ordenada, sha256).
+
+    Puro y genérico. El loop la usa como before/after en forense P0-2
+    (P1-5 la endurecerá ignorando tickers).
+    """
+    parts = []
+    for c in candidates or []:
+        if isinstance(c, dict):
+            parts.append((str(c.get("id", "")),
+                          str(c.get("text", "") or c.get("label", ""))))
+        else:
+            parts.append((str(getattr(c, "id", "")),
+                          str(getattr(c, "text", "") or "")))
+    raw = "|".join(f"{i}={t}" for i, t in sorted(parts))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def check_decision_json(dec: dict) -> dict | None:

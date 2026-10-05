@@ -44,12 +44,15 @@ async def read_screen() -> dict:
         await jam.__aexit__()
     except JamError as e:
         return B.jam_fail(e)
+    ff = st.focused_field.as_view() if st.focused_field is not None else {
+        "label": "none", "kind": "none", "holds": "empty"}
     return B.ok(True, {
         "package": st.package,
         "activity": st.activity,
         "snapshot_id": st.snapshot_id,
         "raw_count": st.raw_count,
         "screen_height": screen_height(),
+        "focused_field": ff,  # P0-1: campo enfocado + contenido (EN, sin secreto)
         "candidates": [
             {"id": c.id, "label": c.compact(), "cls": c.cls,
              "class_short": c.class_short, "flags": c.flags,
@@ -94,6 +97,15 @@ async def tap_node(node_id: str, snapshot_id: int) -> dict:
 
 
 async def type_text(node_id: str, snapshot_id: int, text: str) -> dict:
+    """Escribe con semántica REPLACE (patrón A3+M2, P0-2).
+
+    Clear-antes-de-escribir vía `ACTION_SET_TEXT` de Jam (el servidor
+    reemplaza el contenido, sin append con cursor desconocido). Sin
+    `adb input text` / clipboard / shell: solo Shizuku+Accessibility.
+    No re-observa dentro (el loop verifica con read-back; "acciones no
+    devuelven snapshot"). `snapshot_id` eco del request: el fresco lo
+    aporta el re-observe del loop.
+    """
     try:
         jam = await B.jam_client()
         try:
@@ -105,7 +117,8 @@ async def type_text(node_id: str, snapshot_id: int, text: str) -> dict:
             await jam.__aexit__()
     except JamError as e:
         return B.jam_fail(e)
-    return B.ok(True, {"chars": r.get("result", {}).get("chars", 0)},
+    return B.ok(True, {"chars": r.get("result", {}).get("chars", 0),
+                       "snapshot_id": snapshot_id},
                 hint="verifica el efecto con read_screen")
 
 

@@ -2,7 +2,8 @@
 import json
 import os
 
-from jev_mcp.ui_normalizer import MAX_CANDIDATES, format_state, normalize
+from jev_mcp.ui_normalizer import (MAX_CANDIDATES, format_state, normalize,
+                                   the_focused_field)
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "wa_home.json")
 
@@ -73,3 +74,55 @@ def test_poda_cadena_documentada():
     st = normalize(dump)
     assert len(st.candidates) == MAX_CANDIDATES
     assert st.raw_count == 300
+
+
+def _field_node(**kw):
+    base = {"id": "n_1", "text": "", "content_desc": None,
+            "class": "android.widget.EditText",
+            "resource_id": "com.example.messenger/id/message_input",
+            "bounds": [0, 200, 720, 300], "clickable": True,
+            "editable": True, "scrollable": False, "enabled": True,
+            "checked": False, "focused": False, "visible": True,
+            "children": []}
+    base.update(kw)
+    return base
+
+
+def test_focused_holds_written_vs_sent():
+    """P0-1: escrito-no-enviado (holds=texto) vs enviado (holds=empty)."""
+    written = [_field_node(text="hola mundo", focused=True)]
+    ff = the_focused_field(written)
+    assert ff is not None and ff.label == "hola mundo"
+    assert ff.holds == "hola mundo" and not ff.is_password
+    assert ff.as_view() == {"label": "hola mundo", "kind": "text",
+                            "holds": "hola mundo"}
+    sent = [_field_node(text="", focused=True)]  # tras envío: campo vacío
+    ff2 = the_focused_field(sent)
+    assert ff2 is not None and ff2.as_view()["holds"] == "empty"
+
+
+def test_focused_prefiere_foco_real_y_enmascara_password():
+    nodes = [_field_node(id="n_1", text="a"),
+             _field_node(id="n_2", text="b", focused=True)]
+    assert the_focused_field(nodes).label == "b"
+    assert the_focused_field([_field_node(id="n_1")]).label == (
+        "message_input")  # sin foco: primero editable, rid corto
+    assert the_focused_field([]) is None
+    pw = the_focused_field([_field_node(
+        text="s3cr3t", focused=True,
+        resource_id="com.example.messenger/id/password")])
+    assert pw.is_password and pw.as_view()["holds"] == "a password, not read"
+    # `label` es el identificador visible del campo; el valor secreto
+    # nunca viaja en `holds`.
+    assert pw.as_view() == {"label": "s3cr3t", "kind": "password",
+                            "holds": "a password, not read"}
+
+
+def test_normalize_expone_focused_field():
+    dump = {"package": "p", "snapshot_id": 3,
+            "nodes": [_field_node(text="hola mundo", focused=True)]}
+    st = normalize(dump)
+    assert st.focused_field is not None
+    assert st.focused_field.holds == "hola mundo"
+    st2 = normalize({"package": "p", "snapshot_id": 3, "nodes": []})
+    assert st2.focused_field is None

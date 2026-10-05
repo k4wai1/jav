@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 
 import httpx
@@ -33,6 +34,10 @@ log = logging.getLogger("jev")
 ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 MODEL = os.environ.get("JEV_MODEL", "typesafe/jev-1.13")
 TIMEOUT_S = 3.0
+
+# Tolerancia de suma de distribución (patrón M1, P0-3).
+PROB_SUM_TOL = 0.025
+ARGMAX_EPS = 1e-6
 
 DECISION_ACTIONS = ("TAP", "TYPE", "SCROLL_DOWN", "SCROLL_UP",
                     "BACK", "DONE", "ESCALATE")
@@ -66,17 +71,70 @@ def _stub_pick(name: str, q: dict):
             "p": 1.0, "confidence": 1.0, "raw": {"mock": True}}
 
 
+def _finite01(v) -> bool:
+    return isinstance(v, (int, float)) and math.isfinite(v) and 0.0 <= v <= 1.0
+
+
+def validate_choice(answer: dict, criteria: dict) -> tuple[str, dict, float]:
+    """Valida distribución choice estricta (patrón M1, P0-3).
+
+    Exige: answer dict con choice ∈ criteria; `probabilities` dict
+    (no-lista) completa (len == len(criteria), toda id presente);
+    confidence + probs finitas en [0,1]; |sum(probs)-1| ≤ 0.025;
+    probs[choice] es argmax (eps 1e-6). Fallo → JevHallucination con el
+    mensaje normativo. El loop consume SOLO la rama elegida: jamás lee
+    otras entradas de probs como fallback.
+    Devuelve (choice, probs, confidence).
+    """
+    if not isinstance(answer, dict):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(answer no es objeto: {type(answer).__name__})")
+    crit = criteria or {}
+    choice = answer.get("choice", answer.get("selected", answer.get("value")))
+    if choice not in crit:
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(choice {choice!r} fuera de criteria)")
+    probs = answer.get("probabilities", None)
+    if not isinstance(probs, dict):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            "(probabilities ausente o no-dict)")
+    if len(probs) != len(crit) or any(k not in probs for k in crit):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(probs incompleta: {len(probs)}/{len(crit)})")
+    conf = answer.get("confidence", 0.0)
+    try:
+        conf_f = float(conf)
+    except (TypeError, ValueError):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(confidence no numérica: {conf!r})")
+    if not _finite01(conf_f) or not all(_finite01(v) for v in probs.values()):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            "(confidence/probs no finitas o fuera de [0,1])")
+    if abs(sum(float(v) for v in probs.values()) - 1.0) > PROB_SUM_TOL:
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(suma={sum(float(v) for v in probs.values()):.3f} ±{PROB_SUM_TOL})")
+    if float(probs[choice]) + ARGMAX_EPS < max(float(v) for v in probs.values()):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(choice {choice!r} no es argmax)")
+    return choice, {k: float(v) for k, v in probs.items()}, conf_f
+
+
 def _norm(name: str, q: dict, ans: dict) -> dict:
     kind = q.get("type", "?")
     crit = q.get("criteria", {})
     if kind == "choice":
-        key = ans.get("choice", ans.get("selected", ans.get("value")))
-        if key not in (crit or {}):
-            raise JevHallucination(f"{name}: Jev devolvió {key!r} fuera de criteria")
-        probs = ans.get("probabilities", {}) or {}
+        key, probs, conf = validate_choice(ans, crit)
         return {"kind": "choice", "key": key,
-                "p": float(probs.get(key, ans.get("confidence", 0.0))),
-                "confidence": float(ans.get("confidence", 0.0)), "raw": ans}
+                "p": float(probs[key]),
+                "confidence": conf, "raw": ans}
     if kind == "noul":
         p = float(ans.get("noul", ans.get("p", 0.0)))
         return {"kind": "noul", "key": "true" if p >= 0.5 else "false",
@@ -151,7 +209,8 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
                        s2_guidance: str = "",
                        s2_hint: str = "",
                        current_app: str = "",
-                       screen_goal: str = "") -> tuple[dict, dict]:
+                       screen_goal: str = "",
+                       focused_field: dict | None = None) -> tuple[dict, dict]:
     """Single-pass S1: 1 llamada -> {action, target, needs_system_2, conf}.
 
     Contrato generic-dual-tier §3 (normativo v3): `state` + `questions`
@@ -163,6 +222,8 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
     `operator_verbatim: true`; el goal original se conserva en forense).
 
     `table`: filas {idx, class_short, flags, label, ...} (0..253).
+    `focused_field`: vista {label, holds} del campo enfocado (P0-1);
+    viaja como `state.focused_field` (EN; "empty"/máscara si no hay).
     `s2_hint` es alias legacy de `s2_guidance`. Sin key -> stub honesto
     {mock: true} que tapea la primera fila si existe (plomería).
     Clave/target fuera de criteria -> JevHallucination, nunca actuar.
@@ -177,6 +238,13 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
         rows_norm, _ = _h.build_table(list(table or []))
         serial = _h.serialize_table(rows_norm)
     target_keys = [str(r[0]) for r in serial] + ["NONE"]
+    if isinstance(focused_field, dict) and focused_field.get("label"):
+        ff_label = str(focused_field.get("label") or "none")
+        ff_holds = focused_field.get("holds", "empty")
+        ff_view = {"label": ff_label,
+                   "holds": str(ff_holds) if ff_holds else "empty"}
+    else:
+        ff_view = {"label": "none", "holds": "empty"}
     state = {
         "goal": goal,
         "screen_goal": screen,
@@ -184,6 +252,7 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
         "current_app": current_app,
         "snapshot_id": snapshot_id,
         "table": serial,
+        "focused_field": ff_view,
         "history": history_summary,
         "s2_guidance": guidance,
     }
@@ -222,12 +291,26 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
     a_target = answers["target"]
     a_s2 = answers["needs_system_2"]
     tgt = a_target["key"]
+    # Consume SOLO la rama elegida (M1): jamás leer otras entradas de
+    # `probabilities` como fallback; conf = min de las dos ramas con
+    # check de finitud (NaN/Inf → hallucination, nunca actuar).
+    conf_raw = min(a_action.get("confidence", 0.0),
+                   a_target.get("confidence", 0.0))
+    try:
+        conf_val = float(conf_raw)
+    except (TypeError, ValueError):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            f"(conf no numérica: {conf_raw!r})")
+    if not math.isfinite(conf_val):
+        raise JevHallucination(
+            "TypeSafe returned an invalid choice distribution. "
+            "(conf no finita)")
     decision = {
         "action": a_action["key"],
         "target": "NONE" if tgt == "NONE" else int(tgt),
         "needs_system_2": a_s2["key"] == "true",
-        "conf": float(min(a_action.get("confidence", 0.0),
-                          a_target.get("confidence", 0.0))),
+        "conf": conf_val,
         "type_text": "",
     }
     if is_mock():

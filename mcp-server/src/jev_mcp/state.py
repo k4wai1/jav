@@ -49,6 +49,27 @@ class Candidate:
 
 
 @dataclass
+class FocusedField:
+    """Campo que recibiría typing + lo que contiene (patrón A2).
+
+    `holds`: contenido actual recortado (≤140) o "" si vacío; password →
+    nunca viaja el valor (as_view lo enmascara). Todo EN.
+    """
+    label: str = ""
+    kind: str = "text"
+    holds: str = ""
+    is_password: bool = False
+
+    def as_view(self) -> dict:
+        """Vista apta para S1/forense: sin secreto crudo."""
+        if self.is_password:
+            return {"label": self.label or "none", "kind": "password",
+                    "holds": "a password, not read"}
+        return {"label": self.label or "none", "kind": self.kind or "text",
+                "holds": self.holds if self.holds else "empty"}
+
+
+@dataclass
 class NormalizedState:
     package: str
     activity: str
@@ -56,6 +77,7 @@ class NormalizedState:
     candidates: list[Candidate] = field(default_factory=list)
     raw_count: int = 0
     screen_height: int = 0  # Fase 5: fallback posicional del título
+    focused_field: FocusedField | None = None  # P0-1: escrito vs enviado
 
     def compact_lines(self) -> list[str]:
         return [c.compact() for c in self.candidates]

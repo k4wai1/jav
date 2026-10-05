@@ -31,10 +31,12 @@ def script_decide(decisions):
     calls = []
 
     async def fn(goal, rows, snapshot, history_summary="",
-                 s2_guidance="", current_app="", screen_goal=""):
+                 s2_guidance="", current_app="", screen_goal="",
+                 focused_field=None):
         calls.append({"rows": len(rows), "snapshot": snapshot,
                       "guidance": s2_guidance, "app": current_app,
-                      "screen_goal": screen_goal})
+                      "screen_goal": screen_goal,
+                      "focused_field": focused_field})
         d = decisions[min(len(decisions) - 1, len(calls) - 1)]
         return dict(d), {"in_tokens": 100, "out_tokens": 10}
     fn.calls = calls
@@ -201,7 +203,8 @@ async def test_tabla_topada_254_mas_none(capsys):
 @pytest.mark.asyncio
 async def test_hallucination_en_decide():
     async def bad(goal, rows, snapshot, history_summary="",
-                  s2_guidance="", current_app="", screen_goal=""):
+                  s2_guidance="", current_app="", screen_goal="",
+                  focused_field=None):
         raise jev_client.JevHallucination("clave rara")
 
     r = await loop.run_goal("x", _observe=_c(state()),
@@ -402,9 +405,13 @@ async def test_s1_payload_ingles_tabla_con_flags(monkeypatch):
         captured.update(payload)
         return {"answers": {
             "action": {"choice": "TAP", "confidence": 0.9,
-                       "probabilities": {"TAP": 0.9}},
+                       "probabilities": {"TAP": 0.52, "TYPE": 0.08,
+                                         "SCROLL_DOWN": 0.08,
+                                         "SCROLL_UP": 0.08, "BACK": 0.08,
+                                         "DONE": 0.08, "ESCALATE": 0.08}},
             "target": {"choice": "1", "confidence": 0.8,
-                       "probabilities": {"1": 0.8}},
+                       "probabilities": {"0": 0.1, "1": 0.8,
+                                         "NONE": 0.1}},
             "needs_system_2": {"noul": 0.1}},
             "usage": {"in_tokens": 10, "out_tokens": 2}}
 
@@ -516,15 +523,25 @@ async def test_type_usa_payload_s2_solo_hash_en_forense(tmp_path):
     """TYPE consume text_payload S2; el forense lleva hash, nunca crudo."""
     logf = str(tmp_path / "run.jsonl")
     secret = "I am on my way"
-    field = {"id": "n_0", "label": "Message", "text": "Message", "desc": "",
-             "cls": "android.widget.EditText", "class_short": "EditText",
-             "flags": "edit|foc",
-             "bounds": [0, 200, 720, 300], "clickable": True,
-             "editable": True, "focused": True, "scrollable": False,
-             "visible": True}
-    st = {"package": "com.example.messenger", "activity": "Thread",
-          "snapshot_id": 9, "screen_height": 1600,
-          "candidates": [field], "raw_count": 1}
+
+    def field_with(text):
+        return {"id": "n_0", "label": "Message", "text": text, "desc": "",
+                "cls": "android.widget.EditText", "class_short": "EditText",
+                "flags": "edit|foc",
+                "bounds": [0, 200, 720, 300], "clickable": True,
+                "editable": True, "focused": True, "scrollable": False,
+                "visible": True,
+                "resource_id": "com.example.messenger/id/message_input"}
+
+    calls = {"n": 0}
+
+    async def obs_evoluciona():
+        # P0-2: el campo refleja el REPLACE solo tras el TYPE (read-back).
+        calls["n"] += 1
+        shown = "Message" if calls["n"] <= 2 else secret
+        return {"package": "com.example.messenger", "activity": "Thread",
+                "snapshot_id": 9, "screen_height": 1600,
+                "candidates": [field_with(shown)], "raw_count": 1}
 
     async def advise(goal, reason="", table_lines=None,
                      history_summary="", need_text=False,
@@ -543,12 +560,229 @@ async def test_type_usa_payload_s2_solo_hash_en_forense(tmp_path):
         return {"ok": True, "verified": True, "evidence": {"via": "test"}}
 
     decide = script_decide([dec("TYPE", 0), dec("DONE", "NONE")])
-    r = await loop.run_goal("write a note", _observe=_c(st),
+    r = await loop.run_goal("write a note", _observe=obs_evoluciona,
                             _decide=decide, _advise=advise,
                             _execute_fn=exe, _verify_done=fake_verify_ok,
                             log_path=logf, confirm=True)
     assert r["ok"], r
     assert typed and typed[0]["text"] == secret, typed
+    assert typed[0]["kind"] == "type_text" and len(typed) == 1, typed
     raw = open(logf, encoding="utf-8").read()
     assert secret not in raw
     assert hashlib.sha256(secret.encode()).hexdigest() in raw
+    assert '"input_verified": true' in raw
+
+
+# --- P0-1: focused_field en el state S1 ---
+
+
+def _field_cand(text="", focused=True):
+    return {"id": "n_0", "label": "Message", "text": text, "desc": "",
+            "cls": "android.widget.EditText", "class_short": "EditText",
+            "flags": "edit|foc" if focused else "edit",
+            "bounds": [0, 200, 720, 300], "clickable": True,
+            "editable": True, "focused": focused, "scrollable": False,
+            "visible": True,
+            "resource_id": "com.example.messenger/id/message_input"}
+
+
+def _field_state(text="", snap=5, ff=None):
+    st = {"package": "com.example.messenger", "activity": "Thread",
+          "snapshot_id": snap, "screen_height": 1600,
+          "candidates": [_field_cand(text)], "raw_count": 1}
+    if ff is not None:
+        st["focused_field"] = ff
+    return st
+
+
+@pytest.mark.asyncio
+async def test_s1_state_carries_focused_field_en(monkeypatch):
+    """P0-1: el state S1 en inglés incluye campo enfocado + contenido."""
+    captured = {}
+
+    async def fake_post(payload):
+        captured.update(payload)
+        n = len(payload["state"]["table"])
+        keys = [str(r[0]) for r in payload["state"]["table"]] + ["NONE"]
+        probs_t = {k: (0.8 if k == "0" else 0.2 / max(n, 1))
+                   for k in keys}
+        s = sum(probs_t.values())
+        probs_t = {k: v / s for k, v in probs_t.items()}
+        probs_t["0"] = probs_t["0"] + (1.0 - sum(probs_t.values()))
+        return {"answers": {
+            "action": {"choice": "TAP", "confidence": 0.9,
+                       "probabilities": {"TAP": 0.52, "TYPE": 0.08,
+                                         "SCROLL_DOWN": 0.08,
+                                         "SCROLL_UP": 0.08, "BACK": 0.08,
+                                         "DONE": 0.08, "ESCALATE": 0.08}},
+            "target": {"choice": "0", "confidence": 0.8,
+                       "probabilities": probs_t},
+            "needs_system_2": {"noul": 0.1}},
+            "usage": {"in_tokens": 10, "out_tokens": 2}}
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(jev_client, "_post", fake_post)
+    rows = [{"idx": 0, "id": "n_0", "label": "Message",
+             "cls": "android.widget.EditText", "clickable": True,
+             "editable": True, "focused": True, "scrollable": False,
+             "bounds": [0, 200, 720, 300], "visible": True}]
+    d, _ = await jev_client.ask_decision(
+        "goal", rows, 9, current_app="com.example.messenger",
+        focused_field={"label": "Message", "holds": "hola mundo"})
+    assert d["action"] == "TAP"
+    ff = captured["state"]["focused_field"]
+    assert ff == {"label": "Message", "holds": "hola mundo"}, ff
+    assert set(captured["state"]) == {
+        "goal", "screen_goal", "operator_verbatim", "current_app",
+        "snapshot_id", "table", "focused_field", "history", "s2_guidance"}
+    # Sin campo → "empty"; password → máscara, nunca el valor.
+    await jev_client.ask_decision("goal", rows, 9, focused_field=None)
+    assert captured["state"]["focused_field"] == {"label": "none",
+                                                  "holds": "empty"}
+    await jev_client.ask_decision(
+        "goal", rows, 9,
+        focused_field={"label": "Password", "holds": "a password, not read"})
+    assert captured["state"]["focused_field"]["holds"] == (
+        "a password, not read")
+
+
+@pytest.mark.asyncio
+async def test_loop_pasa_focused_field_del_observe_a_s1():
+    """El loop propaga focused_field del observe al pass S1."""
+    ff = {"label": "Message", "kind": "text", "holds": "hola mundo"}
+    decide = script_decide([dec("TAP", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("mirar items",
+                            _observe=_c(_field_state("", ff=ff)),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec([]),
+                            _verify_done=fake_verify_ok)
+    assert r["ok"], r
+    assert decide.calls[0]["focused_field"] == ff, decide.calls
+
+
+# --- P0-2: TYPE replace + read-back (doble-type) ---
+
+
+@pytest.mark.asyncio
+async def test_type_replace_then_readback_ok(tmp_path):
+    """TYPE escribe vía open-text S2 y el read-back confirma (1 type)."""
+    logf = str(tmp_path / "run.jsonl")
+    calls = {"n": 0}
+
+    async def obs():
+        calls["n"] += 1
+        shown = "" if calls["n"] <= 2 else "hola"
+        return _field_state(shown)
+
+    typed = []
+
+    async def exe(action):
+        typed.append(action)
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+
+    decide = script_decide([dec("TYPE", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("mirar items", _observe=obs,
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=exe, _verify_done=fake_verify_ok,
+                            log_path=logf)
+    assert r["ok"], r
+    assert [a["kind"] for a in typed] == ["type_text"], typed
+    assert typed[0]["text"] == "hola", typed
+    raw = open(logf, encoding="utf-8").read()
+    assert '"input_verified": true' in raw
+    assert '"fingerprint_before"' in raw and '"fingerprint_after"' in raw
+
+
+@pytest.mark.asyncio
+async def test_type_mismatch_yields_input_unverified_without_retype(
+        monkeypatch):
+    """Campo parcial → input_unverified con UN solo type_text (sin retype)."""
+    monkeypatch.setattr(H, "INPUT_TIMEOUT_MS", 120)
+    monkeypatch.setattr(H, "POLL_MS", 20)
+
+    async def advise(goal, reason="", table_lines=None,
+                     history_summary="", need_text=False,
+                     current_app="", screen_goal=""):
+        if reason == "bootstrap":
+            return ({"command": "TYPE", "target": "NONE",
+                     "text": "hola mundo",
+                     "guidance_for_s1": "Type the S2 text into the field.",
+                     "stop": False},
+                    {"in_tokens": 30, "out_tokens": 5})
+        return hint_cmd(), {"in_tokens": 10, "out_tokens": 2}
+
+    typed = []
+
+    async def exe(action):
+        typed.append(action)
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+
+    decide = script_decide([dec("TYPE", 0), dec("DONE", "NONE")])
+    r = await loop.run_goal("mirar items",
+                            _observe=_c(_field_state("hola")),
+                            _decide=decide, _advise=advise,
+                            _execute_fn=exe, _verify_done=fake_verify_ok,
+                            confirm=True)
+    assert not r["ok"] and r["evidence"]["code"] == "input_unverified", r
+    assert "could not be confirmed" in r["evidence"]["error"], r
+    assert [a["kind"] for a in typed] == ["type_text"], typed  # 1 vez
+
+
+# --- P0-4: S2-vacío degradado ×1 ---
+
+
+@pytest.mark.asyncio
+async def test_s2_empty_degrades_once_then_aborts(tmp_path):
+    """S2 vacío: 1 TAP-visible degradado ejecuta; 2º vacío → S2_UNAVAILABLE."""
+    from jev_mcp import s2_client as _s2
+    logf = str(tmp_path / "run.jsonl")
+
+    async def empty_advise(goal, reason="", table_lines=None,
+                           history_summary="", need_text=False,
+                           current_app="", screen_goal=""):
+        raise _s2.S2EmptyResponse("content None o vacío")
+
+    async def empty_verify(goal, table_lines=None, history_summary="",
+                           n_actions=0, final_snapshot=None):
+        raise _s2.S2EmptyResponse("content None o vacío")
+
+    executed = []
+    decide = script_decide([dec("TAP", 0, conf=0.8), dec("DONE", "NONE")])
+    r = await loop.run_goal("abrir ajustes", _observe=_c(state()),
+                            _decide=decide, _advise=empty_advise,
+                            _execute_fn=ok_exec(executed),
+                            _verify_done=empty_verify, log_path=logf)
+    assert not r["ok"] and r["evidence"]["code"] == "S2_UNAVAILABLE", r
+    assert "S2_EMPTY_RESPONSE" in r["evidence"]["error"], r
+    assert [a["kind"] for a in executed] == ["tap_node"], executed
+    assert r["s2_calls"] == 2, r  # bootstrap + verify DONE
+    assert "System-2 unavailable" in decide.calls[0]["guidance"], decide.calls
+    lines = [json.loads(line) for line in open(logf, encoding="utf-8")]
+    assert any(line.get("s2_empty") is True for line in lines)
+    assert any(line.get("degraded") is True for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_s2_empty_never_types_without_payload():
+    """En degradación, TYPE sin payload nunca escribe (planned/escalate)."""
+    from jev_mcp import s2_client as _s2
+    calls = {"n": 0}
+
+    async def advise_once_empty(goal, reason="", table_lines=None,
+                                history_summary="", need_text=False,
+                                current_app="", screen_goal=""):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _s2.S2EmptyResponse("content None o vacío")
+        return hint_cmd(), {"in_tokens": 10, "out_tokens": 2}
+
+    executed = []
+    decide = script_decide([dec("TYPE", 0, conf=0.9)])
+    r = await loop.run_goal("mirar items", _observe=_c(state()),
+                            _decide=decide, _advise=advise_once_empty,
+                            _execute_fn=ok_exec(executed),
+                            _verify_done=fake_verify_ok, max_steps=6)
+    assert not r["ok"], r
+    assert [a["kind"] for a in executed] != ["type_text"]
+    assert not any(a["kind"] == "type_text" for a in executed), executed
+    assert r["evidence"]["code"] == "STUCK_SAME", r
