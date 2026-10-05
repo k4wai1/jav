@@ -19,6 +19,10 @@ paquetes, contactos ni fases prefijadas; sin literales de dominio.
 - snapshot mismatch ×3 → UI_UNSTABLE; misma (kind,node_id) ×3 → STUCK_SAME;
   misma decisión (action+target) ×3 sin cambio útil de snapshot → STUCK_SAME;
   S2 mock/stub → S2_UNAVAILABLE inmediato (nunca ciclar en giro).
+- DONE nunca directo: gate DONE→S2 (s2_client.verify_done, misma key)
+  con snapshot final + historial; achieved=true → ok; rechazo → sigue
+  el loop (máx steps), nunca éxito falso. Verificación + coste en
+  forense (`done_verify` + `cost_s2_verify` + [COST]).
 """
 from __future__ import annotations
 
@@ -101,7 +105,8 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                    confirm: bool = False,
                    forbidden: str | None = None,
                    _observe=None, _decide=None, _advise=None,
-                   _execute_fn=None, _verify=None) -> dict:
+                   _execute_fn=None, _verify=None,
+                   _verify_done=None) -> dict:
     """Ejecuta un objetivo en lenguaje natural sobre Android.
 
     goal: texto libre del operador. Sin paquetes ni contactos.
@@ -284,11 +289,98 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     return fin
                 continue
             if action == "DONE":
-                ok, evidence = await (_verify(goal, observe_fn)
-                                      if _verify else _default_verify(goal, observe_fn))
-                entry["final"] = {"ok": ok, "evidence": evidence}
+                # Gate DONE→S2: nunca aceptar directo. Re-lee pantalla
+                # fresca + pide a S2 (real, misma key) `goal-achieved?`
+                # contra snapshot final + historial. Solo achieved=true
+                # → ok. Rechazo → sigue el loop (máx steps), no éxito
+                # falso. Verificación + coste en forense. Genérico.
+                try:
+                    final_state = await observe_fn()
+                except ObserveError as e:
+                    log({"step": step, "goal": goal,
+                         "error": f"verify observe: {e}"})
+                    r = done(False, {"code": e.code, "error": e.error},
+                             step)
+                    r["hint"] = "revisa conexión con Jam"
+                    return r
+                final_rows, _ = _h.build_table(
+                    final_state.get("candidates", []))
+                final_snap = final_state.get("snapshot_id", snapshot)
+                n_eff = sum(
+                    1 for h in history
+                    if h.get("action", {}).get("kind") in
+                    ("tap_node", "type_text", "scroll", "back")
+                    and h.get("result", {}).get("ok"))
+                verify_fn = _verify_done or s2_client.verify_done
+                s2_calls += 1
+                try:
+                    v_out, v_usage = await verify_fn(
+                        goal,
+                        table_lines=[f"{r['idx']} {r['label']}"
+                                     for r in final_rows],
+                        history_summary=_history_summary(history),
+                        n_actions=n_eff,
+                        final_snapshot=final_snap)
+                except s2_client.S2EmptyResponse as e:
+                    err = {"code": "S2_UNAVAILABLE",
+                           "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
+                    entry["error"] = err
+                    log(entry)
+                    r = done(False, err, step)
+                    r["hint"] = ("reintentar: null-content transitorio "
+                                 "de S2")
+                    return r
+                except Exception as e:
+                    err = {"code": "S2_UNAVAILABLE",
+                           "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
+                    entry["error"] = err
+                    log(entry)
+                    r = done(False, err, step)
+                    r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
+                    return r
+                if _is_s2_mock(v_out, v_usage):
+                    err = {"code": "S2_UNAVAILABLE",
+                           "error": "S2 respondió mock/stub; sin veredicto"}
+                    entry["error"] = err
+                    log(entry)
+                    r = done(False, err, step)
+                    r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
+                    return r
+                si, so, spc = _s2_tokens(v_usage)
+                v_cost = tracker.track(_glm_id(), si, so, step=step,
+                                       tier="s2", provider_cost=spc)
+                achieved = bool((v_out or {}).get("achieved", False))
+                v_ev = str((v_out or {}).get("evidence", "") or "")[:500]
+                entry["done_verify"] = {
+                    "achieved": achieved, "evidence": v_ev,
+                    "n_actions": n_eff, "final_snapshot": final_snap}
+                entry["cost_s2_verify"] = v_cost
                 log(entry)
-                return done(ok, evidence, step)
+                history.append({
+                    "step": step,
+                    "action": {"kind": "done_verify",
+                               "achieved": achieved,
+                               "n_actions": n_eff},
+                    "result": {"ok": achieved,
+                               "evidence": {"s2": v_ev}},
+                    "snapshot": final_snap})
+                if achieved:
+                    evidence = {
+                        "goal": goal, "snapshot": final_snap,
+                        "n_cands": len(final_rows),
+                        "n_actions": n_eff,
+                        "s2_evidence": v_ev,
+                        "verified_by": "s2"}
+                    log({"step": step, "final": {"ok": True},
+                         "cost_total": tracker.total_cost_usd})
+                    return done(True, evidence, step)
+                s2_hint = (v_ev or
+                           "S2: goal no alcanzado; re-observar y avanzar")
+                log({"step": step, "done_rejected": True,
+                     "n_actions": n_eff, "final_snapshot": final_snap,
+                     "s2_evidence": v_ev,
+                     "cost_total": tracker.total_cost_usd})
+                continue
 
             target = decision.get("target", "NONE")
             row = by_idx.get(target) if isinstance(target, int) else None
