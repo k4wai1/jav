@@ -14,7 +14,28 @@ class Candidate:
     clickable: bool = False
     editable: bool = False
     focused: bool = False  # Fase 5: type exige foco explícito
+    scrollable: bool = False  # generic-dual-tier §4: flag `scroll`
+    visible: bool = True  # validación estructural del loop
     bounds: tuple[int, int, int, int] = (0, 0, 0, 0)  # l,t,r,b (Fase 5: título)
+
+    @property
+    def class_short(self) -> str:
+        """La clase ya se guarda corta; fallback `View`."""
+        return self.cls or "View"
+
+    @property
+    def flags(self) -> str:
+        """Subset ordenado `click|edit|foc|scroll`; vacío = `—`."""
+        parts = []
+        if self.clickable:
+            parts.append("click")
+        if self.editable:
+            parts.append("edit")
+        if self.focused:
+            parts.append("foc")
+        if self.scrollable:
+            parts.append("scroll")
+        return "|".join(parts) if parts else "—"
 
     def compact(self) -> str:
         focus = " (focused)" if (self.editable and self.focused) else ""

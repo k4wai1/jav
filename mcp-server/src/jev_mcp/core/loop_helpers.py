@@ -12,6 +12,10 @@ MAX_TABLE = 254
 DECISION_ACTIONS = ("TAP", "TYPE", "SCROLL_DOWN", "SCROLL_UP",
                     "BACK", "DONE", "ESCALATE")
 
+# Flags compactos de la tabla enriquecida (§4): subset ordenado,
+# `|`-separado; vacío = `—`. Derivación pura, sin literales de app.
+EMPTY_FLAGS = "—"
+
 # Verbos genericos de categorias criticas/irreversibles (§7.2):
 # comunicar a terceros, comprar/pagar, borrar datos, cuenta/permisos.
 # Genericos, no de ninguna app; el operador puede ampliar por goal.
@@ -23,13 +27,61 @@ SENSITIVE_VERBS = (
 )
 
 
+def short_class(cls: str) -> str:
+    """Último segmento de la clase Android (`Button`, `EditText`, …).
+
+    Desconocida o vacía → `View`. Derivación pura, sin literales de app.
+    """
+    short = (cls or "").rsplit(".", 1)[-1].strip()
+    return short or "View"
+
+
+def row_flags(*, clickable: bool = False, editable: bool = False,
+              focused: bool = False, scrollable: bool = False) -> str:
+    """Subset ordenado y compacto: `click|edit|foc|scroll`; vacío = `—`."""
+    parts = []
+    if clickable:
+        parts.append("click")
+    if editable:
+        parts.append("edit")
+    if focused:
+        parts.append("foc")
+    if scrollable:
+        parts.append("scroll")
+    return "|".join(parts) if parts else EMPTY_FLAGS
+
+
+def _row_class_short(c) -> str:
+    if isinstance(c, dict):
+        for k in ("class_short", "cls", "class"):
+            if c.get(k):
+                return short_class(str(c[k]))
+        return "View"
+    return short_class(str(getattr(c, "cls", "") or ""))
+
+
+def _row_flags(c) -> str:
+    if isinstance(c, dict) and c.get("flags"):
+        return str(c["flags"])
+    if isinstance(c, dict):
+        return row_flags(clickable=bool(c.get("clickable")),
+                         editable=bool(c.get("editable")),
+                         focused=bool(c.get("focused")),
+                         scrollable=bool(c.get("scrollable")))
+    return row_flags(clickable=bool(getattr(c, "clickable", False)),
+                     editable=bool(getattr(c, "editable", False)),
+                     focused=bool(getattr(c, "focused", False)),
+                     scrollable=bool(getattr(c, "scrollable", False)))
+
+
 def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
     """Poda a tabla numerada 0..253. Devuelve (rows, by_idx).
 
-    Cada fila: {idx, id, label, bounds, centroide, clickable, editable,
-    focused, visible}. Exceso >254: se conservan los primeros (el
-    normalizer ya prioriza editables > clickables-con-texto > resto en
-    orden BFS estable); el resto se alcanza por SCROLL + re-dump.
+    Cada fila: {idx, id, label, bounds, clickable, editable, focused,
+    scrollable, visible, class_short, flags}. Exceso >254: se conservan
+    los primeros (el normalizer ya prioriza editables >
+    clickables-con-texto > resto en orden BFS estable); el resto se
+    alcanza por SCROLL + re-dump.
     """
     rows: list[dict] = []
     for i, c in enumerate(candidates[:MAX_TABLE]):
@@ -45,7 +97,10 @@ def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
                 "clickable": bool(c.get("clickable")),
                 "editable": bool(c.get("editable")),
                 "focused": bool(c.get("focused")),
+                "scrollable": bool(c.get("scrollable")),
                 "visible": bool(c.get("visible", True)),
+                "class_short": _row_class_short(c),
+                "flags": _row_flags(c),
             })
         else:  # Candidate dataclass
             rows.append({
@@ -56,9 +111,23 @@ def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
                 "clickable": bool(getattr(c, "clickable", False)),
                 "editable": bool(getattr(c, "editable", False)),
                 "focused": bool(getattr(c, "focused", False)),
+                "scrollable": bool(getattr(c, "scrollable", False)),
                 "visible": bool(getattr(c, "visible", True)),
+                "class_short": _row_class_short(c),
+                "flags": _row_flags(c),
             })
     return rows, {r["idx"]: r for r in rows}
+
+
+def serialize_table(rows: list[dict]) -> list[list]:
+    """Filas enriquecidas para Jev: [idx, class_short, flags, label].
+
+    El `id` opaco y los `bounds` completos no viajan a Jev: quedan en
+    `by_idx` del loop para validación estructural y ejecución.
+    """
+    return [[r["idx"], r.get("class_short", "View"),
+             r.get("flags", EMPTY_FLAGS), r.get("label", "")]
+            for r in rows]
 
 
 def check_decision_json(dec: dict) -> dict | None:

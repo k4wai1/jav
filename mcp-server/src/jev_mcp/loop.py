@@ -1,17 +1,32 @@
-"""Agente simple y general: run_goal(goal: str) (generic-dual-tier §1, §6).
+"""Agente simple y general: run_goal(goal: str) (generic-dual-tier §1, §6-7).
 
-Ciclo observe→decide→mutate→verify, un paso = una primitiva. Sin
-paquetes, contactos ni fases prefijadas; sin literales de dominio.
+Ciclo bootstrap → observe→decide→mutate→verify, un paso = una primitiva.
+Sin paquetes, contactos ni fases prefijadas; sin literales de dominio.
 
-- S1 Jev (jev_client.ask_decision, single-pass) decide
+- Bootstrap §5.3: observe (foreground + dump_ui fresco) → S2-director con
+  {goal, current_app, table_lines} ANTES del primer pass S1. Si la app
+  requerida no está en foreground, S2 emite OPEN_APP primero y el loop
+  ejecuta `mcp.open_app(package)` + ~600 ms + dump fresco antes del
+  primer S1. Sin dump fresco no hay S1. S2 stub en bootstrap →
+  S2_UNAVAILABLE inmediato (nunca ciclar en giro ni adivinar paquetes).
+- S1 Jev (jev_client.ask_decision, single-pass, 100% en inglés) decide
   [TAP,TYPE,SCROLL_DOWN,SCROLL_UP,BACK,DONE,ESCALATE] + target 0..253|NONE
-  + needs_system_2 + conf. Misma OPENROUTER_API_KEY que S2.
-- S2 GLM-5.3 (s2_client.advise) solo ante ESCALATE / conf < TAU (0.70) /
-  redacción abierta / bloqueo semántico. Nunca toca el dispositivo.
+  + needs_system_2 + conf sobre la tabla enriquecida
+  [idx, class_short, flags, label] + current_app + screen_goal.
+- S2 GLM-5.3 (s2_client.advise) devuelve comandos EJECUTABLES
+  {command: OPEN_APP|TYPE|BACK|HINT, package/target/text/guidance_for_s1/
+  stop} ante bootstrap / ESCALATE / conf < TAU (0.70) / redacción abierta
+  / bloqueo semántico. S2 nunca tapea directo: el loop ejecuta
+  (OPEN_APP/BACK) o inyecta s2_guidance + text_payload en el siguiente
+  pass S1 (TYPE/HINT).
+- TYPE usa `text_payload` de S2 vía ACTION_SET_TEXT; en forense solo
+  `text_payload_hash` (sha256) + `s2_text_len`, nunca el texto crudo.
 - Cada llamada LLM pasa por CostTracker (log [COST] + `cost` en forense
-  + acumulado jev_cost/s2_cost/total_cost en el resultado).
-- Compuertas §7: estructurales siempre (JSON válido, target en tabla
-  vigente, visible, coords en pantalla, snapshot fresco); críticas /
+  + acumulado jev_cost/s2_cost/total_cost en el resultado; el bootstrap
+  S2 también pasa por CostTracker con step 0).
+- Compuertas §8: estructurales siempre (JSON válido, target en tabla
+  vigente, visible, coords en pantalla, snapshot fresco, comando S2
+  válido con package con forma y text no vacío en TYPE); críticas /
   irreversibles exigen preview + confirm:true (sin él se planean sin
   ejecutar: needs_confirm). FORBIDDEN solo opt-in por goal (forbidden?).
 - type exige foco explícito: sin focused → tap previo explícito (nada
@@ -26,6 +41,8 @@ paquetes, contactos ni fases prefijadas; sin literales de dominio.
 """
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import time
 
@@ -35,14 +52,16 @@ from .core import loop_helpers as _h
 from .core.cost import CostTracker
 from .core.cost import glm_model_id as _glm_id
 from .core.cost import jev_model_id as _jev_id
+from .tools import app as app_tools
 from .tools import ui as ui_tools
 
 TAU = 0.70
 MAX_STALE_STREAK = 3
 STUCK_N = 2  # 2 previas iguales + actual = ×3 → STUCK_SAME
+BOOTSTRAP_DELAY_S = 0.6  # estabilización tras open_app antes del re-dump
 
 CLOSED_ACTIONS = {"tap_node", "type_text", "scroll", "back", "done",
-                  "abort", "noop", "escalate"}
+                  "abort", "noop", "escalate", "open_app"}
 
 
 class ObserveError(Exception):
@@ -99,6 +118,30 @@ def _history_summary(history: list, last: int = 3) -> str:
     return "; ".join(parts)
 
 
+def _table_lines(rows: list[dict]) -> list[str]:
+    """Tabla enriquecida serializada para S2: `idx class_short flags label`."""
+    return [f"{r['idx']} {r.get('class_short', 'View')} "
+            f"{r.get('flags', '—')} {r['label']}" for r in rows]
+
+
+def _payload_hash(text: str) -> str:
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def _redacted_command(cmd: dict) -> dict:
+    """Comando S2 apto para forense: sin texto crudo, solo hash + longitud."""
+    red = {"command": cmd.get("command"),
+           "package": cmd.get("package", ""),
+           "target": cmd.get("target", "NONE"),
+           "guidance_for_s1": cmd.get("guidance_for_s1", ""),
+           "stop": bool(cmd.get("stop", False))}
+    text = cmd.get("text", "") or ""
+    if text:
+        red["text_len"] = len(text)
+        red["text_sha256"] = _payload_hash(text)
+    return red
+
+
 async def run_goal(goal: str, *, max_steps: int = 20,
                    timeout_s: float = 60,
                    log_path: str | None = None,
@@ -106,7 +149,8 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                    forbidden: str | None = None,
                    _observe=None, _decide=None, _advise=None,
                    _execute_fn=None, _verify=None,
-                   _verify_done=None) -> dict:
+                   _verify_done=None, _open_app=None,
+                   _bootstrap_delay_s: float = BOOTSTRAP_DELAY_S) -> dict:
     """Ejecuta un objetivo en lenguaje natural sobre Android.
 
     goal: texto libre del operador. Sin paquetes ni contactos.
@@ -114,12 +158,14 @@ async def run_goal(goal: str, *, max_steps: int = 20,
     auditada); sin él se planean sin ejecutar (needs_confirm).
     forbidden: pattern regex opt-in; sin él no hay filtro.
     Devuelve {ok, verified, evidence, hint}-compatible + costes y forense
-    en log_path (JSONL por paso: conf, tau, cost).
+    en log_path (JSONL por paso: conf, tau, cost, s2_command,
+    text_payload_hash).
     """
     observe_fn = _observe or _default_observe
     decide_fn = _decide or jev_client.ask_decision
     advise_fn = _advise or s2_client.advise
     execute_fn = _execute_fn or _execute
+    open_app_fn = _open_app or app_tools.open_app
     run_id = str(int(time.time()))
     tracker = CostTracker(run_id=run_id)
     t0 = time.time()
@@ -128,7 +174,11 @@ async def run_goal(goal: str, *, max_steps: int = 20,
     jev_calls = 0
     s2_calls = 0
     step = 0
-    s2_hint = ""
+    s2_guidance = ""
+    screen_goal = goal  # verbatim hasta que S2 aporte screen_goal (HINT)
+    text_payload = ""  # texto exacto S2 → ACTION_SET_TEXT; S1 nunca redacta
+    text_payload_hash = ""
+    pending_state: dict | None = None
     prev_dec_sig: tuple | None = None
     prev_snapshot: int | None = None
     same_dec_streak = 0
@@ -152,26 +202,181 @@ async def run_goal(goal: str, *, max_steps: int = 20,
         d.update(costs())
         return d
 
+    def s2_unavailable(error: str, hint: str, steps: int) -> dict:
+        r = done(False, {"code": "S2_UNAVAILABLE", "error": error}, steps)
+        r["hint"] = hint
+        return r
+
+    async def s2_direct(reason: str, rows: list, current_app: str,
+                        need_text: bool = False,
+                        usage_step: int | None = None):
+        """Consulta a S2-director y valida el comando ejecutable.
+
+        Devuelve (cmd, usage). El llamante traduce mock/excepción a
+        S2_UNAVAILABLE y comando inválido a S2_BAD_COMMAND. Nunca actúa.
+        """
+        out, usage = await advise_fn(
+            goal, reason=reason, table_lines=_table_lines(rows),
+            history_summary=_history_summary(history),
+            need_text=need_text, current_app=current_app,
+            screen_goal=screen_goal)
+        return s2_client.parse_command(out), usage
+
+    def note_guidance(cmd: dict) -> None:
+        """Inyecta guidance_for_s1 (+ screen_goal en HINT) para el próximo S1."""
+        nonlocal s2_guidance, screen_goal
+        g = cmd.get("guidance_for_s1", "") or ""
+        if g:
+            s2_guidance = g
+            if cmd.get("command") == "HINT":
+                screen_goal = g
+
+    async def apply_s2(cmd: dict, current_snapshot: int):
+        """Aplica un comando S2 validado (§5.2). Nunca tapea directo.
+
+        Devuelve resultado final si el comando cierra el goal o falla;
+        None si el loop debe continuar (re-observe → S1). TYPE solo guarda
+        text_payload + guidance (el TYPE S1 va en el paso siguiente con
+        snapshot fresco). HINT no muta. OPEN_APP/BACK mutan vía sus tools
+        y dejan `pending_state` fresco.
+        """
+        nonlocal text_payload, text_payload_hash, pending_state
+        command = cmd.get("command")
+        if command == "TYPE":
+            text_payload = cmd.get("text", "") or ""
+            text_payload_hash = _payload_hash(text_payload)
+            note_guidance(cmd)
+            if cmd.get("stop"):
+                ok, evidence = await (_verify(goal, observe_fn)
+                                      if _verify
+                                      else _default_verify(goal, observe_fn))
+                return done(ok, evidence, max(step, 0))
+            return None
+        if command == "HINT":
+            note_guidance(cmd)
+            if cmd.get("stop"):
+                ok, evidence = await (_verify(goal, observe_fn)
+                                      if _verify
+                                      else _default_verify(goal, observe_fn))
+                return done(ok, evidence, max(step, 0))
+            return None
+        if command == "BACK":
+            note_guidance(cmd)
+            res = await execute_fn({"kind": "back", "key": "back"})
+            history.append({"step": step, "action": {"kind": "back"},
+                            "result": res, "snapshot": current_snapshot})
+            if not res.get("ok"):
+                ev = res.get("evidence", {}) or {}
+                return done(False, {"code": ev.get("code", "?"),
+                                    "error": ev.get("error", "?")},
+                            max(step, 1))
+            try:
+                pending_state = await observe_fn()
+            except ObserveError as e:
+                return done(False, {"code": e.code, "error": e.error},
+                            max(step, 1))
+            return None
+        if command == "OPEN_APP":
+            note_guidance(cmd)
+            res = await open_app_fn(cmd.get("package", ""))
+            if not res.get("ok"):
+                ev = res.get("evidence", {}) or {}
+                return done(False, {"code": ev.get("code", "?"),
+                                    "error": ev.get("error", "?")},
+                            max(step, 1))
+            await asyncio.sleep(_bootstrap_delay_s)
+            try:
+                pending_state = await observe_fn()
+            except ObserveError as e:
+                return done(False, {"code": e.code, "error": e.error},
+                            max(step, 1))
+            return None
+        return done(False, {"code": "S2_BAD_COMMAND",
+                            "error": f"command no aplicable: {command!r}"},
+                    max(step, 1))
+
     try:
+        # --- Bootstrap §5.3: observe → S2-director → [OPEN_APP → open_app
+        # + ~600 ms + re-observe] | [HINT/TYPE → guidance/payload]. Antes
+        # del primer pass S1; sin dump fresco no hay S1. ---
+        try:
+            bstate = await observe_fn()
+        except ObserveError as e:
+            r = done(False, {"code": e.code, "error": e.error}, 0)
+            r["hint"] = "revisa conexión con Jam"
+            return r
+        brows, _ = _h.build_table(bstate.get("candidates", []))
+        bsnap = bstate.get("snapshot_id", -1)
+        bapp = bstate.get("package", "") or ""
+        s2_calls += 1
+        try:
+            bcmd, busage = await s2_direct("bootstrap", brows, bapp)
+        except s2_client.S2EmptyResponse as e:
+            err = f"S2_EMPTY_RESPONSE: {e}"[:220]
+            log({"step": 0, "phase": "bootstrap", "error": err})
+            r = s2_unavailable(err, "reintentar: null-content transitorio "
+                                   "de S2", 0)
+            return r
+        except s2_client.S2BadCommand as e:
+            err = {"code": "S2_BAD_COMMAND", "error": str(e)[:220]}
+            log({"step": 0, "phase": "bootstrap", "error": err})
+            return done(False, err, 0)
+        except Exception as e:
+            err = f"S2 falló ({type(e).__name__}): {e}"[:220]
+            log({"step": 0, "phase": "bootstrap", "error": err})
+            return s2_unavailable(err, "falta OPENROUTER_API_KEY o S2 caído",
+                                  0)
+        if _is_s2_mock(bcmd, busage):
+            bi, bo, bpc = _s2_tokens(busage)
+            bcost = tracker.track(_glm_id(), bi, bo, step=0, tier="s2",
+                                   provider_cost=bpc)
+            log({"step": 0, "phase": "bootstrap", "cost_s2": bcost,
+                 "error": {"code": "S2_UNAVAILABLE",
+                           "error": "S2 respondió mock/stub; sin plan real"}})
+            return s2_unavailable("S2 respondió mock/stub; sin plan real",
+                                  "falta OPENROUTER_API_KEY o S2 caído", 0)
+        bi, bo, bpc = _s2_tokens(busage)
+        bcost = tracker.track(_glm_id(), bi, bo, step=0, tier="s2",
+                               provider_cost=bpc)
+        log({"step": 0, "phase": "bootstrap", "goal": goal,
+             "snapshot": bsnap, "current_app": bapp,
+             "s2_command": _redacted_command(bcmd), "cost_s2": bcost})
+        history.append({"step": 0,
+                        "action": {"kind": "bootstrap",
+                                   "command": bcmd.get("command")},
+                        "result": {"ok": True,
+                                   "evidence": _redacted_command(bcmd)},
+                        "snapshot": bsnap})
+        fin = await apply_s2(bcmd, bsnap)
+        if fin is not None:
+            return fin
+
         while step < max_steps and (time.time() - t0) < timeout_s:
             step += 1
-            try:
-                state = await observe_fn()
-            except ObserveError as e:
-                log({"step": step, "goal": goal, "error": str(e)})
-                r = done(False, {"code": e.code, "error": e.error}, step)
-                r["hint"] = "revisa conexión con Jam"
-                return r
+            if pending_state is not None:
+                state = pending_state
+                pending_state = None
+            else:
+                try:
+                    state = await observe_fn()
+                except ObserveError as e:
+                    log({"step": step, "goal": goal, "error": str(e)})
+                    r = done(False, {"code": e.code, "error": e.error}, step)
+                    r["hint"] = "revisa conexión con Jam"
+                    return r
             rows, by_idx = _h.build_table(state.get("candidates", []))
             snapshot = state.get("snapshot_id", -1)
             screen_h = state.get("screen_height", 0) or 0
+            current_app = state.get("package", "") or ""
 
-            # --- S1 single-pass ---
+            # --- S1 single-pass (100% en inglés, §3) ---
             try:
                 decision, usage = await decide_fn(
                     goal, rows, snapshot,
                     history_summary=_history_summary(history),
-                    s2_hint=s2_hint)
+                    s2_guidance=s2_guidance,
+                    current_app=current_app,
+                    screen_goal=screen_goal)
             except jev_client.JevError as e:
                 log({"step": step, "snapshot": snapshot, "error": str(e)})
                 return done(False, {"code": "JEV_ERROR", "error": str(e)}, step)
@@ -214,19 +419,19 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 return done(False, err, step)
 
             async def escalate(reason: str, need_text: bool = False) -> dict | None:
-                """Vía S2: asesora, loguea, retoma en S1. Nunca tapea.
+                """Vía S2-director: comando ejecutable, aplicar §5.2.
 
-                Devuelve resultado final si S2 pide stop; None si continuar.
-                S2 mock/stub → abort inmediato S2_UNAVAILABLE (nunca ciclar).
+                Devuelve resultado final si S2 pide stop o el comando
+                falla; None si continuar (re-observe → S1). S2 mock/stub
+                o comando inválido → abort honesto, nunca ciclar ni
+                tapear.
                 """
-                nonlocal s2_calls, s2_hint
+                nonlocal s2_calls
                 s2_calls += 1  # cuenta el intento (real o stub): audita S2
                 try:
-                    s2_out, s2_usage = await advise_fn(
-                        goal, reason=reason,
-                        table_lines=[f"{r['idx']} {r['label']}" for r in rows],
-                        history_summary=_history_summary(history),
-                        need_text=need_text)
+                    cmd, s2_usage = await s2_direct(
+                        reason, rows, current_app, need_text=need_text,
+                        usage_step=step)
                 except s2_client.S2EmptyResponse as e:
                     err = {"code": "S2_UNAVAILABLE",
                            "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
@@ -236,6 +441,12 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     r["hint"] = ("reintentar: null-content transitorio "
                                  "de S2")
                     return r
+                except s2_client.S2BadCommand as e:
+                    err = {"code": "S2_BAD_COMMAND",
+                           "error": str(e)[:220]}
+                    entry["error"] = err
+                    log(entry)
+                    return done(False, err, step)
                 except Exception as e:
                     err = {"code": "S2_UNAVAILABLE",
                            "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
@@ -244,7 +455,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     r = done(False, err, step)
                     r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
                     return r
-                if _is_s2_mock(s2_out, s2_usage):
+                if _is_s2_mock(cmd, s2_usage):
                     err = {"code": "S2_UNAVAILABLE",
                            "error": "S2 respondió mock/stub; sin plan real"}
                     entry["error"] = err
@@ -257,24 +468,18 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                                         tier="s2", provider_cost=spc)
                 entry["escalated"] = True
                 entry["s2_reason"] = reason
-                entry["s2"] = s2_out
+                entry["s2_command"] = _redacted_command(cmd)
                 entry["cost_s2"] = s2_cost
                 log(entry)
                 history.append({"step": step,
                                 "action": {"kind": "escalate",
                                            "reason": reason, "conf": conf},
-                                "result": {"ok": True, "evidence": s2_out},
+                                "result": {"ok": True,
+                                           "evidence": _redacted_command(cmd)},
                                 "snapshot": snapshot})
-                s2_hint = str(s2_out.get("criteria") or
-                              " ".join(s2_out.get("plan", [])))
-                if s2_out.get("stop"):
-                    ok, evidence = await (_verify(goal, observe_fn)
-                                          if _verify
-                                          else _default_verify(goal, observe_fn))
-                    entry2 = {"step": step, "final": {"ok": ok},
-                              "cost_total": tracker.total_cost_usd}
-                    log(entry2)
-                    return done(ok, evidence, step)
+                fin = await apply_s2(cmd, snapshot)
+                if fin is not None:
+                    return fin
                 return None
 
             if _guards.gate_tau(conf, TAU) is not None and action != "DONE":
@@ -316,8 +521,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 try:
                     v_out, v_usage = await verify_fn(
                         goal,
-                        table_lines=[f"{r['idx']} {r['label']}"
-                                     for r in final_rows],
+                        table_lines=_table_lines(final_rows),
                         history_summary=_history_summary(history),
                         n_actions=n_eff,
                         final_snapshot=final_snap)
@@ -374,8 +578,8 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     log({"step": step, "final": {"ok": True},
                          "cost_total": tracker.total_cost_usd})
                     return done(True, evidence, step)
-                s2_hint = (v_ev or
-                           "S2: goal no alcanzado; re-observar y avanzar")
+                s2_guidance = (v_ev or
+                               "S2: goal not reached; re-observe and advance")
                 log({"step": step, "done_rejected": True,
                      "n_actions": n_eff, "final_snapshot": final_snap,
                      "s2_evidence": v_ev,
@@ -419,18 +623,17 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 return done(False, {"code": stuck["code"],
                                     "error": stuck["reason"]}, step)
 
-            # TYPE: texto solo vía S2 (S1 nunca redacta); foco explícito.
+            # TYPE: texto solo vía text_payload S2 (S1 nunca redacta);
+            # foco explícito exigible. En forense solo hash, nunca crudo.
             text = ""
             if action == "TYPE":
-                text = decision.get("type_text", "") or ""
+                text = text_payload or decision.get("type_text", "") or ""
                 if not text:
                     s2_calls += 1  # intento S2 open-text (audita S2 real)
                     try:
-                        s2_out, s2_usage = await advise_fn(
-                            goal, reason="open-text",
-                            table_lines=[f"{r['idx']} {r['label']}" for r in rows],
-                            history_summary=_history_summary(history),
-                            need_text=True)
+                        cmd, s2_usage = await s2_direct(
+                            "open-text", rows, current_app,
+                            need_text=True, usage_step=step)
                     except s2_client.S2EmptyResponse as e:
                         err = {"code": "S2_UNAVAILABLE",
                                "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
@@ -440,6 +643,12 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                         r["hint"] = ("reintentar: null-content transitorio "
                                      "de S2")
                         return r
+                    except s2_client.S2BadCommand as e:
+                        err = {"code": "S2_BAD_COMMAND",
+                               "error": str(e)[:220]}
+                        entry["error"] = err
+                        log(entry)
+                        return done(False, err, step)
                     except Exception as e:
                         err = {"code": "S2_UNAVAILABLE",
                                "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
@@ -448,7 +657,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                         r = done(False, err, step)
                         r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
                         return r
-                    if _is_s2_mock(s2_out, s2_usage):
+                    if _is_s2_mock(cmd, s2_usage):
                         err = {"code": "S2_UNAVAILABLE",
                                "error": "S2 respondió mock/stub; sin texto real"}
                         entry["error"] = err
@@ -457,15 +666,24 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                         r["hint"] = "falta OPENROUTER_API_KEY o S2 caído"
                         return r
                     si, so, spc = _s2_tokens(s2_usage)
-                    tracker.track(_glm_id(), si, so, step=step, tier="s2",
-                                  provider_cost=spc)
-                    text = s2_out.get("text", "") or ""
-                    entry["s2_text_len"] = len(text)
-                    if not text:
+                    t_cost = tracker.track(_glm_id(), si, so, step=step,
+                                           tier="s2", provider_cost=spc)
+                    entry["s2_command"] = _redacted_command(cmd)
+                    entry["cost_s2"] = t_cost
+                    if cmd.get("command") != "TYPE" or not cmd.get("text"):
                         fin = await escalate("S2 sin texto para TYPE")
                         if fin is not None:
                             return fin
                         continue
+                    text_payload = cmd.get("text", "")
+                    text_payload_hash = _payload_hash(text_payload)
+                    note_guidance(cmd)
+                    text = text_payload
+                    entry["s2_text_len"] = len(text)
+                    entry["text_payload_hash"] = text_payload_hash
+                else:
+                    entry["text_payload_hash"] = _payload_hash(text)
+                    entry["s2_text_len"] = len(text)
                 internal["text"] = text
                 if not row.get("focused", False):
                     focus_act = {"kind": "tap_node", "node_id": row["id"],
@@ -485,8 +703,11 @@ async def run_goal(goal: str, *, max_steps: int = 20,
 
             label = row["label"] if row else ""
             if _h.is_sensitive(goal, label + " " + text) and not confirm:
-                preview = {"action": action, "target_id": row["id"] if row else None,
-                           "label": label, "text": text or None,
+                preview = {"action": action,
+                           "target_id": row["id"] if row else None,
+                           "label": label,
+                           "text_len": len(text) if text else 0,
+                           "text_sha256": _payload_hash(text) if text else "",
                            "snapshot": snapshot}
                 entry["planned"] = True
                 entry["preview"] = preview

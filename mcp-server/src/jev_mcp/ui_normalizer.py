@@ -77,6 +77,8 @@ def normalize(dump: dict, limit: int = MAX_CANDIDATES,
             clickable=bool(n.get("clickable")),
             editable=bool(n.get("editable")),
             focused=bool(n.get("focused")),
+            scrollable=bool(n.get("scrollable")),
+            visible=bool(n.get("visible", True)),
             bounds=(b[0], b[1], b[2], b[3]) if len(b) == 4 else (0, 0, 0, 0),
         ))
     kept.sort(key=_rank)  # estable: conserva orden BFS dentro de cada tier

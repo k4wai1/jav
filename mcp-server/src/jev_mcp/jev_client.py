@@ -148,45 +148,70 @@ def _usage_tokens(usage: dict) -> tuple[int, int, float | None]:
 
 async def ask_decision(goal: str, table: list, snapshot_id: int, *,
                        history_summary: str = "",
-                       s2_hint: str = "") -> tuple[dict, dict]:
+                       s2_guidance: str = "",
+                       s2_hint: str = "",
+                       current_app: str = "",
+                       screen_goal: str = "") -> tuple[dict, dict]:
     """Single-pass S1: 1 llamada -> {action, target, needs_system_2, conf}.
 
-    `table`: filas {idx, id, label, ...} (0..253). Sin key -> stub honesto
+    Contrato generic-dual-tier §3 (normativo v3): `state` + `questions`
+    100% en inglés — claves, instrucciones, etiquetas de tabla. La tabla
+    viaja enriquecida como [idx, class_short, flags, label]; el `id`
+    opaco y los `bounds` quedan en `by_idx` del loop. Cabecera siempre
+    con `current_app` (foreground real) + `screen_goal` (sub-objetivo en
+    inglés; sin `screen_goal` S2 se usa el goal verbatim con
+    `operator_verbatim: true`; el goal original se conserva en forense).
+
+    `table`: filas {idx, class_short, flags, label, ...} (0..253).
+    `s2_hint` es alias legacy de `s2_guidance`. Sin key -> stub honesto
     {mock: true} que tapea la primera fila si existe (plomería).
     Clave/target fuera de criteria -> JevHallucination, nunca actuar.
     """
-    target_keys = [str(r["idx"]) for r in table] + ["NONE"]
+    from .core import loop_helpers as _h
+
+    guidance = s2_guidance or s2_hint or ""
+    screen = screen_goal or goal
+    if isinstance(table, (list, tuple)) and table and isinstance(table[0], (list, tuple)):
+        serial = [list(r) for r in table]
+    else:
+        rows_norm, _ = _h.build_table(list(table or []))
+        serial = _h.serialize_table(rows_norm)
+    target_keys = [str(r[0]) for r in serial] + ["NONE"]
     state = {
         "goal": goal,
+        "screen_goal": screen,
+        "operator_verbatim": not bool(screen_goal),
+        "current_app": current_app,
         "snapshot_id": snapshot_id,
-        "table": [(r["idx"], r["id"], r["label"]) for r in table],
+        "table": serial,
         "history": history_summary,
-        "s2_hint": s2_hint,
+        "s2_guidance": guidance,
     }
     questions = {
         "action": {
             "type": "choice",
             "instructions": (
-                "Elige UNA primitiva para avanzar el goal. TAP toca un nodo; "
-                "TYPE escribe en un campo (solo si el texto ya existe en "
-                "goal/UI, nunca inventes texto); SCROLL_* desplaza; BACK "
-                "retrocede; DONE si el goal ya se cumplió (verificado en "
-                "pantalla); ESCALATE si conf < 0.70, anomalía o necesitas "
-                "redacción abierta."),
+                "Pick ONE primitive to advance the goal. TAP taps a node; "
+                "TYPE types into a field (only with text already present in "
+                "goal/UI or S2 text_payload, never invent text); SCROLL_* "
+                "scrolls; BACK goes back; DONE only if the goal is already "
+                "achieved on screen; ESCALATE on conf < 0.70, anomaly, or "
+                "open-text need."),
             "criteria": {a: a for a in DECISION_ACTIONS},
         },
         "target": {
             "type": "choice",
             "instructions": (
-                "Fila de la tabla objetivo (índice). NONE si la acción no "
-                "necesita nodo (BACK/DONE/ESCALATE) o no hay candidato útil. "
-                "Nunca inventes índices fuera de la tabla."),
+                "Target table row index. NONE if the action needs no node "
+                "(BACK/DONE/ESCALATE) or there is no useful candidate. "
+                "Never invent indices outside the table."),
             "criteria": {k: k for k in target_keys},
         },
         "needs_system_2": {
             "type": "noul",
-            "instructions": ("¿Requiere redacción abierta o desambiguación "
-                             "de Sistema 2 (texto a escribir no presente)?"),
+            "instructions": ("Does this step require System-2 open-text "
+                             "composition or disambiguation (text to type "
+                             "not present)?"),
         },
     }
     if is_mock():
@@ -207,6 +232,6 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
     }
     if is_mock():
         decision["mock"] = True
-        if table and decision["action"] == "TAP" and decision["target"] == "NONE":
-            decision["target"] = table[0]["idx"]
+        if serial and decision["action"] == "TAP" and decision["target"] == "NONE":
+            decision["target"] = serial[0][0]
     return decision, usage

@@ -51,8 +51,11 @@ async def read_screen() -> dict:
         "raw_count": st.raw_count,
         "screen_height": screen_height(),
         "candidates": [
-            {"id": c.id, "label": c.compact(), "clickable": c.clickable,
-             "editable": c.editable, "focused": c.focused,
+            {"id": c.id, "label": c.compact(), "cls": c.cls,
+             "class_short": c.class_short, "flags": c.flags,
+             "clickable": c.clickable, "editable": c.editable,
+             "focused": c.focused, "scrollable": c.scrollable,
+             "visible": c.visible,
              "text": c.text, "desc": c.desc,
              "resource_id": c.resource_id, "bounds": list(c.bounds)}
             for c in st.candidates

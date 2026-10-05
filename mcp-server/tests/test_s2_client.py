@@ -47,7 +47,7 @@ def _null_payload():
 
 
 def _ok_payload():
-    return {"choices": [{"message": {"content": '{"plan": ["p"], "text": "", "criteria": "", "stop": false}'}}],
+    return {"choices": [{"message": {"content": '{"command": "HINT", "guidance_for_s1": "re-observe the screen", "stop": false}'}}],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5}}
 
 
@@ -63,13 +63,32 @@ async def test_null_content_retries_then_s2_empty_response(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_null_then_ok_recovers_on_retry(monkeypatch):
-    """null transitorio → reintento recupera plan (2 POSTs, sin excepción)."""
+    """null transitorio → reintento recupera comando (2 POSTs, sin excepción)."""
     _patch(monkeypatch, [_null_payload(), _ok_payload()])
     out, usage = await s2_client.advise("goal", reason="LOW_CONF",
                                         table_lines=[])
-    assert out["plan"] == ["p"]
+    assert out["command"] == "HINT"
+    assert out["guidance_for_s1"] == "re-observe the screen"
     assert usage == {"in_tokens": 10, "out_tokens": 5}
     assert _Client.calls == 2
+
+
+def test_parse_command_open_app_valida_forma():
+    out = s2_client.parse_command({"command": "OPEN_APP",
+                                   "package": "com.example.messenger",
+                                   "guidance_for_s1": "App is open.",
+                                   "stop": False})
+    assert out["package"] == "com.example.messenger"
+    assert out["target"] == "NONE"
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_command({"command": "OPEN_APP", "package": "sin-puntos"})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_command({"command": "TYPE", "text": ""})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_command({"command": "TAPEAR"})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_command({"command": "TYPE", "text": "hi",
+                                 "target": 999})
 
 
 @pytest.mark.asyncio
@@ -91,13 +110,15 @@ async def test_loop_traduce_empty_a_s2_unavailable_con_hint():
         return {"package": "p", "activity": "a", "snapshot_id": 1,
                 "screen_height": 1600, "candidates": [], "raw_count": 0}
 
-    async def _dec(goal, rows, snapshot, history_summary="", s2_hint=""):
+    async def _dec(goal, rows, snapshot, history_summary="",
+                   s2_guidance="", current_app="", screen_goal=""):
         return ({"action": "ESCALATE", "target": "NONE",
                  "needs_system_2": False, "conf": 0.61, "type_text": ""},
                 {"in_tokens": 10, "out_tokens": 1})
 
     async def _adv(goal, reason="", table_lines=None,
-                   history_summary="", need_text=False):
+                   history_summary="", need_text=False,
+                   current_app="", screen_goal=""):
         raise s2_client.S2EmptyResponse("content None o vacío")
 
     async def _exe(action):
