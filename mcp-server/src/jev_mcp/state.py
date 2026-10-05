@@ -77,6 +77,7 @@ class NormalizedState:
     candidates: list[Candidate] = field(default_factory=list)
     raw_count: int = 0
     screen_height: int = 0  # Fase 5: fallback posicional del título
+    screen_width: int = 0  # plan-ahead v4 §4: tercios para `zone`
     focused_field: FocusedField | None = None  # P0-1: escrito vs enviado
 
     def compact_lines(self) -> list[str]:

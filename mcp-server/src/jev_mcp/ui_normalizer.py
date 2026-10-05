@@ -109,7 +109,7 @@ def _rank(c: Candidate) -> int:
 
 
 def normalize(dump: dict, limit: int = MAX_CANDIDATES,
-              screen_h: int = 0) -> NormalizedState:
+              screen_h: int = 0, screen_w: int = 0) -> NormalizedState:
     nodes = dump.get("nodes", [])
     kept: list[Candidate] = []
     for n in nodes:
@@ -137,6 +137,7 @@ def normalize(dump: dict, limit: int = MAX_CANDIDATES,
         candidates=kept[:limit],
         raw_count=len(nodes),
         screen_height=screen_h,
+        screen_width=screen_w,
         focused_field=the_focused_field(nodes),
     )
 

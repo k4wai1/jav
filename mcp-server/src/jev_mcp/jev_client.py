@@ -213,15 +213,16 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
                        focused_field: dict | None = None) -> tuple[dict, dict]:
     """Single-pass S1: 1 llamada -> {action, target, needs_system_2, conf}.
 
-    Contrato generic-dual-tier §3 (normativo v3): `state` + `questions`
-    100% en inglés — claves, instrucciones, etiquetas de tabla. La tabla
-    viaja enriquecida como [idx, class_short, flags, label]; el `id`
-    opaco y los `bounds` quedan en `by_idx` del loop. Cabecera siempre
-    con `current_app` (foreground real) + `screen_goal` (sub-objetivo en
-    inglés; sin `screen_goal` S2 se usa el goal verbatim con
-    `operator_verbatim: true`; el goal original se conserva en forense).
+    Contrato plan-ahead v4 §4-§5: `state` + `questions` 100% en inglés —
+    claves, instrucciones, etiquetas de tabla. La tabla viaja como
+    [idx, class_short, zone, flags, label] (`zone` 3×3 en inglés desde
+    centroide+resolución, fallback `unknown`); el `id` opaco y los
+    `bounds` quedan en `by_idx` del loop. Cabecera siempre con
+    `current_app` (foreground real) + `screen_goal` (= `screen_goal_en`
+    del plan; sin plan se usa el goal verbatim con `operator_verbatim:
+    true`; el goal original se conserva en forense).
 
-    `table`: filas {idx, class_short, flags, label, ...} (0..253).
+    `table`: filas {idx, class_short, zone, flags, label, ...} (0..253).
     `focused_field`: vista {label, holds} del campo enfocado (P0-1);
     viaja como `state.focused_field` (EN; "empty"/máscara si no hay).
     `s2_hint` es alias legacy de `s2_guidance`. Sin key -> stub honesto

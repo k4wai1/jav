@@ -380,14 +380,17 @@ def test_build_table_enriquecida_con_flags():
         {"id": "n_2", "label": "Message", "cls": "android.widget.EditText",
          "bounds": [0, 200, 720, 300], "clickable": False,
          "editable": True, "focused": True, "scrollable": False},
-    ])
+    ], 720, 1600)
     assert rows[0]["class_short"] == "Button"
     assert rows[0]["flags"] == "click"
     assert rows[1]["class_short"] == "EditText"
     assert rows[1]["flags"] == "edit|foc"
+    # v4 §4: [idx, class_short, zone, flags, label], zone 3×3 en inglés.
+    assert rows[0]["zone"] == "top-center"
+    assert rows[1]["zone"] == "top-center"
     assert H.serialize_table(rows) == [
-        [0, "Button", "click", "Send"],
-        [1, "EditText", "edit|foc", "Message"],
+        [0, "Button", "top-center", "click", "Send"],
+        [1, "EditText", "top-center", "edit|foc", "Message"],
     ]
     assert H.row_flags() == "—"
     assert H.row_flags(scrollable=True) == "scroll"
@@ -395,10 +398,32 @@ def test_build_table_enriquecida_con_flags():
     assert by_idx[1]["id"] == "n_2"
 
 
+def test_zone_of_3x3_y_fallback_unknown():
+    """v4 §4: tercios por centroide+resolución; unknown sin datos."""
+    assert H.zone_of([0, 0, 100, 100], 900, 900) == "top-left"
+    assert H.zone_of([400, 0, 500, 100], 900, 900) == "top-center"
+    assert H.zone_of([800, 0, 900, 100], 900, 900) == "top-right"
+    assert H.zone_of([0, 400, 100, 500], 900, 900) == "mid-left"
+    assert H.zone_of([400, 400, 500, 500], 900, 900) == "mid-center"
+    assert H.zone_of([800, 400, 900, 500], 900, 900) == "mid-right"
+    assert H.zone_of([0, 800, 100, 900], 900, 900) == "bottom-left"
+    assert H.zone_of([400, 800, 500, 900], 900, 900) == "bottom-center"
+    assert H.zone_of([800, 800, 900, 900], 900, 900) == "bottom-right"
+    assert H.zone_of([0, 0, 100, 100], 0, 0) == "unknown"  # sin resolución
+    assert H.zone_of([0, 0, 0, 0], 900, 900) == "unknown"  # degenerados
+    assert H.zone_of(None, 900, 900) == "unknown"
+    rows, _ = H.build_table(
+        [{"id": "n_0", "label": "X", "bounds": [0, 0, 100, 100]}])
+    assert rows[0]["zone"] == "unknown"  # sin resolución se tolera
+    assert H.serialize_table(rows) == [[0, "View", "unknown", "—", "X"]]
+    # MAX_TABLE intacto: 254+NONE, sin poda a 20 (§9.5).
+    assert H.MAX_TABLE == 254
+
+
 @pytest.mark.asyncio
 async def test_s1_payload_ingles_tabla_con_flags(monkeypatch):
-    """ask_decision envía tabla [idx, class_short, flags, label] +
-    current_app + screen_goal, todo en inglés (spec §3)."""
+    """ask_decision envía tabla [idx, class_short, zone, flags, label] +
+    current_app + screen_goal, todo en inglés (plan-ahead v4 §4-§5)."""
     captured = {}
 
     async def fake_post(payload):
@@ -435,8 +460,14 @@ async def test_s1_payload_ingles_tabla_con_flags(monkeypatch):
     state = captured["state"]
     assert state["current_app"] == "dev.jev.jam"
     assert state["screen_goal"].startswith("Message thread")
-    assert state["table"] == [[0, "EditText", "edit|foc", "Message"],
-                              [1, "Button", "click", "Send"]]
+    table = state["table"]
+    assert [r[0] for r in table] == [0, 1]  # idx estables
+    assert [r[1] for r in table] == ["EditText", "Button"]  # class_short
+    assert all(r[2] in H.ZONE_VALUES or r[2] == "unknown"  # zone v4 §4
+               for r in table)
+    assert [r[3] for r in table] == ["edit|foc", "click"]  # flags
+    assert [r[4] for r in table] == ["Message", "Send"]  # label
+    assert all(len(r) == 5 for r in table)  # 5 columnas, ni 4 ni 20
     # Cero instrucciones en español en questions + criteria.
     blob = json.dumps(captured["questions"], ensure_ascii=False).lower()
     for es in ("elige", "fila", "nunca inventes", "requiere redacci",
@@ -520,7 +551,9 @@ async def test_bootstrap_paquete_malo_aborta_sin_actuar():
 
 @pytest.mark.asyncio
 async def test_type_usa_payload_s2_solo_hash_en_forense(tmp_path):
-    """TYPE consume text_payload S2; el forense lleva hash, nunca crudo."""
+    """TYPE S2 ejecutable directo (como OPEN_APP): bootstrap TYPE con campo
+    enfocado+visible se despacha vía type_text con read-back; forense solo
+    hash, nunca crudo."""
     logf = str(tmp_path / "run.jsonl")
     secret = "I am on my way"
 
@@ -559,7 +592,7 @@ async def test_type_usa_payload_s2_solo_hash_en_forense(tmp_path):
         typed.append(action)
         return {"ok": True, "verified": True, "evidence": {"via": "test"}}
 
-    decide = script_decide([dec("TYPE", 0), dec("DONE", "NONE")])
+    decide = script_decide([dec("DONE", "NONE")])
     r = await loop.run_goal("write a note", _observe=obs_evoluciona,
                             _decide=decide, _advise=advise,
                             _execute_fn=exe, _verify_done=fake_verify_ok,
@@ -571,6 +604,138 @@ async def test_type_usa_payload_s2_solo_hash_en_forense(tmp_path):
     assert secret not in raw
     assert hashlib.sha256(secret.encode()).hexdigest() in raw
     assert '"input_verified": true' in raw
+    assert "s2_direct_type" in raw
+
+
+@pytest.mark.asyncio
+async def test_s2_type_direct_en_escalate_con_target(tmp_path):
+    """Repro run-1791201814: S1 TYPE conf<tau + S2 TYPE con target resuelto
+    y campo enfocado+visible → despacho directo vía type_text (no solo hint).
+    100% genérico, sin literales de dominio."""
+    logf = str(tmp_path / "run.jsonl")
+    secret = "hola mundo"
+
+    def field_with(text):
+        return {"id": "n_69", "label": "Message", "text": text, "desc": "",
+                "cls": "android.widget.EditText", "class_short": "EditText",
+                "flags": "edit|foc",
+                "bounds": [0, 1300, 720, 1400], "clickable": True,
+                "editable": True, "focused": True, "scrollable": False,
+                "visible": True,
+                "resource_id": "com.example.messenger/id/input"}
+
+    calls = {"n": 0}
+
+    async def obs():
+        calls["n"] += 1
+        shown = "Message" if calls["n"] <= 3 else secret
+        return {"package": "com.example.messenger", "activity": "Thread",
+                "snapshot_id": 421, "screen_height": 1600,
+                "candidates": [field_with(shown)], "raw_count": 1}
+
+    async def advise(goal, reason="", table_lines=None,
+                     history_summary="", need_text=False,
+                     current_app="", screen_goal=""):
+        if reason == "bootstrap":
+            return hint_cmd(), {"in_tokens": 10, "out_tokens": 2}
+        if reason.startswith("LOW_CONF"):
+            return ({"command": "TYPE", "target": 0, "text": secret,
+                     "guidance_for_s1": "Type the S2 text into the field.",
+                     "stop": False},
+                    {"in_tokens": 40, "out_tokens": 6})
+        return hint_cmd(), {"in_tokens": 10, "out_tokens": 2}
+
+    typed = []
+
+    async def exe(action):
+        typed.append(action)
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+
+    decide = script_decide([dec("TYPE", 0, conf=0.61),
+                            dec("DONE", "NONE", conf=0.95)])
+    r = await loop.run_goal("write a note", _observe=obs,
+                            _decide=decide, _advise=advise,
+                            _execute_fn=exe, _verify_done=fake_verify_ok,
+                            log_path=logf, confirm=True)
+    assert r["ok"], r
+    assert len(typed) == 1 and typed[0]["kind"] == "type_text", typed
+    assert typed[0]["text"] == secret, typed
+    assert typed[0]["node_id"] == "n_69", typed
+    raw = open(logf, encoding="utf-8").read()
+    assert secret not in raw
+    assert hashlib.sha256(secret.encode()).hexdigest() in raw
+    assert "s2_direct_type" in raw
+    assert '"input_verified": true' in raw
+
+
+@pytest.mark.asyncio
+async def test_s2_type_sin_foco_no_despacha_directo():
+    """TYPE S2 con target NONE y sin campo enfocado → no ejecuta; solo guarda
+    payload para el próximo S1 (foco explícito exigible)."""
+    def field_unfocused():
+        return {"id": "n_1", "label": "Message", "text": "", "desc": "",
+                "cls": "android.widget.EditText", "class_short": "EditText",
+                "flags": "edit",
+                "bounds": [0, 200, 720, 300], "clickable": True,
+                "editable": True, "focused": False, "scrollable": False,
+                "visible": True, "resource_id": "rid/input"}
+
+    st = {"package": "com.example.app", "activity": "T",
+          "snapshot_id": 5, "screen_height": 1600,
+          "candidates": [field_unfocused()], "raw_count": 1}
+
+    async def advise(goal, reason="", table_lines=None,
+                     history_summary="", need_text=False,
+                     current_app="", screen_goal=""):
+        if reason == "bootstrap":
+            return hint_cmd(), {"in_tokens": 5, "out_tokens": 2}
+        return ({"command": "TYPE", "target": "NONE", "text": "hello",
+                 "guidance_for_s1": "Type the text.",
+                 "stop": False},
+                {"in_tokens": 10, "out_tokens": 2})
+
+    executed = []
+    decide = script_decide([dec("TYPE", 0, conf=0.4),
+                            dec("DONE", "NONE", conf=0.95)])
+    r = await loop.run_goal("write a note", _observe=_c(st),
+                            _decide=decide, _advise=advise,
+                            _execute_fn=ok_exec(executed),
+                            _verify_done=fake_verify_ok)
+    # Sin foco no hay type_text directo (el focus-tap lo haría el S1 en el
+    # paso siguiente; aquí el segundo paso es DONE verificado).
+    assert not any(a.get("kind") == "type_text" for a in executed), executed
+    assert r["ok"], r
+
+
+@pytest.mark.asyncio
+async def test_s2_back_se_ejecuta_directo():
+    """BACK S2 ordenado ante escalado → press_back + re-observe (como OPEN_APP)."""
+    first = state(2, snap=11, package="com.example.app")
+    second = state(2, snap=12, package="com.example.app")
+    calls = {"n": 0}
+
+    async def obs():
+        calls["n"] += 1
+        return first if calls["n"] <= 2 else second
+
+    async def advise(goal, reason="", table_lines=None,
+                     history_summary="", need_text=False,
+                     current_app="", screen_goal=""):
+        if reason == "bootstrap":
+            return hint_cmd(), {"in_tokens": 5, "out_tokens": 2}
+        return ({"command": "BACK", "guidance_for_s1": "Go back.",
+                 "stop": False},
+                {"in_tokens": 10, "out_tokens": 2})
+
+    executed = []
+    decide = script_decide([dec("TAP", 0, conf=0.3),
+                            dec("DONE", "NONE", conf=0.95)])
+    r = await loop.run_goal("go back once", _observe=obs,
+                            _decide=decide, _advise=advise,
+                            _execute_fn=ok_exec(executed),
+                            _verify_done=fake_verify_ok)
+    assert r["ok"], r
+    assert any(a.get("kind") == "back" for a in executed), executed
 
 
 # --- P0-1: focused_field en el state S1 ---
@@ -760,6 +925,224 @@ async def test_s2_empty_degrades_once_then_aborts(tmp_path):
     lines = [json.loads(line) for line in open(logf, encoding="utf-8")]
     assert any(line.get("s2_empty") is True for line in lines)
     assert any(line.get("degraded") is True for line in lines)
+
+
+# --- plan-ahead v4: S2-compilador paso 0 + fast-path + coalescido ---
+
+
+def _plan_compile(package="", slots=None, screen_goal_en="",
+                  terminal="", guidance="Advance the goal.", stop=False):
+    """Stub S2-compilador: valores runtime, nunca literales en src/."""
+    plan = {"command": "EXECUTE_GOAL", "package": package,
+            "screen_goal_en": screen_goal_en or "Goal screen visible",
+            "preloaded_inputs": dict(slots or {}),
+            "expected_terminal_state": terminal or "Effect visible",
+            "guidance_for_s1": guidance, "stop": stop}
+    calls = {"n": 0}
+
+    async def fn(goal, table_lines=None, history_summary="",
+                 current_app=""):
+        calls["n"] += 1
+        return dict(plan), {"in_tokens": 30, "out_tokens": 5}
+    fn.calls = calls
+    fn.plan = plan
+    return fn
+
+
+def _editable_field(id="n_0", label="Note", text="", focused=False,
+                    bounds=None):
+    return {"id": id, "label": label, "text": text, "desc": "",
+            "cls": "android.widget.EditText", "class_short": "EditText",
+            "flags": "edit|foc" if focused else "edit",
+            "bounds": list(bounds or [60, 500, 660, 600]),
+            "clickable": True, "editable": True, "focused": focused,
+            "scrollable": False, "visible": True,
+            "resource_id": f"com.example.app/id/{id}"}
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_compilador_abre_paquete_y_type_sin_reconsulta(
+        tmp_path):
+    """v4 §2 + §10.5: stub S2 emite EXECUTE_GOAL con package runtime +
+    preloaded + screen_goal_en + expected_terminal_state; el loop despacha
+    open_app + re-observe antes del primer S1, y el TYPE posterior consume
+    el slot SIN nueva llamada S2 (forense solo len/sha256)."""
+    import hashlib as _hl
+    logf = str(tmp_path / "run.jsonl")
+    secret = "hello plan"
+    package = "com.example.messenger"
+    seen_goals = []
+
+    snaps = {"n": 0}
+    dev = {"focused": False, "text": ""}  # estado dirigido por acciones
+
+    async def obs():
+        snaps["n"] += 1
+        if snaps["n"] == 1:
+            return {"package": "com.example.launcher", "activity": "Home",
+                    "snapshot_id": 1, "screen_height": 1600,
+                    "screen_width": 720, "candidates": [], "raw_count": 0}
+        # Tras open_app: campo visible sin foco; el focus-tap le da foco;
+        # el TYPE deja el payload (read-back). Dirigido por acciones, no
+        # por conteo (robusto ante el observe coalescido).
+        return {"package": package, "activity": "Thread",
+                "snapshot_id": snaps["n"], "screen_height": 1600,
+                "screen_width": 720,
+                "candidates": [_editable_field(text=dev["text"],
+                                              focused=dev["focused"])],
+                "raw_count": 1}
+
+    async def open_app(pkg):
+        seen_goals.append(pkg)
+        return {"ok": True, "verified": True, "evidence": {"package": pkg}}
+
+    typed = []
+
+    async def exe(action):
+        typed.append(action)
+        if action.get("kind") == "tap_node":
+            dev["focused"] = True
+        if action.get("kind") == "type_text":
+            dev["text"] = action.get("text", "")
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+
+    async def verify(goal, table_lines=None, history_summary="",
+                     n_actions=0, final_snapshot=None,
+                     expected_terminal_state=""):
+        assert expected_terminal_state == "Effect visible on screen", \
+            expected_terminal_state
+        return ({"achieved": True, "evidence": "effect visible"},
+                {"in_tokens": 20, "out_tokens": 5})
+
+    comp = _plan_compile(package=package, slots={"note": secret},
+                         screen_goal_en="Thread open, input focused",
+                         terminal="Effect visible on screen")
+    decide = script_decide([dec("TYPE", 0), dec("TYPE", 0),
+                            dec("DONE", "NONE")])
+    r = await loop.run_goal("write a note", _observe=obs, _decide=decide,
+                            _compile=comp, _execute_fn=exe,
+                            _verify_done=verify, _open_app=open_app,
+                            _bootstrap_delay_s=0, log_path=logf)
+    assert r["ok"] and r["verified"], r
+    assert seen_goals == [package], seen_goals  # open_app solo bootstrap
+    assert comp.calls["n"] == 1, comp.calls  # UNA consulta S2 pre-pasos
+    # S2 total = paso 0 + verify DONE: cero reconsultas entre TYPEs.
+    assert r["s2_calls"] == 2, r
+    assert decide.calls[0]["app"] == package, decide.calls  # re-observe
+    assert decide.calls[0]["screen_goal"] == "Thread open, input focused"
+    kinds = [a["kind"] for a in typed]
+    assert kinds[0] == "tap_node" and kinds[-1] == "type_text", kinds
+    assert typed[-1]["text"] == secret, typed  # inyección verbatim
+    raw = open(logf, encoding="utf-8").read()
+    assert secret not in raw  # forense sin texto crudo
+    assert _hl.sha256(secret.encode()).hexdigest() in raw
+    assert '"slot": "note"' in raw and '"slot_consumed": true' in raw
+    assert '"from_plan": true' in raw
+
+
+@pytest.mark.asyncio
+async def test_multi_slot_orden_insercion_sin_reconsulta(tmp_path):
+    """v4 §2.3.2 (S4): N slots → orden de inserción S2; read-back como
+    detector; cero consultas S2 entre los TYPEs del camino feliz."""
+    logf = str(tmp_path / "run.jsonl")
+    first, second = "alpha entry", "beta entry"
+    snaps = {"n": 0}
+    dev = {"a": "", "b": "", "focus_b": False}  # dirigido por acciones
+
+    async def obs():
+        snaps["n"] += 1
+        return {"package": "com.example.app", "activity": "Form",
+                "snapshot_id": 50 + snaps["n"], "screen_height": 1600,
+                "screen_width": 720,
+                "candidates": [
+                    _editable_field(id="n_0", label="Field A",
+                                    text=dev["a"], focused=True,
+                                    bounds=[60, 300, 660, 400]),
+                    _editable_field(id="n_1", label="Field B",
+                                    text=dev["b"],
+                                    focused=dev["focus_b"] or bool(dev["b"]),
+                                    bounds=[60, 900, 660, 1000])],
+                "raw_count": 2}
+
+    typed = []
+
+    async def exe(action):
+        typed.append(action)
+        if action.get("kind") == "tap_node" and action.get("node_id") == "n_1":
+            dev["focus_b"] = True
+        if action.get("kind") == "type_text":
+            if action.get("node_id") == "n_0":
+                dev["a"] = action.get("text", "")
+            elif action.get("node_id") == "n_1":
+                dev["b"] = action.get("text", "")
+        return {"ok": True, "verified": True, "evidence": {"via": "test"}}
+
+    comp = _plan_compile(slots={"first": first, "second": second})
+    decide = script_decide([dec("TYPE", 0), dec("TYPE", 1), dec("TYPE", 1),
+                            dec("DONE", "NONE")])
+    r = await loop.run_goal("fill the form", _observe=obs, _decide=decide,
+                            _compile=comp, _execute_fn=exe,
+                            _verify_done=fake_verify_ok,
+                            log_path=logf, confirm=True)
+    assert r["ok"], r
+    assert comp.calls["n"] == 1, comp.calls
+    assert r["s2_calls"] == 2, r  # paso 0 + verify: nada entre TYPEs
+    writes = [a["text"] for a in typed if a["kind"] == "type_text"]
+    assert writes == [first, second], writes  # orden de inserción
+    raw = open(logf, encoding="utf-8").read()
+    assert first not in raw and second not in raw
+    assert raw.count('"slot_consumed": true') == 2
+
+
+@pytest.mark.asyncio
+async def test_fast_path_coalescido_un_solo_dump(tmp_path):
+    """v4 §3 + §10.7: conf ≥ 0.85 trivial → fast_path + verify coalescido
+    (el dump de verificación se reutiliza como observe siguiente)."""
+    logf = str(tmp_path / "run.jsonl")
+    snaps = {"n": 0}
+    obs_calls = {"n": 0}
+
+    async def obs():
+        obs_calls["n"] += 1
+        snaps["n"] += 1
+        return {"package": "com.example.app", "activity": "Main",
+                "snapshot_id": 200 + snaps["n"], "screen_height": 1600,
+                "screen_width": 720, "candidates": [{
+                    "id": "n_0", "label": "Item 0", "text": "Item 0",
+                    "desc": "", "cls": "android.widget.Button",
+                    "bounds": [0, 100, 720, 200], "clickable": True,
+                    "editable": False, "focused": False,
+                    "scrollable": False, "visible": True}],
+                "raw_count": 1}
+
+    executed = []
+    decide = script_decide([dec("TAP", 0, conf=0.9),
+                            dec("DONE", "NONE", conf=0.95)])
+    comp = _plan_compile()
+    r = await loop.run_goal("look at items", _observe=obs, _decide=decide,
+                            _compile=comp, _execute_fn=ok_exec(executed),
+                            _verify_done=fake_verify_ok, log_path=logf)
+    assert r["ok"], r
+    assert executed and executed[0]["kind"] == "tap_node"
+    # Bootstrap(1) + step1-observe(1) + verify-coalescido(1, reusado en
+    # step2 sin re-observar) + DONE-verify(1) = 4 dumps en 2 pasos.
+    assert obs_calls["n"] == 4, obs_calls
+    lines = [json.loads(line) for line in open(logf, encoding="utf-8")]
+    tap_entries = [e for e in lines if e.get("decision", {}).get(
+        "action") == "TAP"]
+    assert tap_entries and tap_entries[0]["fast_path"] is True
+    assert tap_entries[0]["coalesced"] is True
+    assert tap_entries[0]["snapshot_after"] != tap_entries[0]["snapshot"]
+
+
+@pytest.mark.asyncio
+async def test_fast_path_no_salta_compuertas():
+    """v4 §3.1: fast-path NUNCA salta STUCK (misma decisión ×3 conf .95)."""
+    decide = script_decide([dec("TAP", 0, conf=0.95)] * 5)
+    r = await loop.run_goal("look at items", _observe=_c(state()),
+                            _decide=decide, _advise=fake_advise,
+                            _execute_fn=ok_exec([]))
+    assert not r["ok"] and r["evidence"]["code"] == "STUCK_SAME", r
 
 
 @pytest.mark.asyncio

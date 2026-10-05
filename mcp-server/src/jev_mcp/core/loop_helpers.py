@@ -11,7 +11,48 @@ import hashlib
 from ..ui_normalizer import PASSWORD_MARKERS
 
 # 254 interactivos (indices 0..253) + 1 NONE = 255 Choice. Nunca se supera.
+# plan-ahead v4 §4 + §9.5 (EXPERIMENT-TABLE-20 rechazado): el tope sigue en
+# 254; cualquier poda agresiva exige protocolo A/B antes de tocarlo.
 MAX_TABLE = 254
+
+# Ancla espacial 3x3 (plan-ahead v4 §4, calculado en host desde bounds +
+# resolución). Vocabulario normativo en inglés; `unknown` es fallback fuera
+# de los 9 (sin resolución o bounds degenerados). Hint de desambiguación,
+# nunca señal de seguridad.
+ZONE_UNKNOWN = "unknown"
+ZONE_VALUES = (
+    "top-left", "top-center", "top-right",
+    "mid-left", "mid-center", "mid-right",
+    "bottom-left", "bottom-center", "bottom-right",
+)
+
+# Acciones elegibles para fast-path S1 (plan-ahead v4 §3.1). DONE y ESCALATE
+# nunca son fast-path (gate S2 / vía S2 siempre).
+FAST_ACTIONS = ("TAP", "TYPE", "SCROLL_DOWN", "SCROLL_UP", "BACK")
+
+
+def zone_of(bounds: list | tuple | None,
+            screen_w: int = 0, screen_h: int = 0) -> str:
+    """Celda 3x3 en inglés desde centroide + resolución (puro, v4 §4).
+
+    Corte por tercios en cada eje. Sin resolución (w/h <= 0) o bounds
+    degenerados/ausentes → `unknown`. Nunca lanza.
+    """
+    try:
+        w, h = int(screen_w or 0), int(screen_h or 0)
+        if w <= 0 or h <= 0 or bounds is None or len(bounds) != 4:
+            return ZONE_UNKNOWN
+        left, top, right, bottom = (int(v) for v in bounds)
+        if not (right > left and bottom > top and left >= 0 and top >= 0):
+            return ZONE_UNKNOWN
+        cx, cy = (left + right) / 2.0, (top + bottom) / 2.0
+        col = "left" if cx < w / 3.0 else ("center" if cx < 2 * w / 3.0
+                                          else "right")
+        row = "top" if cy < h / 3.0 else ("mid" if cy < 2 * h / 3.0
+                                         else "bottom")
+        return f"{row}-{col}"
+    except (TypeError, ValueError):
+        return ZONE_UNKNOWN
 
 # Read-back tras TYPE (patrón M2, P0-2): poll con timeout. Constantes
 # nombradas e inyectables (confirm_input acepta override) para tests.
@@ -89,15 +130,26 @@ def _row_flags(c) -> str:
                      scrollable=bool(getattr(c, "scrollable", False)))
 
 
-def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
+def _row_zone(c, bounds: list, screen_w: int = 0,
+              screen_h: int = 0) -> str:
+    """Zona precomputada si viaja en el candidato; si no, derivada pura."""
+    if isinstance(c, dict) and c.get("zone") in ZONE_VALUES:
+        return str(c["zone"])
+    return zone_of(bounds, screen_w, screen_h)
+
+
+def build_table(candidates: list, screen_w: int = 0,
+                screen_h: int = 0) -> tuple[list[dict], dict[int, dict]]:
     """Poda a tabla numerada 0..253. Devuelve (rows, by_idx).
 
     Cada fila: {idx, id, label, text, resource_id, bounds, clickable,
-    editable, focused, scrollable, visible, class_short, flags}. Exceso
-    >254: se conservan los primeros (el normalizer ya prioriza editables >
-    clickables-con-texto > resto en orden BFS estable); el resto se
-    alcanza por SCROLL + re-dump. `text`/`resource_id` viajan en la fila
-    (no en la tabla serializada a S1) para verificación read-back.
+    editable, focused, scrollable, visible, class_short, zone, flags}.
+    Exceso >254: se conservan los primeros (el normalizer ya prioriza
+    editables > clickables-con-texto > resto en orden BFS estable); el
+    resto se alcanza por SCROLL + re-dump. `text`/`resource_id` viajan en
+    la fila (no en la tabla serializada a S1) para verificación read-back.
+    `zone` (v4 §4) se deriva de bounds + resolución; sin resolución →
+    `unknown` (el loop la tolera; `validate_target` sigue mandando).
     """
     rows: list[dict] = []
     for i, c in enumerate(candidates[:MAX_TABLE]):
@@ -105,47 +157,52 @@ def build_table(candidates: list) -> tuple[list[dict], dict[int, dict]]:
             cid = c.get("id", f"n_{i}")
             label = c.get("label") or c.get("text") or c.get("desc") or cid
             bounds = c.get("bounds") or [0, 0, 0, 0]
+            bounds = list(bounds) if len(bounds) == 4 else [0, 0, 0, 0]
             rows.append({
                 "idx": i,
                 "id": cid,
                 "label": str(label),
                 "text": str(c.get("text") or ""),
                 "resource_id": str(c.get("resource_id") or ""),
-                "bounds": list(bounds) if len(bounds) == 4 else [0, 0, 0, 0],
+                "bounds": bounds,
                 "clickable": bool(c.get("clickable")),
                 "editable": bool(c.get("editable")),
                 "focused": bool(c.get("focused")),
                 "scrollable": bool(c.get("scrollable")),
                 "visible": bool(c.get("visible", True)),
                 "class_short": _row_class_short(c),
+                "zone": _row_zone(c, bounds, screen_w, screen_h),
                 "flags": _row_flags(c),
             })
         else:  # Candidate dataclass
+            bounds = list(getattr(c, "bounds", (0, 0, 0, 0)))
             rows.append({
                 "idx": i,
                 "id": getattr(c, "id", f"n_{i}"),
                 "label": c.compact(),
                 "text": str(getattr(c, "text", "") or ""),
                 "resource_id": str(getattr(c, "resource_id", "") or ""),
-                "bounds": list(getattr(c, "bounds", (0, 0, 0, 0))),
+                "bounds": bounds,
                 "clickable": bool(getattr(c, "clickable", False)),
                 "editable": bool(getattr(c, "editable", False)),
                 "focused": bool(getattr(c, "focused", False)),
                 "scrollable": bool(getattr(c, "scrollable", False)),
                 "visible": bool(getattr(c, "visible", True)),
                 "class_short": _row_class_short(c),
+                "zone": _row_zone(c, bounds, screen_w, screen_h),
                 "flags": _row_flags(c),
             })
     return rows, {r["idx"]: r for r in rows}
 
 
 def serialize_table(rows: list[dict]) -> list[list]:
-    """Filas enriquecidas para Jev: [idx, class_short, flags, label].
+    """Filas enriquecidas para Jev: [idx, class_short, zone, flags, label].
 
     El `id` opaco y los `bounds` completos no viajan a Jev: quedan en
     `by_idx` del loop para validación estructural y ejecución.
     """
     return [[r["idx"], r.get("class_short", "View"),
+             r.get("zone", ZONE_UNKNOWN),
              r.get("flags", EMPTY_FLAGS), r.get("label", "")]
             for r in rows]
 

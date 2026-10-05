@@ -8,13 +8,12 @@ from . import _base as B
 
 
 _SCREEN_H = 0
+_SCREEN_W = 0
 
 
-def screen_height() -> int:
-    """Altura en px (cacheada; `adb shell wm size`). 0 si no se puede."""
-    global _SCREEN_H
-    if _SCREEN_H:
-        return _SCREEN_H
+def _refresh_screen_size() -> None:
+    """Lee `adb shell wm size` una vez (ancho + alto, cacheados)."""
+    global _SCREEN_H, _SCREEN_W
     import re
     import subprocess
     try:
@@ -23,16 +22,31 @@ def screen_height() -> int:
                              timeout=10).stdout
         m = re.search(r"(\d+)x(\d+)", out)
         if m:
+            _SCREEN_W = int(m.group(1))
             _SCREEN_H = int(m.group(2))
     except Exception:
         pass
+
+
+def screen_height() -> int:
+    """Altura en px (cacheada; `adb shell wm size`). 0 si no se puede."""
+    if not _SCREEN_H:
+        _refresh_screen_size()
     return _SCREEN_H
+
+
+def screen_width() -> int:
+    """Ancho en px (cacheado; `adb shell wm size`). 0 si no se puede."""
+    if not _SCREEN_W:
+        _refresh_screen_size()
+    return _SCREEN_W
 
 
 async def _dump() -> tuple[dict, NormalizedState]:
     jam = await B.jam_client()
     try:
-        return jam, normalize(await jam.dump_ui(), screen_h=screen_height())
+        return jam, normalize(await jam.dump_ui(), screen_h=screen_height(),
+                              screen_w=screen_width())
     except Exception:
         await jam.__aexit__()
         raise
@@ -52,6 +66,7 @@ async def read_screen() -> dict:
         "snapshot_id": st.snapshot_id,
         "raw_count": st.raw_count,
         "screen_height": screen_height(),
+        "screen_width": screen_width(),
         "focused_field": ff,  # P0-1: campo enfocado + contenido (EN, sin secreto)
         "candidates": [
             {"id": c.id, "label": c.compact(), "cls": c.cls,

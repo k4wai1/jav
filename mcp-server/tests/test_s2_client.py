@@ -73,6 +73,80 @@ async def test_null_then_ok_recovers_on_retry(monkeypatch):
     assert _Client.calls == 2
 
 
+def test_parse_execute_goal_plan_paso_0():
+    """Plan-ahead v4 §2.1: EXECUTE_GOAL válido + formas inválidas."""
+    plan = s2_client.parse_execute_goal({
+        "command": "EXECUTE_GOAL", "package": "com.example.messenger",
+        "screen_goal_en": "Thread open, input focused",
+        "preloaded_inputs": {"message": "hello"},
+        "expected_terminal_state": "Effect visible on screen",
+        "guidance_for_s1": "Tap the input first.",
+        "stop": False})
+    assert plan["package"] == "com.example.messenger"
+    assert plan["screen_goal_en"].startswith("Thread open")
+    assert plan["preloaded_inputs"] == {"message": "hello"}
+    assert plan["expected_terminal_state"].startswith("Effect visible")
+    # Vacío = ya en foreground, sin open_app; plan sin redacción válido.
+    empty = s2_client.parse_execute_goal({"command": "EXECUTE_GOAL"})
+    assert empty["package"] == "" and empty["preloaded_inputs"] == {}
+    assert empty["stop"] is False
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_execute_goal({"command": "HINT"})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_execute_goal({"command": "EXECUTE_GOAL",
+                                      "package": "sin-puntos"})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_execute_goal({"command": "EXECUTE_GOAL",
+                                      "preloaded_inputs": {"slot": ""}})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_execute_goal({"command": "EXECUTE_GOAL",
+                                      "preloaded_inputs": ["no-objeto"]})
+    with pytest.raises(s2_client.S2BadCommand):
+        s2_client.parse_execute_goal({"command": "EXECUTE_GOAL",
+                                      "stop": "yes"})
+
+
+@pytest.mark.asyncio
+async def test_compile_stub_sin_key_es_mock(monkeypatch):
+    """Sin key S2 → stub mock (el loop lo traduce a S2_UNAVAILABLE)."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    out, usage = await s2_client.compile_goal("generic goal",
+                                             table_lines=[])
+    assert out.get("mock") is True
+    assert out["command"] == "EXECUTE_GOAL"
+    assert usage.get("mock") is True
+
+
+@pytest.mark.asyncio
+async def test_compile_ok_y_vacio(monkeypatch):
+    """Plan parseable → validado; vacío persistente → S2EmptyResponse."""
+    good = {"choices": [{"message": {"content":
+        '{"command": "EXECUTE_GOAL", "package": "", '
+        '"screen_goal_en": "List visible", "preloaded_inputs": {}, '
+        '"expected_terminal_state": "Item visible", '
+        '"guidance_for_s1": "Scroll down.", "stop": false}'}}],
+        "usage": {"prompt_tokens": 12, "completion_tokens": 6}}
+    _patch(monkeypatch, [good])
+    out, usage = await s2_client.compile_goal("generic goal",
+                                             table_lines=[])
+    assert out["screen_goal_en"] == "List visible"
+    assert usage == {"in_tokens": 12, "out_tokens": 6}
+    assert _Client.calls == 1
+    # JSON parseable pero fuera del esquema → S2BadCommand honesto.
+    bad = {"choices": [{"message": {"content":
+        '{"command": "EXECUTE_GOAL", "package": "malformado"}'}}],
+        "usage": {}}
+    _patch(monkeypatch, [bad, bad])
+    with pytest.raises(s2_client.S2BadCommand):
+        await s2_client.compile_goal("generic goal", table_lines=[])
+    # Vacío persistente → S2EmptyResponse (1 reintento = 2 POSTs).
+    _patch(monkeypatch, [_null_payload(), _null_payload()])
+    with pytest.raises(s2_client.S2EmptyResponse):
+        await s2_client.compile_goal("generic goal", table_lines=[])
+    assert _Client.calls == 2
+
+
 def test_parse_command_open_app_valida_forma():
     out = s2_client.parse_command({"command": "OPEN_APP",
                                    "package": "com.example.messenger",
