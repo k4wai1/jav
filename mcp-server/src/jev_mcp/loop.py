@@ -222,6 +222,15 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                         table_lines=[f"{r['idx']} {r['label']}" for r in rows],
                         history_summary=_history_summary(history),
                         need_text=need_text)
+                except s2_client.S2EmptyResponse as e:
+                    err = {"code": "S2_UNAVAILABLE",
+                           "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
+                    entry["error"] = err
+                    log(entry)
+                    r = done(False, err, step)
+                    r["hint"] = ("reintentar: null-content transitorio "
+                                 "de S2")
+                    return r
                 except Exception as e:
                     err = {"code": "S2_UNAVAILABLE",
                            "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}
@@ -330,6 +339,15 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                             table_lines=[f"{r['idx']} {r['label']}" for r in rows],
                             history_summary=_history_summary(history),
                             need_text=True)
+                    except s2_client.S2EmptyResponse as e:
+                        err = {"code": "S2_UNAVAILABLE",
+                               "error": f"S2_EMPTY_RESPONSE: {e}"[:220]}
+                        entry["error"] = err
+                        log(entry)
+                        r = done(False, err, step)
+                        r["hint"] = ("reintentar: null-content transitorio "
+                                     "de S2")
+                        return r
                     except Exception as e:
                         err = {"code": "S2_UNAVAILABLE",
                                "error": f"S2 falló ({type(e).__name__}): {e}"[:220]}

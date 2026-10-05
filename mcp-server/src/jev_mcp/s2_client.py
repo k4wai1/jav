@@ -27,6 +27,16 @@ ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 TIMEOUT_S = 15.0
 
 
+class S2EmptyResponse(RuntimeError):
+    """S2 devolvió content None o sin {...} parseable tras reintento.
+
+    Genérico, sin literales de dominio. El loop lo traduce a
+    S2_UNAVAILABLE con hint de reintento (null-content transitorio).
+    """
+
+    code = "S2_EMPTY_RESPONSE"
+
+
 def model_id() -> str:
     return os.environ.get("GLM_MODEL", "z-ai/glm-5.3-flash")
 
@@ -85,24 +95,45 @@ async def advise(goal: str, *, reason: str, table_lines: list[str],
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
             "temperature": 0.2, "max_tokens": 512}
-    async with httpx.AsyncClient(timeout=TIMEOUT_S) as c:
-        r = await c.post(ENDPOINT, headers=headers, json=body)
-        r.raise_for_status()
-        data = r.json()
-    try:
-        content = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"S2 respuesta sin contenido: {e}")
     import json as _json
-    start, end = content.find("{"), content.rfind("}")
-    try:
-        parsed = _json.loads(content[start:end + 1] if start >= 0 else content)
-    except _json.JSONDecodeError:
-        parsed = {}
-    out = {"plan": parsed.get("plan", []),
-           "text": str(parsed.get("text", "") or ""),
-           "criteria": str(parsed.get("criteria", "") or ""),
-           "stop": bool(parsed.get("stop", False))}
-    raw_usage = data.get("usage", {}) or {}
-    in_tok, out_tok, _ = _usage_tokens(raw_usage)
-    return out, {"in_tokens": in_tok, "out_tokens": out_tok}
+
+    last_reason = "desconocido"
+    for _attempt in (0, 1):
+        async with httpx.AsyncClient(timeout=TIMEOUT_S) as c:
+            r = await c.post(ENDPOINT, headers=headers, json=body)
+            r.raise_for_status()
+            try:
+                data = r.json()
+            except Exception as e:
+                last_reason = f"envelope no-JSON: {e}"
+                continue  # reintento; si persiste sale a S2EmptyResponse
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as e:
+            last_reason = f"sin content extraíble: {e}"
+            continue
+        if not isinstance(content, str) or not content.strip():
+            last_reason = "content None o vacío"
+            continue
+        start, end = content.find("{"), content.rfind("}")
+        if start < 0 or end <= start:
+            last_reason = "sin objeto {...} en content"
+            continue
+        try:
+            parsed = _json.loads(content[start:end + 1])
+        except _json.JSONDecodeError as e:
+            last_reason = f"JSON no parseable: {e}"
+            continue
+        if not isinstance(parsed, dict):
+            last_reason = "JSON raíz no-objeto"
+            continue
+        out = {"plan": parsed.get("plan", []),
+               "text": str(parsed.get("text", "") or ""),
+               "criteria": str(parsed.get("criteria", "") or ""),
+               "stop": bool(parsed.get("stop", False))}
+        raw_usage = data.get("usage", {}) or {}
+        in_tok, out_tok, _ = _usage_tokens(raw_usage)
+        return out, {"in_tokens": in_tok, "out_tokens": out_tok}
+    raise S2EmptyResponse(
+        f"S2 respuesta vacía o sin JSON parseable tras reintento "
+        f"({last_reason})")
