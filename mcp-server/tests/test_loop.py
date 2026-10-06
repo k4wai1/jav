@@ -32,7 +32,7 @@ def script_decide(decisions):
 
     async def fn(goal, rows, snapshot, history_summary="",
                  s2_guidance="", current_app="", screen_goal="",
-                 focused_field=None):
+                 focused_field=None, first_result=None):
         calls.append({"rows": len(rows), "snapshot": snapshot,
                       "guidance": s2_guidance, "app": current_app,
                       "screen_goal": screen_goal,
@@ -204,7 +204,7 @@ async def test_tabla_topada_254_mas_none(capsys):
 async def test_hallucination_en_decide():
     async def bad(goal, rows, snapshot, history_summary="",
                   s2_guidance="", current_app="", screen_goal="",
-                  focused_field=None):
+                  focused_field=None, first_result=None):
         raise jev_client.JevHallucination("clave rara")
 
     r = await loop.run_goal("x", _observe=_c(state()),
@@ -799,7 +799,8 @@ async def test_s1_state_carries_focused_field_en(monkeypatch):
     assert ff == {"label": "Message", "holds": "hola mundo"}, ff
     assert set(captured["state"]) == {
         "goal", "screen_goal", "operator_verbatim", "current_app",
-        "snapshot_id", "table", "focused_field", "history", "s2_guidance"}
+        "snapshot_id", "table", "first_result", "focused_field",
+        "history", "s2_guidance"}
     # Sin campo → "empty"; password → máscara, nunca el valor.
     await jev_client.ask_decision("goal", rows, 9, focused_field=None)
     assert captured["state"]["focused_field"] == {"label": "none",

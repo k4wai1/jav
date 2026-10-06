@@ -1,6 +1,7 @@
 """Tools ui/: lectura normalizada + acciones."""
 from __future__ import annotations
 
+from ..core import loop_helpers as _h
 from ..socket_client import JamError
 from ..state import NormalizedState
 from ..ui_normalizer import format_state, normalize
@@ -60,6 +61,20 @@ async def read_screen() -> dict:
         return B.jam_fail(e)
     ff = st.focused_field.as_view() if st.focused_field is not None else {
         "label": "none", "kind": "none", "holds": "empty"}
+    cands = [
+        {"id": c.id, "label": c.compact(), "cls": c.cls,
+         "class_short": c.class_short, "flags": c.flags,
+         "clickable": c.clickable, "editable": c.editable,
+         "focused": c.focused, "scrollable": c.scrollable,
+         "visible": c.visible,
+         "text": c.text, "desc": c.desc,
+         "resource_id": c.resource_id, "bounds": list(c.bounds)}
+        for c in st.candidates
+    ]
+    # Hint §12.2: primer interactivo del contenedor principal mid-list
+    # (prior, nunca poda: la tabla viaja completa).
+    first = _h.first_result(
+        [{**c, "idx": i} for i, c in enumerate(cands[:_h.MAX_TABLE])])
     return B.ok(True, {
         "package": st.package,
         "activity": st.activity,
@@ -68,16 +83,8 @@ async def read_screen() -> dict:
         "screen_height": screen_height(),
         "screen_width": screen_width(),
         "focused_field": ff,  # P0-1: campo enfocado + contenido (EN, sin secreto)
-        "candidates": [
-            {"id": c.id, "label": c.compact(), "cls": c.cls,
-             "class_short": c.class_short, "flags": c.flags,
-             "clickable": c.clickable, "editable": c.editable,
-             "focused": c.focused, "scrollable": c.scrollable,
-             "visible": c.visible,
-             "text": c.text, "desc": c.desc,
-             "resource_id": c.resource_id, "bounds": list(c.bounds)}
-            for c in st.candidates
-        ],
+        "first_result": first,  # §12.2: idx o None, nunca inventado
+        "candidates": cands,
         "render": format_state(st),
     })
 

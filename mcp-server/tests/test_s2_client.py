@@ -186,7 +186,7 @@ async def test_loop_traduce_empty_a_s2_unavailable_con_hint():
 
     async def _dec(goal, rows, snapshot, history_summary="",
                    s2_guidance="", current_app="", screen_goal="",
-                   focused_field=None):
+                   focused_field=None, first_result=None):
         return ({"action": "ESCALATE", "target": "NONE",
                  "needs_system_2": False, "conf": 0.61, "type_text": ""},
                 {"in_tokens": 10, "out_tokens": 1})

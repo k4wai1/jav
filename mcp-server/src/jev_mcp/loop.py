@@ -132,11 +132,20 @@ def _history_summary(history: list, last: int = 3) -> str:
     return "; ".join(parts)
 
 
-def _table_lines(rows: list[dict]) -> list[str]:
-    """Tabla serializada para S2: `idx class_short zone flags label` (v4 §4)."""
-    return [f"{r['idx']} {r.get('class_short', 'View')} "
-            f"{r.get('zone', 'unknown')} {r.get('flags', '—')} "
-            f"{r['label']}" for r in rows]
+def _table_lines(rows: list[dict],
+                 first_result: int | None = None) -> list[str]:
+    """Tabla serializada para S2: `idx class_short zone flags label` (v4 §4).
+
+    Con hint §12.2: línea `FIRST_RESULT: <idx>` antepuesta (prior de
+    atención, nunca recorte: la tabla viaja completa). Sin contenedor
+    claro (`None`) no se antepone nada, nunca se inventa.
+    """
+    lines = [f"{r['idx']} {r.get('class_short', 'View')} "
+             f"{r.get('zone', 'unknown')} {r.get('flags', '—')} "
+             f"{r['label']}" for r in rows]
+    if isinstance(first_result, int):
+        return [f"FIRST_RESULT: {first_result}", *lines]
+    return lines
 
 
 def _payload_hash(text: str) -> str:
@@ -295,6 +304,13 @@ async def run_goal(goal: str, *, max_steps: int = 20,
     s2_empty_streak = 0
     s2_empty_snap: int | None = None
     degraded_hint_once = False
+    # Firma fail-fast §12.3: primer/último snapshot + fingerprints de
+    # contenido + paso estancado. Se emite en el resultado y en la entrada
+    # final del forense siempre que la corrida cierra con ok:false.
+    sig_first_snap = -1
+    sig_first_fp = ""
+    sig_last_snap = -1
+    sig_last_fp = ""
     logf = open(log_path, "a", encoding="utf-8") if log_path else None
 
     def log(entry: dict) -> None:
@@ -308,11 +324,41 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                 "total_cost": tracker.total_cost_usd,
                 "jev_calls": jev_calls, "s2_calls": s2_calls}
 
+    def _stalled_label() -> str:
+        """Paso estancado para la firma (§12.3, genérico, sin literales).
+
+        La decisión que se repite sin efecto (action+target), o la última
+        acción con mutación del historial, o `bootstrap` si aún no hubo
+        pasos. Formato `TAP:12` / `ESCALATE:NONE` / `bootstrap` /
+        `tap_node:n_3`.
+        """
+        if prev_dec_sig is not None:
+            action, target = prev_dec_sig
+            return f"{action}:{target}"
+        for h in reversed(history):
+            a = h.get("action", {}) or {}
+            if a.get("kind") in ("tap_node", "type_text"):
+                return f"{a['kind']}:{a.get('node_id', '-')}"
+            if a.get("kind") == "bootstrap":
+                return f"bootstrap:{a.get('command', '-')}"
+        return "bootstrap"
+
     def done(ok: bool, evidence: dict, steps: int) -> dict:
         d = {"ok": ok, "verified": bool(ok), "evidence": evidence,
              "steps": steps, "duration_ms": int((time.time() - t0) * 1000),
              "history": history}
         d.update(costs())
+        if not ok:
+            sig = _h.build_run_signature(
+                code=(evidence or {}).get("code", "?"),
+                stalled_step=_stalled_label(),
+                snapshot_first=sig_first_snap,
+                snapshot_last=sig_last_snap,
+                fingerprint_first=sig_first_fp,
+                fingerprint_last=sig_last_fp)
+            d["run_signature"] = sig
+            log({"final": {"ok": False}, "steps": steps,
+                 "run_signature": sig})
         return d
 
     def s2_unavailable(error: str, hint: str, steps: int) -> dict:
@@ -352,9 +398,11 @@ async def run_goal(goal: str, *, max_steps: int = 20,
 
         Devuelve (cmd, usage). El llamante traduce mock/excepción a
         S2_UNAVAILABLE y comando inválido a S2_BAD_COMMAND. Nunca actúa.
+        S2 ve la misma tabla que S1 + hint FIRST_RESULT (§12.2).
         """
         out, usage = await advise_fn(
-            goal, reason=reason, table_lines=_table_lines(rows),
+            goal, reason=reason,
+            table_lines=_table_lines(rows, _h.first_result(rows)),
             history_summary=_history_summary(history),
             need_text=need_text, current_app=current_app,
             screen_goal=screen_goal)
@@ -382,12 +430,13 @@ async def run_goal(goal: str, *, max_steps: int = 20,
         """
         if compile_fn is not None:
             out, usage = await compile_fn(
-                goal, table_lines=_table_lines(rows),
+                goal, table_lines=_table_lines(rows, _h.first_result(rows)),
                 history_summary=_history_summary(history),
                 current_app=current_app)
             return "plan", s2_client.parse_execute_goal(out), usage
         out, usage = await advise_fn(
-            goal, reason="bootstrap", table_lines=_table_lines(rows),
+            goal, reason="bootstrap",
+            table_lines=_table_lines(rows, _h.first_result(rows)),
             history_summary=_history_summary(history),
             need_text=False, current_app=current_app,
             screen_goal=screen_goal)
@@ -447,7 +496,8 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                      rows: list | None = None,
                      by_idx: dict | None = None,
                      screen_h: int = 0,
-                     pre_state: dict | None = None):
+                     pre_state: dict | None = None,
+                     s2_cost: float | None = None):
         """Aplica un comando S2 validado (§5.1 + §5.2, v3 ejecutable).
 
         OPEN_APP/BACK mutan vía sus tools y dejan `pending_state` fresco.
@@ -683,6 +733,217 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                               "be confirmed on screen within timeout. "
                               "Inspect before retrying.")}, max(step, 1))
             return None
+        if command == "TAP":
+            # S2-TAP ejecutable (§12.1): S2 ya resolvió el índice sobre la
+            # tabla vigente (misma que S1 + FIRST_RESULT); el loop ejecuta
+            # tap_node directo SIN re-preguntar a S1. Los 7 pasos
+            # normativos; compuertas intactas (estructural, clickable,
+            # FORBIDDEN opt-in, crítica/confirm, STALE con 1 reintento en
+            # el bucle, forense s2_direct_tap + via).
+            note_guidance(cmd)
+            target = cmd.get("target", "NONE")
+            row = (by_idx.get(target)
+                   if isinstance(target, int)
+                   and isinstance(by_idx, dict) else None)
+            if not isinstance(target, int) or row is None:
+                err = {"code": "S2_BAD_COMMAND",
+                       "error": (f"S2 TAP target fuera de la tabla "
+                                 f"vigente: {target!r}")}
+                log({"step": step, "phase": "s2_direct_tap",
+                     "snapshot": current_snapshot,
+                     "s2_command": _redacted_command(cmd),
+                     "target": target, "error": err, "cost_s2": s2_cost})
+                history.append({"step": step,
+                                "action": {"kind": "s2_direct_tap",
+                                           "target": target},
+                                "result": {"ok": False, "evidence": err},
+                                "snapshot": current_snapshot})
+                return done(False, err, max(step, 1))
+            bad_row = _h.validate_target(row, screen_h)
+            if bad_row:
+                err = {"code": "SELECTOR_NOT_FOUND",
+                       "error": bad_row["error"]}
+                log({"step": step, "phase": "s2_direct_tap",
+                     "snapshot": current_snapshot,
+                     "s2_command": _redacted_command(cmd),
+                     "target": target, "node_id": row.get("id"),
+                     "error": err, "cost_s2": s2_cost})
+                history.append({"step": step,
+                                "action": {"kind": "s2_direct_tap",
+                                           "node_id": row.get("id"),
+                                           "s2_direct": True},
+                                "result": {"ok": False, "evidence": err},
+                                "snapshot": current_snapshot})
+                return done(False, err, max(step, 1))
+            if not row.get("clickable"):
+                # Sin clickable no hay mutación (igual que TYPE sin foco
+                # §5.4): guidance guardada, re-observe + S1. Nunca
+                # dispatchGesture ciego desde S2-direct.
+                try:
+                    pending_state = await observe_fn()
+                except ObserveError as e:
+                    return done(False, {"code": e.code, "error": e.error},
+                                max(step, 1))
+                log({"step": step, "phase": "s2_direct_tap",
+                     "snapshot": current_snapshot,
+                     "s2_command": _redacted_command(cmd),
+                     "target": target, "node_id": row.get("id"),
+                     "not_clickable": True, "mutated": False,
+                     "cost_s2": s2_cost})
+                return None
+            tap_label = row.get("label", "") or ""
+            if _guards.is_forbidden(
+                    {"text": tap_label, "desc": ""}, pattern=forbidden):
+                err = {"code": "FORBIDDEN_TARGET",
+                       "error": f"target prohibido por goal: {tap_label}"}
+                log({"step": step, "phase": "s2_direct_tap",
+                     "snapshot": current_snapshot,
+                     "s2_command": _redacted_command(cmd),
+                     "target": target, "node_id": row.get("id"),
+                     "error": err, "cost_s2": s2_cost})
+                return done(False, err, max(step, 1))
+            if _h.is_sensitive(goal, tap_label) and not confirm:
+                preview = {"action": "TAP", "target_id": row.get("id"),
+                           "label": tap_label, "snapshot": current_snapshot,
+                           "s2_direct": True}
+                log({"step": step, "phase": "s2_direct_tap",
+                     "snapshot": current_snapshot,
+                     "s2_command": _redacted_command(cmd),
+                     "target": target, "node_id": row.get("id"),
+                     "planned": True, "preview": preview,
+                     "cost_s2": s2_cost})
+                r = done(True, {"planned": True, "preview": preview,
+                                "needs_confirm": True}, max(step, 0))
+                r["verified"] = False
+                r["needs_confirm"] = True
+                r["hint"] = ("acción crítica: re-ejecuta con confirm=true "
+                             "tras revisar el preview")
+                return r
+            internal = {"kind": "tap_node", "node_id": row["id"],
+                        "snapshot_id": current_snapshot,
+                        "key": f"tap:{row['id']}"}
+            res = await execute_fn(internal)
+            if not res.get("ok"):
+                ev = res.get("evidence", {}) or {}
+                if ev.get("code") == "STALE_SNAPSHOT":
+                    # Un reintento en el bucle, no en la app (deuda
+                    # AGENTS.md 2026-10-02, mismo patrón que TYPE-direct):
+                    # re-observe una vez, re-resolver por id, reintentar
+                    # una vez; segundo STALE -> UI_UNSTABLE.
+                    log({"step": step, "phase": "s2_direct_tap",
+                         "snapshot": current_snapshot,
+                         "s2_command": _redacted_command(cmd),
+                         "target": target, "node_id": row.get("id"),
+                         "result": {"ok": False, "evidence": ev},
+                         "stale_retry": True, "attempt": 1,
+                         "cost_s2": s2_cost})
+                    history.append({"step": step,
+                                    "action": {"kind": "tap_node",
+                                               "node_id": row["id"],
+                                               "s2_direct": True},
+                                    "result": res,
+                                    "snapshot": current_snapshot})
+                    try:
+                        fresh = await observe_fn()
+                    except ObserveError as e2:
+                        if e2.code == "STALE_SNAPSHOT":
+                            return done(False, {
+                                "code": "UI_UNSTABLE",
+                                "error": ("STALE + re-observe fallido; "
+                                          "UI mutando")}, max(step, 1))
+                        r = done(False, {"code": e2.code, "error": e2.error},
+                                 max(step, 1))
+                        r["hint"] = "revisa conexión con Jam"
+                        return r
+                    frows, _ = _h.build_table(
+                        fresh.get("candidates", []),
+                        fresh.get("screen_width", 0) or 0,
+                        fresh.get("screen_height", 0) or 0)
+                    fsnap = fresh.get("snapshot_id", current_snapshot)
+                    fsh = fresh.get("screen_height", 0) or screen_h
+                    nid = row.get("id", "")
+                    nrow = next((rr for rr in frows
+                                 if rr.get("id") == nid), None)
+                    if (nrow is None or _h.validate_target(nrow, fsh)
+                            or not nrow.get("clickable")):
+                        log({"step": step, "phase": "s2_direct_tap",
+                             "snapshot": fsnap, "stale_retry": True,
+                             "target_vanished": nrow is None,
+                             "node_id": nid, "cost_s2": s2_cost})
+                        pending_state = fresh
+                        return None
+                    res2 = await execute_fn(
+                        {"kind": "tap_node", "node_id": nid,
+                         "snapshot_id": fsnap, "key": f"tap:{nid}"})
+                    if not res2.get("ok"):
+                        ev2 = res2.get("evidence", {}) or {}
+                        log({"step": step, "phase": "s2_direct_tap",
+                             "snapshot": fsnap,
+                             "s2_command": _redacted_command(cmd),
+                             "target": target, "node_id": nid,
+                             "result": {"ok": False, "evidence": ev2},
+                             "stale_retry": True, "attempt": 2,
+                             "cost_s2": s2_cost})
+                        history.append({"step": step,
+                                        "action": {"kind": "tap_node",
+                                                   "node_id": nid,
+                                                   "s2_direct": True,
+                                                   "stale_retry": True},
+                                        "result": res2, "snapshot": fsnap})
+                        if ev2.get("code") == "STALE_SNAPSHOT":
+                            return done(False, {
+                                "code": "UI_UNSTABLE",
+                                "error": ("STALE reintentado una vez; "
+                                          "UI mutando")}, max(step, 1))
+                        return done(False, {
+                            "code": ev2.get("code", "?"),
+                            "error": ev2.get("error", "?")}, max(step, 1))
+                    log({"step": step, "phase": "s2_direct_tap",
+                         "snapshot": fsnap, "stale_retry": True,
+                         "recovered": True, "node_id": nid,
+                         "cost_s2": s2_cost})
+                    res = res2
+                    current_snapshot = fsnap
+                    row = nrow
+                else:
+                    log({"step": step, "phase": "s2_direct_tap",
+                         "snapshot": current_snapshot,
+                         "s2_command": _redacted_command(cmd),
+                         "target": target, "node_id": row.get("id"),
+                         "result": {"ok": False, "evidence": ev},
+                         "cost_s2": s2_cost})
+                    history.append({"step": step,
+                                    "action": {"kind": "tap_node",
+                                               "node_id": row["id"],
+                                               "s2_direct": True},
+                                    "result": res,
+                                    "snapshot": current_snapshot})
+                    return done(False, {"code": ev.get("code", "?"),
+                                        "error": ev.get("error", "?")},
+                                max(step, 1))
+            tap_entry = {"step": step, "phase": "s2_direct_tap",
+                         "snapshot": current_snapshot,
+                         "s2_command": _redacted_command(cmd),
+                         "target": target, "node_id": row.get("id"),
+                         "result": {"ok": True,
+                                    "evidence": res.get("evidence")},
+                         "via": (res.get("evidence", {}) or {}).get("via"),
+                         "cost_s2": s2_cost}
+            abort = await _coalesce_verify(tap_entry, current_snapshot)
+            log(tap_entry)
+            history.append({"step": step,
+                            "action": {"kind": "tap_node",
+                                       "node_id": row["id"],
+                                       "s2_direct": True},
+                            "result": res, "snapshot": current_snapshot})
+            if abort is not None:
+                return done(False, abort, max(step, 1))
+            if cmd.get("stop"):
+                ok, evidence = await (_verify(goal, observe_fn)
+                                      if _verify
+                                      else _default_verify(goal, observe_fn))
+                return done(ok, evidence, max(step, 0))
+            return None
         if command == "HINT":
             note_guidance(cmd)
             if cmd.get("stop"):
@@ -698,6 +959,11 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                             "result": res, "snapshot": current_snapshot})
             if not res.get("ok"):
                 ev = res.get("evidence", {}) or {}
+                log({"step": step, "phase": "s2_direct_back",
+                     "snapshot": current_snapshot,
+                     "s2_command": _redacted_command(cmd),
+                     "result": {"ok": False, "evidence": ev},
+                     "cost_s2": s2_cost})
                 return done(False, {"code": ev.get("code", "?"),
                                     "error": ev.get("error", "?")},
                             max(step, 1))
@@ -706,6 +972,14 @@ async def run_goal(goal: str, *, max_steps: int = 20,
             except ObserveError as e:
                 return done(False, {"code": e.code, "error": e.error},
                             max(step, 1))
+            log({"step": step, "phase": "s2_direct_back",
+                 "snapshot": current_snapshot,
+                 "snapshot_after": (pending_state or {}).get(
+                     "snapshot_id", current_snapshot),
+                 "s2_command": _redacted_command(cmd),
+                 "result": {"ok": True, "evidence": res.get("evidence")},
+                 "via": (res.get("evidence", {}) or {}).get("via"),
+                 "cost_s2": s2_cost})
             return None
         if command == "OPEN_APP":
             note_guidance(cmd)
@@ -854,6 +1128,9 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                                          bscreen_w, bscreen_h)
         bsnap = bstate.get("snapshot_id", -1)
         bapp = bstate.get("package", "") or ""
+        sig_first_snap = sig_last_snap = bsnap
+        sig_first_fp = sig_last_fp = _h.screen_fingerprint(
+            bstate.get("candidates", []))
         s2_calls += 1
         try:
             bkind, bcmd, busage = await s2_compile(brows, bapp)
@@ -936,7 +1213,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                                        "evidence": _redacted_command(bcmd)},
                             "snapshot": bsnap})
             fin = await apply_s2(bcmd, bsnap, brows, bby_idx,
-                                 bscreen_h, bstate)
+                                 bscreen_h, bstate, s2_cost=bcost)
             if fin is not None:
                 return fin
 
@@ -959,6 +1236,11 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                                           screen_w, screen_h)
             snapshot = state.get("snapshot_id", -1)
             current_app = state.get("package", "") or ""
+            # Hint §12.2 (prior, nunca poda) + firma §12.3 (último visto).
+            fr = _h.first_result(rows)
+            sig_last_snap = snapshot
+            sig_last_fp = _h.screen_fingerprint(
+                state.get("candidates", []))
             # P0-1: campo enfocado + contenido al state S1 (del observe si
             # read_screen lo trae; si no, derivado de candidates).
             ff = state.get("focused_field")
@@ -979,7 +1261,8 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     s2_guidance=eff_guidance,
                     current_app=current_app,
                     screen_goal=screen_goal,
-                    focused_field=ff)
+                    focused_field=ff,
+                    first_result=fr)
             except jev_client.JevError as e:
                 log({"step": step, "snapshot": snapshot, "error": str(e)})
                 return done(False, {"code": "JEV_ERROR", "error": str(e)}, step)
@@ -993,7 +1276,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
             entry = {"step": step, "goal": goal, "snapshot": snapshot,
                      "n_cands": len(rows), "conf": conf, "tau": TAU,
                      "fast_tau": FAST_TAU, "fast_path": False,
-                     "coalesced": False,
+                     "coalesced": False, "first_result": fr,
                      "screen_goal": screen_goal,
                      "operator_verbatim": operator_verbatim,
                      "cost": step_cost, "decision": decision}
@@ -1098,7 +1381,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                                            "evidence": _redacted_command(cmd)},
                                 "snapshot": snapshot})
                 fin = await apply_s2(cmd, snapshot, rows, by_idx,
-                                     screen_h, state)
+                                     screen_h, state, s2_cost=s2_cost)
                 if fin is not None:
                     return fin
                 return None
@@ -1134,6 +1417,10 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     final_state.get("screen_width", 0) or 0,
                     final_state.get("screen_height", 0) or 0)
                 final_snap = final_state.get("snapshot_id", snapshot)
+                final_fr = _h.first_result(final_rows)
+                sig_last_snap = final_snap
+                sig_last_fp = _h.screen_fingerprint(
+                    final_state.get("candidates", []))
                 n_eff = sum(
                     1 for h in history
                     if h.get("action", {}).get("kind") in
@@ -1145,7 +1432,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                     try:
                         v_out, v_usage = await verify_fn(
                             goal,
-                            table_lines=_table_lines(final_rows),
+                            table_lines=_table_lines(final_rows, final_fr),
                             history_summary=_history_summary(history),
                             n_actions=n_eff,
                             final_snapshot=final_snap,
@@ -1154,7 +1441,7 @@ async def run_goal(goal: str, *, max_steps: int = 20,
                         # Dobles legacy sin expected_terminal_state.
                         v_out, v_usage = await verify_fn(
                             goal,
-                            table_lines=_table_lines(final_rows),
+                            table_lines=_table_lines(final_rows, final_fr),
                             history_summary=_history_summary(history),
                             n_actions=n_eff,
                             final_snapshot=final_snap)

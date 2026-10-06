@@ -210,7 +210,8 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
                        s2_hint: str = "",
                        current_app: str = "",
                        screen_goal: str = "",
-                       focused_field: dict | None = None) -> tuple[dict, dict]:
+                       focused_field: dict | None = None,
+                       first_result: int | None = None) -> tuple[dict, dict]:
     """Single-pass S1: 1 llamada -> {action, target, needs_system_2, conf}.
 
     Contrato plan-ahead v4 §4-§5: `state` + `questions` 100% en inglés —
@@ -235,9 +236,14 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
     screen = screen_goal or goal
     if isinstance(table, (list, tuple)) and table and isinstance(table[0], (list, tuple)):
         serial = [list(r) for r in table]
+        rows_norm = []
     else:
         rows_norm, _ = _h.build_table(list(table or []))
         serial = _h.serialize_table(rows_norm)
+    if first_result is None and rows_norm:
+        # Derivación pura del hint §12.2 desde las filas (misma tabla que
+        # ve el loop; nunca recorta ni inventa).
+        first_result = _h.first_result(rows_norm)
     target_keys = [str(r[0]) for r in serial] + ["NONE"]
     if isinstance(focused_field, dict) and focused_field.get("label"):
         ff_label = str(focused_field.get("label") or "none")
@@ -253,6 +259,7 @@ async def ask_decision(goal: str, table: list, snapshot_id: int, *,
         "current_app": current_app,
         "snapshot_id": snapshot_id,
         "table": serial,
+        "first_result": first_result,
         "focused_field": ff_view,
         "history": history_summary,
         "s2_guidance": guidance,

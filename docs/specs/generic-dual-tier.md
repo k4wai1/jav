@@ -14,6 +14,14 @@
 > S2-director vs S1-reflejo + payload S1 100% en inglés + tabla
 > enriquecida + comandos S2 ejecutables + bootstrap): **no requiere
 > enmienda en AGENTS.md**.
+>
+> > Addendum **2026-10-06 — autopsia 7 runs (parálisis por
+> > indecisión)**: §12 normativo (S2-TAP-direct + `first_result` +
+> > fail-fast entre corridas + clipboard multi-app genérico +
+> > aceptación con corrida única). Refinamiento compatible de v3
+> > (y de `plan-ahead.md` v4 donde solape): **no requiere enmienda
+> > en AGENTS.md**. Cero literales de app en lo normativo; los
+> > ejemplos con apps son no-normativos.
 
 ## 1. Visión: `run_goal(goal: str)`
 
@@ -431,3 +439,208 @@ Desde `mcp-server/`:
   (Fase 6, `METHOD_NOT_ALLOWED`). Transporte Java-WebSocket; binds
   `127.0.0.1` + IP tailnet con WSS (nunca `0.0.0.0` por defecto).
   Token bearer incluso en loopback.
+
+## 12. Addendum 2026-10-06 — autopsia 7 runs, parálisis por indecisión (normativo)
+
+Causa raíz observada: ante `conf < TAU` en pantallas densas, el loop
+escalaba a S2, S2 devolvía solo `HINT`/consejo, el loop re-preguntaba
+a S1, S1 volvía a dudar → giro sin mutación hasta `STUCK`/`TIMEOUT`.
+Los tres correctivos (§12.1–§12.3) + flujo clipboard (§12.4) rompen
+ese ciclo: S2 puede **resolver el índice y ejecutar directo**, el
+host le marca **dónde mirar primero**, y el operador **no relanza a
+ciegas** lo que ya murió igual. Todo compatible con v3 §§5/7/8 y con
+`plan-ahead.md` v4 (compilador paso 0, fast-path, `zone`): ningún
+punto salta compuertas. Sin literales de app en lo normativo.
+
+### 12.1 S2-TAP ejecutable (extiende §5.1–§5.2; mismo patrón que OPEN_APP/TYPE-direct)
+
+`VALID_COMMANDS` pasa a
+`OPEN_APP | TYPE | TAP | BACK | HINT` (`TAP` nuevo; `BACK` ya
+ejecutable, se re-ratifica bajo el mismo patrón directo).
+
+Esquema (solo forma, sin literales):
+
+```json
+{
+  "command": "TAP",
+  "target": "int 0..253 (obligatorio, sin NONE)",
+  "guidance_for_s1": "string EN (qué debe resolver S1 tras el tap)",
+  "stop": "bool (default false; true solo con goal ya cumplido y verificado en pantalla)"
+}
+```
+
+S2 **ve la misma tabla** que S1 (`table_lines` + `first_result`
+§12.2 + `history_summary` + `screen_goal`); el `target` es índice de
+esa tabla vigente, nunca coordenadas ni `node_id` opaco.
+
+Semántica del loop ante `TAP` (sin re-preguntar a S1):
+
+1. Resolver `by_idx[target]`. `target` fuera de la tabla vigente o
+   `NONE` → `S2_BAD_COMMAND` honesto, sin actuar (S2 alucinó índice).
+2. Validación estructural con `validate_target(row, screen_h)`:
+   presente + `visible` + bounds en pantalla. Fallo →
+   `SELECTOR_NOT_FOUND` honesto, sin tocar el dispositivo.
+3. Exigir `clickable`: si no es clickable → **no mutar**
+   (igual que `TYPE` sin foco §5.4): guardar `guidance_for_s1`,
+   re-observe + S1. Nunca `dispatchGesture` ciego desde S2-direct.
+4. Chequear `is_forbidden` opt-in (§8.3) y crítica/confirm (§8.2):
+   `FORBIDDEN_TARGET` → abort; sensible sin `confirm:true` →
+   `planned` + `preview` + `needs_confirm`, sin ejecutar.
+5. Ejecutar `tap_node(id, snapshot_id)` + post-read coalescido
+   (reutilizado como observe siguiente) + verificación
+   (`wait_for_node`/`dump_ui`, reportar `via`, `ACTION_CLICK`
+   primero por AGENTS.md §6).
+6. `STALE_SNAPSHOT` → **un reintento en el bucle, no en la app**
+   (deuda AGENTS.md 2026-10-02, mismo patrón que TYPE-direct en
+   `loop.py:apply_s2`): re-observe una vez, re-resolver por `id`,
+   reintentar una vez; segundo `STALE` → `UI_UNSTABLE`.
+7. Forense (`phase: s2_direct_tap`): `s2_command` redactado +
+   `target`/`node_id` + `result` + `via` + `snapshot`/`snapshot_after`
+   + `cost_s2`. `stop:true` solo cierra tras `verify_final`
+   determinista (nunca éxito solo-S2).
+
+`BACK` re-ratificado: misma vía directa ya existente §5.2 (sin
+target; con `guidance_for_s1`); forense `phase: s2_direct_back`.
+Nada más cambia: `TYPE` sigue exigiendo foco + `text_payload`,
+`OPEN_APP` solo en bootstrap/compilador, `HINT` nunca muta.
+
+Alcance `@coder`: `s2_client.parse_command` acepta `TAP` (target
+int obligatorio, rechaza `NONE`); `loop.apply_s2` rama `TAP`
+con los 7 pasos; `s2_client.advise` system-prompt anuncia `TAP`
+como macro ejecutable junto a `OPEN_APP/TYPE/BACK/HINT`;
+tests: TAP-direct con mock `tap_node` + aserción sin segunda
+pregunta S1; TAP con idx rotado → `S2_BAD_COMMAND`; TAP no
+visible → `SELECTOR_NOT_FOUND`; TAP no-clickable → sin mutación.
+
+### 12.2 Anti-entropía en listas densas: hint `first_result` (no podado-a-1)
+
+**Rechazado: podar a 1 resultado.** Podar la tabla al primer match
+es frágil y se prohíbe como estrategia: el primer item suele ser
+anuncio/contenido irrelevante o inestable entre snapshots; con un
+solo candidato S1/S2 no puede desambiguar, no hay verificación
+cruzada, y cualquier reordenamiento convierte el paso en
+`STALE`/`WRONG_TARGET` silencioso. La tabla sigue 0..253 + NONE
+(§4); **nunca se recorta a 1 por heurística de contenido**.
+
+En su lugar, el host marca un **hint estructurado** que S1 y S2
+consumen como prior, no como orden:
+
+- `first_result: int | None` en el observe/state: índice del
+  **primer interactivo del contenedor principal mid-list**
+  (lista densa = contenedor scrollable con N hermanos misma
+  clase/`zone`; el host elige el primer `visible` + `clickable`
+  con etiqueta no vacía; si no hay contenedor claro → `None`,
+  nunca inventar).
+- Viaja a **S1** en la cabecera del state (`first_result`) y a
+  **S2** como línea `FIRST_RESULT: <idx>` sobre `table_lines`
+  (misma tabla, sin recorte). Derivación pura en
+  `loop_helpers`/`ui_normalizer`, sin literales de app.
+- Semántica: prior de atención, no selección forzada. S1 lo pondera
+  en su pass; **ante escalado en lista densa, S2 elige el índice
+  (normalmente el marcado) vía `TAP`-direct §12.1** en vez de
+  devolver `HINT` decorativo. Si el marcado no sirve (no visible /
+  anuncio), S2 elige otro índice visible de la misma tabla y lo
+  deja en `guidance_for_s1` el porqué en una frase.
+- Forense: `first_result` en cada entrada de paso + `s2_command`
+  con el `target` elegido (trazable si S2 siguió o ignoró el hint).
+
+Alcance `@coder`: `build_table`/`read_screen` exponen
+`first_result`; `jev_client.ask_decision` lo incluye en el state
+EN; `_table_lines` antepone `FIRST_RESULT: n`; tests con tabla
+densa sintética (stub) asertan el marcado, nunca con literales.
+
+### 12.3 Fail-fast entre corridas: firma + regla operativa (formato, no daemon)
+
+Si 2 corridas consecutivas mueren con **igual firma**, el
+operador/subagente **NO relanza**: dif de forenses + informe.
+Esto es regla operativa + formato forense; **no es daemon ni
+watchdog en código** (el loop solo expone la firma).
+
+Firma (`run_signature`, objeto JSON en la entrada final del
+`logs/run-<ts>.jsonl` y en el resultado de `run_goal`):
+
+```json
+{
+  "code": "STUCK_SAME | STUCK | TIMEOUT | S2_UNAVAILABLE | UI_UNSTABLE | input_unverified | ...",
+  "stalled_step": "action+target sin progreso (p.ej. TAP:12, o ESCALATE-loop)",
+  "snapshot_first": 0, "snapshot_last": 0,
+  "fingerprint_first": "sha256", "fingerprint_last": "sha256",
+  "progress": false
+}
+```
+
+- `code` = código terminal honesto del resultado.
+- `stalled_step` = decisión/acción que se repite sin efecto
+  (misma `(action+target)` ×3, o `ESCALATE`→`HINT` sin mutación).
+- `snapshot-estancado` = `snapshot_last == snapshot_first` (o
+  `fingerprint_first == fingerprint_last`: mismo contenido
+  id+texto ordenado, `screen_fingerprint` existente) → `progress:
+  false`.
+- Igual firma = mismo `code` **y** (mismo `stalled_step` **o**
+  mismo par fingerprint estancado) en 2 corridas consecutivas del
+  mismo goal.
+
+Convención de log: `logs/run-<ts>.jsonl` (existente §7) + campo
+`run_signature` obligatorio en la entrada final (`final` o la
+última de paso con `error`). Comparar firmas = `diff` de las dos
+entradas finales + informe (qué paso se estancó, qué pantalla no
+cambió, hipótesis y próximo experimento único, no relanzamiento).
+
+Alcance `@coder`: emitir `run_signature` siempre al cerrar con
+`ok:false` (puro en `loop_helpers`, consumido en `run_goal`);
+tests asertan el campo y su determinismo ante mismo historial.
+Ningún auto-reintento en código.
+
+### 12.4 Flujo portapapeles multi-app (genérico, sin nombres de apps)
+
+Caso: la app-origen expone **Compartir → Copiar** y el enlace queda
+en el clipboard del SO; el loop lo lee para verificar y lo inyecta
+como `text_payload` en la app-destino. Contrato genérico, sin
+paquetes ni títulos en lo normativo.
+
+Protocolo (primitivas existentes, orden normativo):
+
+1. `TAP`-direct o S1/`TAP` sobre el nodo de copiar (validado §8.1).
+2. **Read-back del clipboard en host** por una de dos vías
+   (la que el harness exponga, sin preferencia normativa):
+   `adb shell dumpsys clipboard` parseado en host, o
+   pegado-en-campo-efímero + read-back (`ACTION_SET_TEXT` no;
+   pegado + lectura del `text` del nodo enfocado).
+3. Verificación: contenido no vacío con forma genérica de enlace
+   (`https?://`, validación solo por forma, sin literales de
+   dominio). Vacío o sin forma → `CLIPBOARD_EMPTY` honesto, sin
+   inventar URL, sin avanzar al destino.
+4. Inyección: el contenido verificado entra como `text_payload`
+   (slot opaco `clipboard`, solo `len`+`sha256` en forense, nunca
+   crudo si el goal es sensible) y el `TYPE` destino lo escribe
+   vía `ACTION_SET_TEXT` con read-back `confirm_input` (§5.4).
+5. Forense: `clipboard_len` + `clipboard_sha256` + vía de lectura
+   (`dumpsys` | `paste-readback`); compuerta crítica §8.2 si el
+   goal implica comunicar a terceros (preview + `confirm:true`).
+
+Alcance `@coder`: helper de harness `read_clipboard()` (adb-host,
+fuera de `src/` de la app; en `mcp-server/tools` o scripts) +
+slot `clipboard` en `pending_payloads`; tests con stub de
+clipboard (vacío / con forma / sin forma). Sin `shell` en el
+dispositivo antes de Fase 6 (`METHOD_NOT_ALLOWED` vigente);
+el `dumpsys` corre en el **host adb**, no vía Shizuku-`shell`.
+
+### 12.5 Aceptación `@judge` (certifica, sin editar)
+
+Desde `mcp-server/`, además de §10.1–§10.7 (pytest verde, greps
+vacíos, CostTracker, compuertas, bootstrap, payload EN):
+
+1. `uv run pytest` verde con los tests §12.1–§12.4 (TAP-direct,
+   `first_result`, `run_signature`, slot `clipboard` con stub).
+2. Greps §10.2 extendidos a los nuevos símbolos, sin falsos
+   positivos de contrato: siguen **vacíos en `src/`** para
+   literales de app; `first_result`/`run_signature`/`clipboard`
+   son vocabulario genérico permitido.
+3. **UNA corrida KJ5** del goal de validación (instancia
+   no-normativa: compartir vídeo de app-origen → persona en
+   app-destino; valores aportados en runtime por S2/operador,
+   nunca en `src/`): si la búsqueda **no pasa al 2º intento**,
+   abortar y analizar el `logs/run-<ts>.jsonl` (fail-fast §12.3:
+   dif de firmas + informe). Prohibido relanzar a ciegas la misma
+   firma. Forense + `[COST]` exigidos igual que §10.3.
+

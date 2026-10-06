@@ -15,6 +15,11 @@ from ..ui_normalizer import PASSWORD_MARKERS
 # 254; cualquier poda agresiva exige protocolo A/B antes de tocarlo.
 MAX_TABLE = 254
 
+# Lista densa (§12.2): grupo mínimo de hermanos misma clase con etiqueta
+# para considerar que hay un contenedor principal listable. Por debajo no
+# hay contenedor claro -> None, nunca inventar.
+DENSE_LIST_MIN = 3
+
 # Ancla espacial 3x3 (plan-ahead v4 §4, calculado en host desde bounds +
 # resolución). Vocabulario normativo en inglés; `unknown` es fallback fuera
 # de los 9 (sin resolución o bounds degenerados). Hint de desambiguación,
@@ -205,6 +210,80 @@ def serialize_table(rows: list[dict]) -> list[list]:
              r.get("zone", ZONE_UNKNOWN),
              r.get("flags", EMPTY_FLAGS), r.get("label", "")]
             for r in rows]
+
+
+def first_result(rows: list[dict] | None) -> int | None:
+    """Hint del primer interactivo del contenedor principal (§12.2).
+
+    Puro y genérico, sin literales de dominio: ante lista densa
+    (contenedor scrollable presente + grupo de ≥DENSE_LIST_MIN hermanos
+    misma `class_short`, visibles + clickables con etiqueta no vacía),
+    devuelve el `idx` menor del grupo mayoritario (prior de atención,
+    no selección forzada). Sin contenedor claro -> None, nunca inventar.
+    La tabla NUNCA se recorta: el hint viaja junto a la tabla completa.
+    """
+    if not rows:
+        return None
+    if not any(bool(r.get("scrollable")) for r in rows):
+        return None
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        if (r.get("visible", True) and r.get("clickable")
+                and str(r.get("label") or "").strip()):
+            groups.setdefault(
+                str(r.get("class_short") or "View"), []).append(r)
+    best: list[dict] | None = None
+    for members in groups.values():
+        if len(members) >= DENSE_LIST_MIN and (
+                best is None or len(members) > len(best)):
+            best = members
+    if not best:
+        return None
+    return min(r["idx"] for r in best)
+
+
+def build_run_signature(*, code: str, stalled_step: str = "",
+                        snapshot_first: int = -1,
+                        snapshot_last: int = -1,
+                        fingerprint_first: str = "",
+                        fingerprint_last: str = "") -> dict:
+    """Firma fail-fast entre corridas (§12.3). Pura y genérica.
+
+    `snapshot-estancado` = snapshot_last == snapshot_first (o mismo
+    fingerprint de contenido id+texto) -> progress False. Igual firma =
+    mismo `code` y (mismo `stalled_step` o mismo par fingerprint
+    estancado); ver `same_signature`.
+    """
+    snap_stalled = (snapshot_first == snapshot_last)
+    fp_stalled = (bool(fingerprint_first)
+                  and fingerprint_first == fingerprint_last)
+    return {"code": code, "stalled_step": stalled_step,
+            "snapshot_first": snapshot_first,
+            "snapshot_last": snapshot_last,
+            "fingerprint_first": fingerprint_first,
+            "fingerprint_last": fingerprint_last,
+            "progress": not (snap_stalled or fp_stalled)}
+
+
+def same_signature(a: dict | None, b: dict | None) -> bool:
+    """True si dos firmas son la misma (fail-fast §12.3, puro).
+
+    Mismo `code` Y (mismo `stalled_step` no vacío O mismo par
+    fingerprint estancado no vacío en ambas). Cualquier forma
+    inesperada -> False (nunca bloquear por un falso positivo).
+    """
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    if not a.get("code") or a.get("code") != b.get("code"):
+        return False
+    sa, sb = a.get("stalled_step") or "", b.get("stalled_step") or ""
+    if sa and sa == sb:
+        return True
+    fa, fb = a.get("fingerprint_first") or "", a.get("fingerprint_last") or ""
+    ga, gb = b.get("fingerprint_first") or "", b.get("fingerprint_last") or ""
+    if fa and fa == fb and (fa, fb) == (ga, gb):
+        return True
+    return False
 
 
 def _row_secret(row: dict) -> bool:
