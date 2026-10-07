@@ -224,7 +224,7 @@ Bancos: KJ5 por Wi-Fi (loop S1/S2) + A10 por USB (`e03638e5`, Android 10,
 720×1440, solo USB) para director v5. Sin texto sensible: goals genéricos
 en inglés, payloads como `len`/`sha256`, paquetes solo como valores
 runtime del forense citado. Costos = S1 Jev (`$0.042` in / `$0.00` out
-por MTok, normativo) + S2 por env (`S2_PROVIDER=deepseek`, misma key);
+por MTok, normativo) + S2 vía OpenRouter (misma key);
 cada llamada loguea `[COST]` + `cost_usd` por paso.
 
 | Goal (generic, EN) | Result | Wall | Cost | Forense |

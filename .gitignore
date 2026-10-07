@@ -33,6 +33,10 @@ logs/
 tmp/
 temp/
 
+# --- Go / Jav MCP (binarios; solo fuentes en git) ---
+dist/
+*.exe
+
 # --- OS / editores ---
 .DS_Store
 Thumbs.db

@@ -1,11 +1,11 @@
-"""Cliente S2 conmutable por env (contrato generic-dual-tier §3 + S2 deepseek).
+"""Cliente S2 vía OpenRouter (contrato generic-dual-tier §3).
 
-S2_PROVIDER=openrouter|deepseek (default openrouter: GLM-5.3 vía
-OpenRouter, misma OPENROUTER_API_KEY que S1). Con deepseek:
-POST https://api.deepseek.com/chat/completions con DEEPSEEK_API_KEY,
-modelo por env S2_DEEPSEEK_MODEL (default `deepseek-chat`).
+S2 vive solo en OpenRouter con la misma OPENROUTER_API_KEY que S1;
+modelo por env S2_MODEL (alias GLM_MODEL, default
+`z-ai/glm-5.3-flash`). Si el operador quiere DeepSeek, usa el slug
+OpenRouter `deepseek/deepseek-chat` con la misma key.
 
-Ambos proveedores devuelven comandos ejecutables {command:
+Devuelve comandos ejecutables {command:
 OPEN_APP|TYPE|BACK|HINT, package/target/text/guidance_for_s1/stop}
 (§5.1) + verify_done {achieved, evidence}; mismo manejo
 S2EmptyResponse + 1 reintento, PII enmascarada, S2 nunca toca el
@@ -23,11 +23,10 @@ import httpx
 log = logging.getLogger("s2")
 
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions"
 # Compat: ENDPOINT era el endpoint OpenRouter; se mantiene como alias.
 ENDPOINT = OPENROUTER_ENDPOINT
 TIMEOUT_S = 15.0
-DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+S2_DEFAULT_MODEL = "z-ai/glm-5.3-flash"
 
 
 class S2EmptyResponse(RuntimeError):
@@ -176,34 +175,24 @@ def _from_legacy(obj: dict) -> dict:
             "stop": bool(obj.get("stop", False))}
 
 
-def s2_provider() -> str:
-    """Proveedor S2 vigente: openrouter (default) o deepseek."""
-    return (os.environ.get("S2_PROVIDER", "openrouter") or "openrouter").strip().lower()
-
-
 def glm_model_id() -> str:
-    return os.environ.get("GLM_MODEL", "z-ai/glm-5.3-flash")
-
-
-def deepseek_model_id() -> str:
-    return os.environ.get("S2_DEEPSEEK_MODEL", DEEPSEEK_DEFAULT_MODEL)
+    """Modelo S2 (OpenRouter). Env S2_MODEL (alias GLM_MODEL)."""
+    return (os.environ.get("S2_MODEL")
+            or os.environ.get("GLM_MODEL", S2_DEFAULT_MODEL)
+            or S2_DEFAULT_MODEL)
 
 
 def s2_model_id() -> str:
-    """Modelo S2 vigente según S2_PROVIDER (default: openrouter/GLM)."""
-    if s2_provider() == "deepseek":
-        return deepseek_model_id()
+    """Modelo S2 vigente (alias de glm_model_id; solo OpenRouter)."""
     return glm_model_id()
 
 
 def model_id() -> str:
-    """Compat: modelo S2 vigente (antes solo GLM/OpenRouter)."""
+    """Compat: modelo S2 vigente (solo OpenRouter)."""
     return s2_model_id()
 
 
 def s2_api_key() -> str:
-    if s2_provider() == "deepseek":
-        return os.environ.get("DEEPSEEK_API_KEY", "")
     return os.environ.get("OPENROUTER_API_KEY", "")
 
 
@@ -212,16 +201,11 @@ def is_mock() -> bool:
 
 
 def _endpoint() -> str:
-    if s2_provider() == "deepseek":
-        return DEEPSEEK_ENDPOINT
     return OPENROUTER_ENDPOINT
 
 
 def _headers(title: str) -> dict:
     key = s2_api_key()
-    if s2_provider() == "deepseek":
-        return {"Authorization": f"Bearer {key}",
-                "Content-Type": "application/json"}
     return {"Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/jev-android-mcp",
@@ -261,13 +245,13 @@ async def compile_goal(goal: str, *, table_lines: list[str],
                        max_table_lines: int = 60) -> tuple[dict, dict]:
     """Compila el goal en un plan `EXECUTE_GOAL` paso 0 (v4 §2.1).
 
-    Devuelve (plan validado, usage). Proveedor según S2_PROVIDER, misma
-    key que S2. Sin key -> stub mock (el loop lo traduce a
+    Devuelve (plan validado, usage). Solo OpenRouter, misma
+    key que S1. Sin key -> stub mock (el loop lo traduce a
     S2_UNAVAILABLE, nunca éxito ni ciclos). Vacío persistente tras
     reintento -> S2EmptyResponse; JSON parseable pero fuera del esquema
     -> S2BadCommand honesto, sin actuar.
     """
-    provider = s2_provider()
+    provider = "openrouter"
     if is_mock():
         log.info("s2 compile stub (sin key S2): sin plan real")
         return ({"command": PLAN_COMMAND, "package": "",
@@ -361,13 +345,12 @@ async def verify_done(goal: str, *, table_lines: list[str],
     """Verifica `goal-achieved?` contra snapshot final + historial.
 
     Genérico, sin literales de dominio. S2 nunca toca el dispositivo:
-    devuelve ({achieved: bool, evidence: str}, usage). Proveedor según
-    S2_PROVIDER (openrouter con OPENROUTER_API_KEY, deepseek con
-    DEEPSEEK_API_KEY). Sin key -> stub {mock: true} (el loop lo
+    devuelve ({achieved: bool, evidence: str}, usage). Solo OpenRouter
+    con OPENROUTER_API_KEY. Sin key -> stub {mock: true} (el loop lo
     traduce a S2_UNAVAILABLE, nunca éxito). Vacío persistente tras
     reintento -> S2EmptyResponse.
     """
-    provider = s2_provider()
+    provider = "openrouter"
     if is_mock():
         log.info("s2 verify stub (sin key S2): sin veredicto")
         return ({"achieved": False, "evidence": "", "mock": True},
@@ -463,7 +446,7 @@ async def advise(goal: str, *, reason: str, table_lines: list[str],
     {in_tokens, out_tokens, mock?}. Sin key del proveedor vigente ->
     stub mock (el loop lo traduce a S2_UNAVAILABLE, nunca éxito ni ciclos).
     """
-    provider = s2_provider()
+    provider = "openrouter"
     if is_mock():
         log.info("s2 stub (sin key S2): sin plan real")
         return ({"command": "HINT", "package": "", "target": "NONE",

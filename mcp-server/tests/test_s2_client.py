@@ -110,7 +110,6 @@ def test_parse_execute_goal_plan_paso_0():
 async def test_compile_stub_sin_key_es_mock(monkeypatch):
     """Sin key S2 → stub mock (el loop lo traduce a S2_UNAVAILABLE)."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     out, usage = await s2_client.compile_goal("generic goal",
                                              table_lines=[])
     assert out.get("mock") is True

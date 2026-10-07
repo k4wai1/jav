@@ -161,8 +161,9 @@ goal) para metas complejas.
   Fail-fast entre corridas (§12.3): 2 muertes con igual `run_signature`
   → no relanzar; dif de forenses + informe.
 - **Casos verificados por dos vías** (commits `58db72b`, `6fc3a9a` + forense):
-  caso mensajería simple ~84.9 s y caso similar ~22 s con `S2_PROVIDER=
-  deepseek` (~1.9 s/llamada S2) frente a flash (~22 s/llamada), cada uno con
+  caso mensajería simple ~84.9 s y caso similar ~22 s con S2
+  (~1.9 s/llamada, provider directo hoy retirado — ver §5) frente a
+  flash (~22 s/llamada), cada uno con
   forense JSONL + verificación de pantalla posterior (no solo log local).
   Valores concretos de personas/apps solo en runtime/forense, nunca en `src/`.
 
@@ -187,7 +188,7 @@ Contrato del resolver v5 (forma, inglés):
 
 | Dimensión | Antes (pre-v3, loop monolítico) | Después (v3 → v4 → v5) |
 |---|---|---|
-| Latencia por paso | `uiautomator` 4353 ms domina; Jev ES sin calibrar | tap ~70 ms; S1 ~1.6 s; S2 DeepSeek ~1.9 s vs flash ~22 s; `dump_ui` ~2 ms/nodo; fast-path ahorra 1 dump/paso |
+| Latencia por paso | `uiautomator` 4353 ms domina; Jev ES sin calibrar | tap ~70 ms; S1 ~1.6 s; S2 ~1.9 s vs flash ~22 s (histórico §5); `dump_ui` ~2 ms/nodo; fast-path ahorra 1 dump/paso |
 | Llamadas S2 por corrida | S2 consultado por cada redacción/duda (giro HINT↔S1) | v4: 1 (compilador paso 0) + anomalías; v5-complejo: 0 LLM en loop (director humano) + Jev-resolver por pantalla |
 | Rol de Jev | decisor con goal global + instrucciones ES (poisoning, `tau` degradado) | v3–v4: actuador táctico EN (acción+target+conf); v5: resolver ciego (1 Choice, micro-intención, anti-poisoning) |
 | Quién abre apps | loop adivinaba / paseo por launcher | S2-director (v3 bootstrap) / S2-compilador (v4 `EXECUTE_GOAL.package`) / director `open_app` (v5); siempre `am start` Shizuku + verificación foreground |
@@ -209,9 +210,10 @@ Contrato del resolver v5 (forma, inglés):
   `ACTION_CLICK` primero si `clickable`, gesto fallback, siempre `via`.
 - **S1 ~1.6 s** (`avg_s1_ms: 1589.5` calc-redo; pasos individuales
   1318–2158 ms en `logs/run-20261006-*.jsonl`).
-- **S2 DeepSeek ~1.9 s vs flash ~22 s** por llamada (medido en las corridas
-  de validación 2026-10-05/06; DeepSeek vía `S2_PROVIDER=deepseek`, misma
-  key que S1). Flash intermitente con contenido vacío → `S2EmptyResponse`
+- **S2 (DeepSeek directo, hoy retirado) ~1.9 s vs flash ~22 s** por llamada
+  (medido en las corridas de validación 2026-10-05/06; provider directo
+  retirado 2026-10-07 por decisión del operador: S2 vive solo en OpenRouter).
+  Flash intermitente con contenido vacío → `S2EmptyResponse`
   → tolerancia degradada ×1 (P0-4), nunca giro.
 - **Casos:** mensajería simple ~84.9 s y ~22 s, verificados por dos vías
   (aserción en pantalla + entrada forense). Batería en Ajustes leída

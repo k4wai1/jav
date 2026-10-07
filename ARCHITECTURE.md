@@ -88,7 +88,8 @@ TECNO LG7n (Android 12/API 31, Magisk root — la app no lo usa).
 sigue siendo 16× más lento a igual carga).
 
 **Pipeline medido (v3→v5):** tap ~70 ms (`ACTION_CLICK` primero, gesto
-fallback) · S1 ~1.6 s · S2 DeepSeek ~1.9 s vs flash ~22 s por llamada ·
+fallback) · S1 ~1.6 s · S2 ~1.9 s vs flash ~22 s por llamada (medido con
+provider S2 directo, retirado 2026-10-07; S2 vive solo en OpenRouter) ·
 `fast-path` ahorra 1 dump/paso. Coste por corrida < $0.003 (Jev
 `$0.042` in / `$0.00` out por MTok normativo; GLM por env `GLM_RATE_IN/OUT`).
 Conclusión: el cuello es **percepción**, no input; AccessibilityService es el

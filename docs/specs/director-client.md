@@ -38,8 +38,8 @@ Leído antes de redactar (working tree 2026-10-07):
   `state.goal + screen_goal` + tabla `[idx,class_short,zone,flags,label]` +
   `current_app/focused_field/history/s2_guidance`; 3 preguntas cerradas
   (`action/target/needs_system_2`). Sin key → stub `{mock:true}`.
-- `mcp-server/src/jev_mcp/s2_client.py:1-66` — S2 conmutable
-  (`S2_PROVIDER=openrouter|deepseek`, misma `OPENROUTER_API_KEY` que S1);
+- `mcp-server/src/jev_mcp/s2_client.py:1-66` — S2 solo vía OpenRouter
+  (misma `OPENROUTER_API_KEY` que S1, modelo por env `S2_MODEL`);
   comandos `OPEN_APP|TYPE|TAP|BACK|HINT` + plan `EXECUTE_GOAL` + `verify_done`;
   `S2EmptyResponse/S2BadCommand` honestos.
 - `mcp-server/src/jev_mcp/tools/ui.py` — primitivas reales: `read_screen`
@@ -63,7 +63,7 @@ Leído antes de redactar (working tree 2026-10-07):
 
 ## 1. Autopsia: por qué se entierra la Inception
 
-La cadena OpenCode → `loop.py` → S2 (DeepSeek/GLM) → Jev → Jam apila **tres
+La cadena OpenCode → `loop.py` → S2 (OpenRouter) → Jev → Jam apila **tres
 planificadores** (operador + S2-compilador/director + S1-decisor) sobre el
 mismo goal global. Fallos medidos que la condenan:
 
