@@ -15,16 +15,20 @@
 
 ## 2. Handshake
 
-Primer frame del cliente (obligatorio, < 10 s o cierre):
+Primer frame del cliente (obligatorio, < 10 s o cierre).
+Sigue la envoltura general de §4 (`hello` incluido: el código lo
+decodifica como `WsRequest{id, method, params}` y exige `params` con
+`HelloParams`):
 
 ```json
-{"method": "hello", "protocol_version": 1,
- "client_version": "0.1.0",
- "token": "<bearer obligatorio, ver §3>",
- "client": "jev-mcp/0.1.0"}
+{"id": "<uuid>", "method": "hello",
+ "params": {"protocol_version": 1,
+  "client_version": "0.1.0",
+  "token": "<bearer obligatorio, ver §3>",
+  "client": "jev-mcp/0.1.0"}}
 ```
 
-Respuesta:
+Respuesta (excepción plana, sin envoltura `id`/`result`):
 
 ```json
 {"ok": true, "protocol_version": 1, "app_version": "0.1.0",
@@ -49,9 +53,11 @@ El gate real es `protocol_version`. `client_version` es informativo.
 
 ## 4. Comandos (cliente → app)
 
-Todos: `{"id": "<uuid>", "method": "…", "params": {…}}`.
+Todos (incluido el `hello` de §2):
+`{"id": "<uuid>", "method": "…", "params": {…}}`.
 Respuestas: `{"id": "<uuid>", "ok": true, "result": {…}}` o
 `{"id": "<uuid>", "ok": false, "error": "…", "code": "…"}`.
+Excepción: la **respuesta** al `hello` es plana (`§2`, sin `id`/`result`).
 
 Las acciones (`tap`, `type`, `scroll`…) **no devuelven snapshot**:
 el servidor no dumpea tras actuar (latencia incondicional).

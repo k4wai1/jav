@@ -84,22 +84,40 @@
 - [ ] Forense por corrida `logs/run-<ts>.jsonl` (fase, snapshot, opciones,
   respuestas con `conf`/`tau`, acción por paso). Sin forense no hay certificación.
 
-### Fase v5 — Director-cliente (loop congelado; solo docs + `set_clipboard`)
+### Fase v5 — Director-cliente (loop congelado; `resolve_element` + `set_clipboard`)
 - [x] Contratos `@architect`: `docs/specs/paradigm-shift.md` (3 giros 2026-10-06),
   `docs/specs/director-client.md` v5, `README.es.md`/`README.en.md`.
-- [ ] `@coder`: `resolve_element` ciego al goal (1 Choice + NONE, micro EN,
-  anti-poisoning) + `set_clipboard` Jam/host con read-back (working tree sin
-  commit: `tools/clipboard.py`, `PROTOCOL.md`, `docs/TESTING.md` §8);
-  `loop.py`/`ask_decision`/`s2_client` congelados (solo bugfix con test).
-- [ ] `@judge`: pytest verde antes y después + suite A10 en KJ5
-  (batería + calculadora + clipboard round-trip; hoy `avg_tap_ms 69.7`,
-  `avg_s1_ms 1589.5`, costo <$0.003, pero redo `ok_all: false` → B1
-  bloqueado por entorno) + greps cero-acoplado + `ask_decision` ausente
-  en path director.
-- [ ] Pendientes P1/P2 (no se fingen cerrados): ranking por relevancia,
-  firma anti-ticker, `assertFresh`, forense wire+timings por fase,
-  recalibrar `TAU=0.70`/`FAST_TAU=0.85` con ≥20 goals. Enmienda AGENTS.md §1
-  propuesta en `director-client.md` §11.4 (orquestador).
+- [x] `@coder`: `resolve_element` ciego al goal (1 Choice + NONE, micro EN,
+  anti-poisoning) + `set_clipboard` Jam (`ClipboardManager.setPrimaryClip`,
+  scope `ui`, sin Shizuku, sin grant) + wrapper host con read-back
+  (commits `3944e15` + `7ee4058`; `loop.py`/`ask_decision`/`s2_client`
+  congelados, solo bugfix con test).
+- [x] `@judge`: **139 pytest en verde** (`mcp-server`: `uv run pytest -q`;
+  127 en `6fc3a9a` → 139 tras `7ee4058`). Greps cero-acoplado en verde +
+  `ask_decision` ausente en path director.
+- [x] Bancos reales: **KJ5 (Wi-Fi)** para loop/S1-S2 + **A10 USB
+  (serial `e03638e5`, Android 10, 720×1440)** para director v5.
+  Suites medidas (solo metadatos; detalle en `docs/TESTING.md` §9 +
+  `docs/specs/fossify-random.md`):
+  mensajería-A SENT ~84.9 s (`mcp-server/logs/run-rupa-1791164922.jsonl`,
+  25 steps, ~$0.0038) · mensajería-B SENT ~22 s
+  (`mcp-server/logs/run-1791243623.jsonl`, 12 steps, ~$0.0023,
+  `stale_recovered` ×1) · reloj/alarmas solo-lectura OK
+  (`run-clock-alarms-*.jsonl`) · **Fossify 5/5** en A10
+  (gallery 2.3 s $0 · clock 5.7 s · files 9.1 s · calc 15.5 s ·
+  music 5.6 s; total ~$0.0006; `logs/run-fossify-*.jsonl` v2) ·
+  multi-app YT→Brave **BLOQUEO honesto** `verify_download ok=false`
+  (`DOWNLOAD_NOT_STARTED`; `logs/run-20261007-yt-brave.jsonl`, 25 fases,
+  ~$0.0011) · calculadora A10 **bloqueada por entorno**
+  (`logs/run-20261006-204449-calc.jsonl`, `summary_b_redo ok_all: false`;
+  taps verificados por display pero resultado final no certificable → B1
+  sigue bloqueado).
+- [ ] Pendientes honestos P1/P2 (no se fingen cerrados): ranking por
+  relevancia, firma anti-ticker, `assertFresh`, forense wire+timings por
+  fase, recalibrar `TAU=0.70`/`FAST_TAU=0.85` con ≥20 goals. Enmienda
+  AGENTS.md §1 propuesta en `director-client.md` §11.4 (orquestador).
+  Suite A10 (batería + calculadora + clipboard round-trip) pendiente de
+  cierre formal por `@judge` antes de dar v5 por cerrada.
 
 ### Fase 6 — Shell con seguridad cerrada + hardening
 - [ ] `shell` solo con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
@@ -107,15 +125,16 @@
 - [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jev-mcp/`,
   docs y hardening finales.
 
-## Próxima tarea (agente general `run_goal`, cero literales de dominio)
+## Próxima tarea (director v5 vigente; loop congelado)
 
-1. `@architect`: contrato `docs/specs/generic-dual-tier.md` (hecho 2026-10-05) —
-   `run_goal(goal: str)`, S1/S2, poda 255 Choice, CostTracker, compuertas genéricas.
-2. `@coder`: implementa el contrato, elimina `tasks/`, sube normalizer 60→254,
-   reescribe `tests/test_guards.py` y `scripts/fase5_check.py` contra `run_goal`.
-3. `@judge`: `uv run pytest` + `./gradlew :app:testDebugUnitTest` +
-   `grep -rniE 'whatsapp|com\.whatsapp|contact_name|verify_chat|wrong_chat' src/` vacío +
-   forense `logs/run-<ts>.jsonl` con `cost` por paso y líneas `[COST]`.
+1. `@judge`: cierre formal v5 — `uv run pytest -q` (139 en verde) +
+   suite A10 en banco USB (batería + calculadora + clipboard round-trip) +
+   greps cero-acoplado + forense `logs/run-<ts>.jsonl` con `cost` por paso.
+2. `@coder` (solo bugfix con test o P1/P2 con protocolo ≥20 goals ×3):
+   ranking por relevancia, firma anti-ticker, `assertFresh`,
+   timings por fase, recalibrado de `TAU`/`FAST_TAU`. Sin features en `loop.py`.
+3. Orquestador: enmienda AGENTS.md §1 propuesta en `director-client.md`
+   §11.4 (director decide / Jev señala / Jam ejecuta).
 4. Explícito: **sin paquetes/contactos prefijados**; acción crítica/irreversible
    solo con preview + `confirm:true` del operador, auditada en forense.
 

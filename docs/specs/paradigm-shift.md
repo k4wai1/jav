@@ -219,6 +219,40 @@ Contrato del resolver v5 (forma, inglés):
 - **Percepción:** `dump_ui` ~2 ms/nodo (13n/40 ms, 66n/106 ms, 124n/264 ms;
   peor caso ~1 s a 500). 16× mejor que `uiautomator`.
 
+## 7. Apéndice post-redacción (2026-10-06/07, commits `7ee4058` → `9dd7658`)
+
+Lo posterior a la nota `@architect` 2026-10-07, medido (sin proyección):
+
+- **STALE-retry en el bucle** (`58db72b`). Ante `STALE_SNAPSHOT`, el loop
+  re-dumpea y reintenta el mismo paso una vez (`stale_retry: true`,
+  `stale_attempt: 1/2`, `stale_recovered: true` en forense) en vez de
+  abortar. Evidencia: mensajería-B SENT ~22 s con `stale_recovered` ×1
+  (`mcp-server/logs/run-1791243623.jsonl`); reloj/alarmas re-taps
+  `via=action_click`/`gesture` (`run-clock-alarms-…`).
+- **S2-TAP-direct + `first_result`** (`6fc3a9a`, §12.1). Ante escalado en
+  lista densa, S2 elige índice vía comando `TAP` ejecutable (no `HINT`
+  decorativo); el host expone `first_result` como prior sin podar-a-1.
+  `run_signature` + fail-fast entre corridas (§12.3): 2 muertes con igual
+  firma → no relanzar.
+- **Clipboard por API** (`6fc3a9a` wrapper + `7ee4058` método Jam).
+  `set_clipboard` = la propia Jam ejecuta `ClipboardManager.setPrimaryClip`
+  (scope `ui`, sin Shizuku, sin grant); lectura por host `dumpsys` +
+  read-back de forma. Sin método Jam → `CLIPBOARD_UNSUPPORTED` honesto y
+  el director usa `type_text`. Prohibido `shell` on-device (Fase 6),
+  `adb shell input text` y `service call clipboard`. Tests
+  `test_director_clipboard.py` + `test_director_resolve.py` en verde.
+- **Suite Fossify 5/5** (`9dd7658`, `docs/specs/fossify-random.md`).
+  Director v5 en A10 USB, solo no-destructivo: gallery 2.3 s ($0),
+  clock 5.7 s, files 9.1 s (incl. scroll), calc 15.5 s (guarda de etiqueta
+  vs confusión `9`/`×`, doble-snap), music 5.6 s (permiso media aceptado,
+  playback omitido). Total ~$0.0006; v1 con fallos honestos conservada.
+- **Métricas nuevas.** pytest **139 en verde** (127 en `6fc3a9a` → 139
+  tras `7ee4058`). Bancos: KJ5 Wi-Fi (loop) + A10 USB (director).
+  Bloqueos honestos: multi-app YT→Brave `verify_download ok: false`
+  (`DOWNLOAD_NOT_STARTED`, ~$0.0011) y calculadora stock
+  (`summary_b_redo ok_all: false` → B1 sigue bloqueado por entorno).
+  Detalle tabular en `docs/TESTING.md` §9.
+
 ## 6. Lo pendiente (no se finge cerrado)
 
 1. **Ranking por relevancia** (P2-8). S1 a primera vista duda (conf ~0.45
@@ -234,9 +268,9 @@ Contrato del resolver v5 (forma, inglés):
    constantes hasta medir P10-step-1 vs tasa de éxito; si procede,
    `tau_step1` menor o `HINT`-sin-mutación en step 1, con enmienda e
    intervalos.
-5. **`set_clipboard` Jam + suite A10.** Método Jam + wrapper host con
-  read-back existen en working tree sin commit; certificar con suite A10
-  (batería + calculadora + clipboard round-trip) en KJ5 antes de dar v5
-  por cerrada. Enmienda AGENTS.md §1 propuesta en `director-client.md`
-  §11.4 (director decide / Jev señala / Jam ejecuta) pendiente del
-  orquestador.
+5. **Suite A10 formal.** Método Jam + wrapper host con read-back
+  comprometidos (`7ee4058`); certificar con suite A10 formal
+  (batería + calculadora + clipboard round-trip) en banco USB antes de
+  dar v5 por cerrada. Enmienda AGENTS.md §1 propuesta en
+  `director-client.md` §11.4 (director decide / Jev señala / Jam ejecuta)
+  pendiente del orquestador.

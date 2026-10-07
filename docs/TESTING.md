@@ -199,16 +199,48 @@ app no exponga el método, el wrapper host falla honesto
 
 ```bash
 cd mcp-server && uv run pytest -q
-# 127+ verdes (frozen loop.py intacto + tests/test_director_*.py v5)
+# 139 en verde (loop.py congelado + tests/test_director_*.py v5)
 
 # Greps de cero-acoplado (src/ debe dar vacío / exit 1):
 grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat' src/ || true
 grep -rn 'ask_decision' src/jev_mcp/tools/ src/jev_mcp/director.py || true
+```
 
 # Manual contra Jam (requiere forward + token; sin Android Studio):
+
+```bash
 adb forward tcp:38472 tcp:38472
 JEV_TOKEN=... python3 -c "import json,websocket"  # o wscat
-# hello -> {"method":"set_clipboard","params":{"text":"https://example.com/n/abc"}}
+# hello -> {"id":"<uuid>","method":"hello","params":{"protocol_version":1,"client_version":"0.1.0","token":"<bearer>","client":"jev-mcp/0.1.0"}}
+# set_clipboard -> {"id":"<uuid>","method":"set_clipboard","params":{"text":"https://example.com/n/abc"}}
 # espera {"ok":true,"result":{"chars":N}}
 # verifica: adb shell dumpsys clipboard | grep -m1 https
 ```
+
+## 9. Corridas recientes v4–v5 (2026-10-05/07, solo metadatos)
+
+Bancos: KJ5 por Wi-Fi (loop S1/S2) + A10 por USB (`e03638e5`, Android 10,
+720×1440, solo USB) para director v5. Sin texto sensible: goals genéricos
+en inglés, payloads como `len`/`sha256`, paquetes solo como valores
+runtime del forense citado. Costos = S1 Jev (`$0.042` in / `$0.00` out
+por MTok, normativo) + S2 por env (`S2_PROVIDER=deepseek`, misma key);
+cada llamada loguea `[COST]` + `cost_usd` por paso.
+
+| Goal (generic, EN) | Result | Wall | Cost | Forense |
+|---|---|---|---|---|
+| Send a short text to a known contact (text len 10, `sha256:0b894166…`) | SENT, verified on-screen | ~84.9 s | ~$0.0038 | `mcp-server/logs/run-rupa-1791164922.jsonl` (25 steps) |
+| Send a short text to a known contact (text len 10, `sha256:0b894166…`, STALE-retry) | SENT, verified on-screen (`stale_recovered` ×1) | ~22 s | ~$0.0023 | `mcp-server/logs/run-1791243623.jsonl` (12 steps) |
+| Open the clock app and list alarms (read-only) | OK, read verified | seconds | <$0.0001 | `mcp-server/logs/run-clock-alarms-1791164291.jsonl` (+ `…369`, `…417` re-taps `via=action_click`/`gesture`) |
+| Describe visible gallery folders (read-only) | OK (folder lens only, no media opened) | 2.3 s | $0 | `logs/run-fossify-gallery-1791341893.jsonl` |
+| List alarms (volatile screen, STALE-loop → text-tap fix) | OK | 5.7 s | ~$0.000054 | `logs/run-fossify-clock-1791341904.jsonl` |
+| Navigate to Download and list items (incl. scroll) | OK (header lens 13, 2 folders + 9 files observed) | 9.1 s | ~$0.000133 | `logs/run-fossify-files-1791341918.jsonl` |
+| Compute a 3-digit × 2-digit product (label-guard vs `9`/`×` confusion) | OK, double-snap verified (display lens 6) | 15.5 s | ~$0.000311 | `logs/run-fossify-calc-1791341959.jsonl` |
+| List songs (permission dialog accepted, playback omitted) | OK (track lens only) | 5.6 s | ~$0.000104 | `logs/run-fossify-music-1791341936.jsonl` |
+| Read battery level in system settings | OK (level lens 4, `avg_tap_ms 84.6`) | ~23.1 s total | ~$0.00067 | `logs/run-20261006-204303.jsonl` (`summary_b`) |
+| Compute a division on stock calculator (redo) | BLOCKED by environment (`summary_b_redo ok_all: false`) | n/a | $0 | `logs/run-20261006-204449-calc.jsonl` (B1 no certificable) |
+| Multi-app: copy a video link, paste into a downloader site, start download | BLOCKED honest (`verify_download ok: false`, `DOWNLOAD_NOT_STARTED`; `INPUT_UNFOCUSABLE` ×4 + `CLIPBOARD_EMPTY` + `CONVERT_UNRESPONSIVE` intermedios) | n/a | ~$0.0011 | `logs/run-20261007-yt-brave.jsonl` (25 phases) |
+
+Notas: Fossify 5/5 total ~$0.0006 (v2 finales; v1 con fallos honestos
+`STALE`/`NO_TARGET`/display erróneo conservados como historial).
+Detalle por tarea en `docs/specs/fossify-random.md`. pytest vigente:
+**139 en verde** (`cd mcp-server && uv run pytest -q`).
