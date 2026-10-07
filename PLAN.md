@@ -84,6 +84,23 @@
 - [ ] Forense por corrida `logs/run-<ts>.jsonl` (fase, snapshot, opciones,
   respuestas con `conf`/`tau`, acción por paso). Sin forense no hay certificación.
 
+### Fase v5 — Director-cliente (loop congelado; solo docs + `set_clipboard`)
+- [x] Contratos `@architect`: `docs/specs/paradigm-shift.md` (3 giros 2026-10-06),
+  `docs/specs/director-client.md` v5, `README.es.md`/`README.en.md`.
+- [ ] `@coder`: `resolve_element` ciego al goal (1 Choice + NONE, micro EN,
+  anti-poisoning) + `set_clipboard` Jam/host con read-back (working tree sin
+  commit: `tools/clipboard.py`, `PROTOCOL.md`, `docs/TESTING.md` §8);
+  `loop.py`/`ask_decision`/`s2_client` congelados (solo bugfix con test).
+- [ ] `@judge`: pytest verde antes y después + suite A10 en KJ5
+  (batería + calculadora + clipboard round-trip; hoy `avg_tap_ms 69.7`,
+  `avg_s1_ms 1589.5`, costo <$0.003, pero redo `ok_all: false` → B1
+  bloqueado por entorno) + greps cero-acoplado + `ask_decision` ausente
+  en path director.
+- [ ] Pendientes P1/P2 (no se fingen cerrados): ranking por relevancia,
+  firma anti-ticker, `assertFresh`, forense wire+timings por fase,
+  recalibrar `TAU=0.70`/`FAST_TAU=0.85` con ≥20 goals. Enmienda AGENTS.md §1
+  propuesta en `director-client.md` §11.4 (orquestador).
+
 ### Fase 6 — Shell con seguridad cerrada + hardening
 - [ ] `shell` solo con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
   bloqueo 60 s), audit ring 500 (`get_audit`), kill switch (tile + notificación).

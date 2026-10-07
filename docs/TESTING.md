@@ -186,3 +186,29 @@ en el bucle Jev preferir `tap_node` (AGENTS §5.13).
 
 Fixes: `mcp>=1.8,<2` (v2 renombra FastMCP→MCPServer); `pytest.ini`
 `pythonpath=["src"]`; import relativo en `tools/_base.py`.
+
+## 8. v5 director-client — resolver ciego + clipboard (sin Android Studio)
+
+Vía elegida para `set_clipboard` (§4.1): método Jam `set_clipboard`
+(`ClipboardManager.setPrimaryClip` por la propia app, sin Shizuku, sin
+grant, scope `ui`); lectura por host `adb shell dumpsys clipboard`.
+Prohibido: `adb shell input text`, `service call clipboard` frágil,
+`shell` on-device (sigue `METHOD_NOT_ALLOWED` hasta Fase 6). Mientras la
+app no exponga el método, el wrapper host falla honesto
+`CLIPBOARD_UNSUPPORTED(jam-api-missing)` y el director usa `type_text`.
+
+```bash
+cd mcp-server && uv run pytest -q
+# 127+ verdes (frozen loop.py intacto + tests/test_director_*.py v5)
+
+# Greps de cero-acoplado (src/ debe dar vacío / exit 1):
+grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat' src/ || true
+grep -rn 'ask_decision' src/jev_mcp/tools/ src/jev_mcp/director.py || true
+
+# Manual contra Jam (requiere forward + token; sin Android Studio):
+adb forward tcp:38472 tcp:38472
+JEV_TOKEN=... python3 -c "import json,websocket"  # o wscat
+# hello -> {"method":"set_clipboard","params":{"text":"https://example.com/n/abc"}}
+# espera {"ok":true,"result":{"chars":N}}
+# verifica: adb shell dumpsys clipboard | grep -m1 https
+```

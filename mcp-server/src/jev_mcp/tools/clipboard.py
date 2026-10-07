@@ -30,6 +30,12 @@ CLIPBOARD_SLOT = "clipboard"
 VIA_DUMPSYS = "dumpsys"
 VIA_PASTE_READBACK = "paste-readback"
 
+#: Vía de escritura para forense (nunca contenido crudo si el goal es sensible).
+VIA_JAM_API = "jam-api"
+
+#: Error honesto mientras Jam no expone set_clipboard (degradación §4.1).
+JAM_API_MISSING = "jam-api-missing"
+
 #: Forma genérica de enlace: solo esquema, sin literales de dominio.
 URL_SHAPE_RE = re.compile(r"https?://[^\s'\"}\]]+")
 
@@ -118,3 +124,84 @@ def read_clipboard(_run=None, _fallback_text: str | None = None) -> dict:
             "evidence": {"text": text, "clipboard_len": slot["len"],
                          "clipboard_sha256": slot["sha256"], "via": via},
             "hint": "inject as opaque slot 'clipboard' via ACTION_SET_TEXT"}
+
+
+#: Alias v5 director-client §5: el director invoca `get_clipboard`.
+get_clipboard = read_clipboard
+
+
+async def set_clipboard(text: str, _jam=None, _run=None) -> dict:
+    """Escribe el clipboard via Jam + verifica con read-back de forma.
+
+    Vía primaria §4.1: método Jam `set_clipboard` (la propia app Jam
+    ejecuta `ClipboardManager.setPrimaryClip`; foreground service, sin
+    Shizuku, sin grant de shell; misma clase de API que `takeScreenshot`/
+    `ACTION_SET_TEXT`, no un exec). Nunca `adb shell input text`,
+    `service call clipboard` frágil ni `shell` on-device.
+
+    - Entrada sin forma `https?://` -> `CLIPBOARD_EMPTY` honesto SIN tocar
+      el dispositivo (no se escribe sin verificación previa).
+    - Jam sin método (app vieja: `METHOD_NOT_ALLOWED`/desconocido) ->
+      `CLIPBOARD_UNSUPPORTED(jam-api-missing)` honesto; el director usa
+      `type_text` directo con el texto ya verificado en host
+      (degradación documentada, no emulación con taps/`input text`).
+    - Éxito: read-back via `read_clipboard` (forma verificada) y forense
+      {clipboard_len, clipboard_sha256, via: jam-api}.
+
+    `_jam`: hook inyectable para tests — objeto con
+    `async set_clipboard(text)` o callable `async (text) -> dict`.
+    `_run`: hook adb-host para el read-back (ver `read_clipboard`).
+    """
+    err = clipboard_error(text or "")
+    if err is not None:
+        return {"ok": False, "verified": False,
+                "evidence": {"code": err["code"], "error": err["error"],
+                             "via": VIA_JAM_API},
+                "hint": "refuse to write without link shape; do not invent"}
+    try:
+        if _jam is not None:
+            if hasattr(_jam, "set_clipboard"):
+                res = await _jam.set_clipboard(text)
+            else:
+                res = await _jam(text)
+        else:
+            from . import _base as _B
+
+            jam = await _B.jam_client()
+            try:
+                res = await jam.set_clipboard(text)
+            finally:
+                await jam.__aexit__()
+    except Exception as e:
+        code = getattr(e, "code", type(e).__name__)
+        msg = getattr(e, "error", str(e)) or str(e)
+        if code == "METHOD_NOT_ALLOWED" or "METHOD_NOT_ALLOWED" in str(msg):
+            return {"ok": False, "verified": False,
+                    "evidence": {"code": "CLIPBOARD_UNSUPPORTED",
+                                 "error": f"{JAM_API_MISSING}: {msg}",
+                                 "via": VIA_JAM_API},
+                    "hint": ("Jam sin metodo set_clipboard; usa type_text "
+                             "directo con el texto verificado en host")}
+        return {"ok": False, "verified": False,
+                "evidence": {"code": "CLIPBOARD_UNSUPPORTED",
+                             "error": f"jam set_clipboard fallo ({code}): "
+                                      f"{msg}",
+                             "via": VIA_JAM_API},
+                "hint": "revisa conexion con Jam"}
+    # Escritura aceptada por Jam (o stub): read-back de forma.
+    back = read_clipboard(_run=_run)
+    if not back.get("ok"):
+        ev = back.get("evidence", {}) or {}
+        return {"ok": False, "verified": False,
+                "evidence": {"code": ev.get("code", "CLIPBOARD_EMPTY"),
+                             "error": ev.get("error", "read-back sin forma"),
+                             "via": VIA_JAM_API},
+                "hint": "Jam escribio pero el read-back no verifica forma"}
+    slot = clipboard_slot(text)
+    return {"ok": True, "verified": True,
+            "evidence": {"chars": len(text),
+                         "clipboard_len": slot["len"],
+                         "clipboard_sha256": slot["sha256"],
+                         "via": VIA_JAM_API,
+                         "jam": res if isinstance(res, dict) else {}},
+            "hint": "verificado por read-back; inyecta o pega en destino"}
