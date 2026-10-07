@@ -146,7 +146,10 @@ data class MediaControlParams(
 data class LocationParams(val timeout_ms: Long = 8000, val max_age_s: Long = 300)
 
 @Serializable
-data class OpenUrlParams(val url: String = "")
+data class OpenUrlParams(
+    val url: String = "",
+    @SerialName("package") val pkg: String = ""
+)
 
 @Serializable
 data class SendIntentParams(

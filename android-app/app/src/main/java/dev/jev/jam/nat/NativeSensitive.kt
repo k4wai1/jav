@@ -614,25 +614,61 @@ object NativeSensitive {
 
     // ---- intents P0 (apertura/pre-relleno; el envío va por carril Jev) ----
 
-    fun openUrl(ctx: Context, url: String): JsonObject {
+    /**
+     * Abre `url` con `ACTION_VIEW`. Con `pkg` no vacío se fuerza el handler
+     * de ese paquete (componente explícito) para evitar el ResolverActivity
+     * cuando >1 app maneja el URI (medido: `youtu.be` con 2 clientes).
+     * Paquete con forma inválida → `VALIDATION_ERROR`; no instalado →
+     * `PACKAGE_NOT_FOUND`; instalado pero sin handler para el URI →
+     * `INTENT_UNRESOLVED`. `pkg=""` = resolver por el sistema (comportamiento
+     * previo, puede mostrar chooser). Fallback Shizuku `am start` si el
+     * background-start está restringido (mismo camino que `open_app`).
+     */
+    fun openUrl(ctx: Context, url: String, pkg: String = ""): JsonObject {
         if (!NatPolicies.validUrl(url)) {
             throw JamError("url con forma inválida (esquema://…)", "VALIDATION_ERROR")
         }
+        if (pkg.isNotBlank() && !NatPolicies.validPackage(pkg)) {
+            throw JamError("package con forma inválida (a.b.c)", "VALIDATION_ERROR")
+        }
+        val force = pkg.isNotBlank()
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        var comp: ComponentName? = null
+        if (force) {
+            intent.setPackage(pkg)
+            try {
+                @Suppress("DEPRECATION")
+                ctx.packageManager.getPackageInfo(pkg, 0)
+            } catch (t: PackageManager.NameNotFoundException) {
+                throw JamError("paquete no instalado: $pkg", "PACKAGE_NOT_FOUND")
+            }
+            val resolved = ctx.packageManager.resolveActivity(
+                intent, PackageManager.MATCH_DEFAULT_ONLY
+            ) ?: throw JamError("el paquete $pkg no maneja $url", "INTENT_UNRESOLVED")
+            comp = resolved.activityInfo?.let { ComponentName(it.packageName, it.name) }
+            if (comp != null) intent.component = comp
+        }
         return try {
             ctx.startActivity(intent)
             buildJsonObject {
                 put("url", url)
-                put("via", "startActivity")
+                put("via", if (force) "startActivity-package" else "startActivity")
+                if (force) put("package", pkg)
             }
         } catch (t: android.content.ActivityNotFoundException) {
             throw JamError("ninguna app resuelve $url", "INTENT_UNRESOLVED")
         } catch (t: Exception) {
-            shizukuAm(listOf("am", "start", "-a", Intent.ACTION_VIEW, "-d", url))
+            val args = mutableListOf("am", "start", "-a", Intent.ACTION_VIEW, "-d", url)
+            if (comp != null) {
+                args.add("-n")
+                args.add("${comp.packageName}/${comp.className}")
+            }
+            shizukuAm(args)
             buildJsonObject {
                 put("url", url)
                 put("via", "shizuku-am")
+                if (force) put("package", pkg)
             }
         }
     }

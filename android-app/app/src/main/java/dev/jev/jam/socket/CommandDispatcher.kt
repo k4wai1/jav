@@ -301,7 +301,7 @@ class CommandDispatcher(private val appContext: Context) {
 
     private fun openUrl(req: WsRequest): String {
         val p = decodeParams<OpenUrlParams>(req)
-        return okResponse(req.id, NativeSensitive.openUrl(appContext, p.url))
+        return okResponse(req.id, NativeSensitive.openUrl(appContext, p.url, p.pkg))
     }
 
     private fun sendIntent(req: WsRequest): String {

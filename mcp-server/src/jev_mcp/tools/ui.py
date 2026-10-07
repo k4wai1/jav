@@ -1,4 +1,9 @@
-"""Tools ui/: lectura normalizada + acciones."""
+"""Tools ui/: lectura normalizada + acciones.
+
+Docstrings de 5 secciones (Descripcion / Parametros / Retorno /
+Permisos-Grants / Errores-gotchas). Varios son atajos del Director, no
+acciones del enum de Jev (el enum decide TAP/TYPE/SCROLL/BACK/DONE).
+"""
 from __future__ import annotations
 
 from ..core import loop_helpers as _h
@@ -54,6 +59,20 @@ async def _dump() -> tuple[dict, NormalizedState]:
 
 
 async def read_screen() -> dict:
+    """Pantalla normalizada: candidatos compactos + snapshot_id.
+
+    Descripcion: Dumpea el arbol de accesibilidad y lo normaliza a
+      candidatos accionables con ids; base del bucle de decision.
+    Parametros: Ninguno.
+    Retorno: {ok, verified, evidence, hint}; evidence =
+      {package, activity, snapshot_id, raw_count, screen_height,
+       screen_width, focused_field, first_result, candidates[], render}.
+      `snapshot_id` monotono; dimensiones en PX logicos.
+    Permisos/Grants: accesibilidad (scope read).
+    Errores/gotchas: ACCESSIBILITY_DISABLED; `snapshot_id` obligatorio
+      para tap_node/type_text (STALE_SNAPSHOT si la UI cambio); filtra
+      nodos de decoracion del sistema.
+    """
     try:
         jam, st = await _dump()
         await jam.__aexit__()
@@ -90,6 +109,17 @@ async def read_screen() -> dict:
 
 
 async def tap_text(text: str) -> dict:
+    """Atajo del Director: toca el primer nodo que contiene el texto.
+
+    Descripcion: Conveniencia para el Director (hace un dump interno).
+      NO es una accion del enum de Jev; el enum usa TAP sobre node_id
+      via tap_node con snapshot fresco.
+    Parametros: text (str): subcadena a matchear.
+    Retorno: {ok, verified, evidence, hint}; evidence = {node_id, via}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: SELECTOR_NOT_FOUND si no matchea; preferir
+      tap_node(node_id, snapshot_id) si ya hay snapshot fresco.
+    """
     try:
         jam = await B.jam_client()
         try:
@@ -103,6 +133,19 @@ async def tap_text(text: str) -> dict:
 
 
 async def tap_node(node_id: str, snapshot_id: int) -> dict:
+    """Toca por id + snapshot (rapido, sin dump interno).
+
+    Descripcion: Accion TAP del enum Jev: toca un nodo concreto del
+      snapshot. Clickable -> ACTION_CLICK; si no, dispatchGesture al
+      centro de bounds.
+    Parametros: node_id (str); snapshot_id (int): de read_screen/
+      wait_for_text.
+    Retorno: {ok, verified, evidence, hint}; evidence = {node_id, via}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: STALE_SNAPSHOT si la UI cambio; SELECTOR_NOT_FOUND
+      si el id no existe. No devuelve snapshot: verificar con
+      read_screen.
+    """
     try:
         jam = await B.jam_client()
         try:
@@ -119,14 +162,19 @@ async def tap_node(node_id: str, snapshot_id: int) -> dict:
 
 
 async def type_text(node_id: str, snapshot_id: int, text: str) -> dict:
-    """Escribe con semántica REPLACE (patrón A3+M2, P0-2).
+    """Escribe en un campo ya enfocado (semantica REPLACE).
 
-    Clear-antes-de-escribir vía `ACTION_SET_TEXT` de Jam (el servidor
-    reemplaza el contenido, sin append con cursor desconocido). Sin
-    `adb input text` / clipboard / shell: solo Shizuku+Accessibility.
-    No re-observa dentro (el loop verifica con read-back; "acciones no
-    devuelven snapshot"). `snapshot_id` eco del request: el fresco lo
-    aporta el re-observe del loop.
+    Descripcion: Accion TYPE del enum Jev: escribe con ACTION_SET_TEXT
+      (reemplaza el contenido; sin teclado simulado ni append). El
+      snapshot_id es eco del request; el fresco lo aporta el bucle.
+    Parametros: node_id (str); snapshot_id (int); text (str): contenido
+      final del campo.
+    Retorno: {ok, verified, evidence, hint}; evidence =
+      {chars, snapshot_id}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: NOT_FOCUSED si el nodo no esta enfocado (haz tap
+      antes; no hay taps implicitos); STALE_SNAPSHOT. No devuelve
+      snapshot: verifica con read_screen.
     """
     try:
         jam = await B.jam_client()
@@ -145,6 +193,17 @@ async def type_text(node_id: str, snapshot_id: int, text: str) -> dict:
 
 
 async def scroll(direction: str = "down", node_id: str | None = None) -> dict:
+    """Scroll en una direccion, opcionalmente sobre un nodo.
+
+    Descripcion: Accion SCROLL_UP/DOWN del enum Jev; opcionalmente
+      limitada a un nodo scrollable.
+    Parametros: direction (str): "up"|"down"|"left"|"right" (default
+      "down"); node_id (str|null): nodo scrollable opcional.
+    Retorno: {ok, verified, evidence, hint}; evidence = {direction}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: VALIDATION_ERROR con direccion invalida; no
+      devuelve snapshot: verifica con read_screen.
+    """
     try:
         jam = await B.jam_client()
         try:
@@ -161,14 +220,39 @@ async def scroll(direction: str = "down", node_id: str | None = None) -> dict:
 
 
 async def press_back() -> dict:
+    """Boton atras global.
+
+    Descripcion: Accion BACK del enum Jev.
+    Parametros: Ninguno.
+    Retorno: {ok, verified, evidence, hint}; evidence = {action}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: ACCESSIBILITY_DISABLED; verifica con read_screen.
+    """
     return await _simple("press_back")
 
 
 async def press_home() -> dict:
+    """Atajo del Director: boton home global.
+
+    Descripcion: Conveniencia para el Director. NO es una accion del
+      enum de Jev.
+    Parametros: Ninguno.
+    Retorno: {ok, verified, evidence, hint}; evidence = {action}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: ACCESSIBILITY_DISABLED.
+    """
     return await _simple("press_home")
 
 
 async def _simple(method: str) -> dict:
+    """Atajo simple: envia un metodo sin params y verifica con read_screen.
+
+    Descripcion: Helper para press_back/press_home.
+    Parametros: method (str): nombre del metodo WS.
+    Retorno: {ok, verified, evidence={action}, hint}.
+    Permisos/Grants: accesibilidad (scope ui).
+    Errores/gotchas: ACCESSIBILITY_DISABLED; verifica con read_screen.
+    """
     try:
         jam = await B.jam_client()
         try:
@@ -182,6 +266,18 @@ async def _simple(method: str) -> dict:
 
 
 async def wait_for_text(text: str, timeout_ms: int = 5000) -> dict:
+    """Atajo del Director: espera a que aparezca un texto.
+
+    Descripcion: Conveniencia para el Director (no es accion del enum de
+      Jev). Devuelve node_id + snapshot usable.
+    Parametros: text (str): subcadena a esperar; timeout_ms (int):
+      MILISEGUNDOS (default 5000).
+    Retorno: {ok, verified, evidence, hint}; evidence =
+      {node_id, snapshot_id}.
+    Permisos/Grants: accesibilidad (scope read).
+    Errores/gotchas: TIMEOUT si no aparece; el snapshot_id sirve directo
+      en tap_node si no hubo mas cambios.
+    """
     try:
         jam = await B.jam_client()
         try:
@@ -196,6 +292,19 @@ async def wait_for_text(text: str, timeout_ms: int = 5000) -> dict:
 
 
 async def screenshot(fmt: str = "png", quality: int = 80) -> dict:
+    """Atajo del Director: captura la pantalla.
+
+    Descripcion: Conveniencia para el Director via takeScreenshot (API
+      30+) o `screencap` con Shizuku (API 29). NO es accion del enum de
+      Jev.
+    Parametros: fmt (str): "png"|"webp" (default "png"); quality (int):
+      0..100, solo webp (default 80).
+    Retorno: {ok, verified, evidence, hint}; evidence =
+      {w, h, via, img_base64}; `w`/`h` en PX.
+    Permisos/Grants: accesibilidad/Shizuku segun via (scope read).
+    Errores/gotchas: SECURE_SURFACE si la ventana tiene FLAG_SECURE;
+      PAYLOAD_TOO_LARGE si excede 4 MiB (hint: WebP q80).
+    """
     try:
         jam = await B.jam_client()
         try:

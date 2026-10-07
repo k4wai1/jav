@@ -166,3 +166,58 @@ valores reales (batería 100%, RAM disp. ~1.13 GB, libre ~12.8 GB;
 top hoy `org.fossify.math` 647.2 min / `dev.jev.jam` 144.1 min;
 top semana `com.termux` 1214.1 min / `org.fossify.math` 647.2 min).
 Suite MCP: **147 passed**.
+
+## 9. `open_url` con `package` forzado + docstrings 5 secciones (2026-10-07, 5002E/API 29, USB e03638e5)
+
+`open_url` aceptaba `{url}` y dejaba que el sistema resolviera; con >1
+handler (medido: `youtu.be` con dos clientes YouTube instalados:
+`app.morphe.android.youtube` y `app.rvx.android.youtube`) aparecía el
+`ResolverActivity` (chooser). Ahora `open_url(url, package="")`:
+
+- `package=""` → comportamiento previo (resolución del sistema; chooser
+  si >1 handler).
+- `package` no vacío → forma `a.b.c` validada (`NatPolicies.validPackage`);
+  `getPackageInfo` (no instalado → `PACKAGE_NOT_FOUND`);
+  `resolveActivity(MATCH_DEFAULT_ONLY)` y componente explícito
+  (instalado sin handler → `INTENT_UNRESOLVED`); `via=
+  startActivity-package`. Fallback Shizuku `am start -n pkg/activity`.
+
+Cambios: `WsProtocol.OpenUrlParams.package`, `CommandDispatcher.openUrl`,
+`NativeSensitive.openUrl(ctx, url, pkg)`, MCP `tools/native.py:open_url`
++ `server.py`; docstrings de las 35 tools reescritos al estándar de 5
+secciones (Descripción / Parámetros / Retorno / Permisos-Grants /
+Errores-gotchas). JVM: 2 asserts nuevos en `NatPoliciesTest`
+(paquete forzado con forma válida). MCP: test de forwarding de `package`.
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest" --console=plain
+./gradlew :app:assembleDebug --console=plain
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+```
+
+| Build | Resultado | Tiempo Gradle (wall) | Notas |
+|---|---|---|---|
+| test NatPolicies (13 tests JVM) | **OK** | 7m 19s | incluye `open_url package forzado exige forma valida` |
+| assembleDebug | **OK** | 4m 1s | APK debug 16 MB |
+| install -r | **Success** | — | 5002E (Seoul, API 29) |
+
+Prueba real en el equipo (token por `run-as`, WS en `127.0.0.1:38472`,
+accesibilidad re-habilitada; `package` forzado, 1 salto):
+
+```
+resolve sin package → android/com.android.internal.app.ResolverActivity
+resolve -p app.morphe.android.youtube → UrlActivity
+resolve -p app.rvx.android.youtube   → UrlActivity
+
+open_url(youtu.be, package=app.morphe.android.youtube)
+  → {ok:true, verified:true, via:"startActivity-package", latency_ms:130.3}
+get_foreground → app.morphe.android.youtube/MainActivity   (sin chooser)
+open_url(youtu.be, package=com.no.existe.app)  → PACKAGE_NOT_FOUND
+open_url(youtu.be, package=org.fossify.clock)  → INTENT_UNRESOLVED
+open_url(youtu.be, package="") → foreground=android/ResolverActivity (chooser)
+```
+
+Suite MCP: **148 passed** (147 + test de forwarding). N2 y demás métodos
+sin cambios. `grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat|
+felix' mcp-server/src/` → **vacío** (el único `forward` es
+`adb forward`/`ensure_forward` de `_base.py`, no la acción de reenvío).

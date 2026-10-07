@@ -122,7 +122,7 @@ N0 — sin permisos nuevos:
 | `get_cpu` | `{detail?: basic}` | `{processors, usage_pct}` (`usage_pct=-1` = `/proc/stat` ilegible por SELinux, **no es error**; `fine` → `METHOD_NOT_ALLOWED`, N2) | read |
 | `get_device_info` | `{}` | `{manufacturer, model, device, sdk_int, abis[], screen_w/h, density_dpi, locale, timezone, features{}}` (sin identificadores persistentes) | read |
 | `settings_get` | `{namespace: system\|secure\|global, key}` | `{namespace, key, found, value?}` (clave sensible denegada → `FORBIDDEN`) | read |
-| `open_url` | `{url}` | `{url, via}` (esquema `://…` válido o `VALIDATION_ERROR`; sin app que resuelva → `INTENT_UNRESOLVED`; fallback Shizuku `am` → `via: shizuku-am`) | ui, sin grant |
+| `open_url` | `{url, package?}` | `{url, via, package?}` (esquema `://…` válido o `VALIDATION_ERROR`; sin `package` y >1 handler → chooser/`ResolverActivity`; con `package` fija componente, 1 salto: no instalado → `PACKAGE_NOT_FOUND`, instalado sin handler → `INTENT_UNRESOLVED`; fallback Shizuku `am` → `via: shizuku-am`) | ui, sin grant |
 | `send_intent` | `{action, uri?, package?, mime?, confirm?, extras?}` | `{action, via}`; crítica (envía/comunica/borra) sin `confirm` → `{planned: true, preview, hint}` sin ejecutar | ui, sin grant; crítica + `confirm` |
 | `get_clipboard` | `{}` | `{len, sha256, via}` — **nunca texto crudo**; vacía o 2.º plano (Android 10+) → `CLIPBOARD_EMPTY` | read sensible |
 
@@ -198,8 +198,8 @@ Nativos N0+N1 (§4.1): `USAGE_ACCESS_DISABLED` ·
 `MEDIA_CONTROL_FAILED` · `LOCATION_PERMISSION_DENIED` ·
 `LOCATION_UNAVAILABLE` · `LOCATION_TIMEOUT` · `CAMERA_DENIED` ·
 `CAMERA_UNAVAILABLE` · `CAMERA_FAILED` · `WRITE_SETTINGS_DISABLED` ·
-`SETTINGS_PUT_FAILED` · `INTENT_UNRESOLVED` · `INTENT_FAILED` ·
-`CLIPBOARD_EMPTY`. N2 (`settings_put` `secure`/`global`,
+`SETTINGS_PUT_FAILED` · `INTENT_UNRESOLVED` · `PACKAGE_NOT_FOUND` ·
+`INTENT_FAILED` · `CLIPBOARD_EMPTY`. N2 (`settings_put` `secure`/`global`,
 `get_storage`/`get_cpu` `detail=fine`) → `METHOD_NOT_ALLOWED` (Fase 6+).
 
 ## 8. Seguridad operativa

@@ -59,6 +59,27 @@ async def test_app_usage_window_forwarded():
 
 
 @pytest.mark.asyncio
+async def test_open_url_package_forwarded():
+    seen = {}
+
+    async def call(method, params):
+        seen.update({"m": method, "p": params})
+        return {"url": "https://youtu.be/x", "via": "startActivity-package",
+                "package": "com.google.android.youtube"}
+
+    d = await N.open_url("https://youtu.be/x",
+                         package="com.google.android.youtube", _call=call)
+    assert d["ok"] and d["verified"]
+    assert seen == {"m": "open_url",
+                    "p": {"url": "https://youtu.be/x",
+                          "package": "com.google.android.youtube"}}
+    assert d["evidence"]["package"] == "com.google.android.youtube"
+    # sin package: comportamiento previo (resolver del sistema)
+    await N.open_url("https://x.test/a", _call=call)
+    assert seen["p"] == {"url": "https://x.test/a", "package": ""}
+
+
+@pytest.mark.asyncio
 async def test_planned_not_verified():
     d = await N.send_intent("android.intent.action.SEND", _call=_ok({"planned": True}))
     assert d["ok"] and not d["verified"]

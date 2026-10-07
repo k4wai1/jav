@@ -35,6 +35,18 @@ class NatPoliciesTest {
     }
 
     @Test
+    fun `open_url package forzado exige forma valida`() {
+        // Forma a.b.c (>= 2 etiquetas): forzar handler sin chooser.
+        assertTrue(NatPolicies.validPackage("com.google.android.youtube"))
+        assertTrue(NatPolicies.validPackage("org.mozilla.firefox"))
+        // `pkg=""` = resolver por el sistema: no se valida, no matchea.
+        assertFalse(NatPolicies.validPackage(""))
+        assertFalse(NatPolicies.validPackage("com.1bad"))
+        assertFalse(NatPolicies.validPackage("com..app"))
+        assertFalse(NatPolicies.validPackage("/system/bin/sh"))
+    }
+
+    @Test
     fun `urls con esquema permitido`() {
         assertTrue(NatPolicies.validUrl("https://ejemplo.test/a"))
         assertTrue(NatPolicies.validUrl("geo:0,0?q=x"))

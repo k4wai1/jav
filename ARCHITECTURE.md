@@ -1,55 +1,81 @@
 # jev-android-mcp — ARCHITECTURE
 
-> Documento vinculante. Toda decisión de implementación que contradiga este archivo
-> requiere una enmienda explícita aquí antes de codear. Estado: **cerrada** (2026-09-30)
-> + enmienda Dual-Tier genérico 2026-10-04 (§1, §6 reescritos; §9 y decisión 11
-> desacoplados de app concreta; sin cambio de stack ni de seguridad).
-> Enmiendas pre-0b y pre-Fase-2 registradas en `AGENTS.md §9`.
+> Documento vinculante. Toda decisión de implementación que contradiga este
+> archivo requiere una enmienda explícita aquí antes de codear. Las reglas de
+> `AGENTS.md` (manda) y el contrato exacto de `PROTOCOL.md` están por encima.
+>
+> Estado: **actualizado 2026-10-07** (era 2026-10-04; enmiendas pre-0b/pre-Fase-2
+> y 2026-10-05 en `AGENTS.md §9`). Refleja el árbol real:
+> **dual-tier v3** (`docs/specs/generic-dual-tier.md` + addendum §12),
+> **plan-ahead v4** (`docs/specs/plan-ahead.md`),
+> **director-client v5** (`docs/specs/director-client.md`, con `loop.py`
+> congelado) y **carril nativo N0/N1/N2** (`docs/specs/native-apis.md`).
+> Los specs son el contrato operativo; este archivo es el porqué y el mapa.
+> Resume, no duplica. Cero literales normativos de app (los ejemplos con
+> paquetes son no-normativos) y cero keys.
 
 ## 1. Visión
 
-MCP genérico para controlar Android con un agente en lenguaje natural
-("abre una app, localiza un elemento, introduce un texto, verifica el
-resultado"). Ninguna capacidad del core conoce apps, paquetes, contactos,
-textos o flujos concretos: todo lo específico vive en plugins de tarea
-fuera del core (ver `docs/specs/tasks-generic.md`; como mucho se cita
-una app comercial como ejemplo no-normativo en una línea).
-Arquitectura **Dual-Tier** (detalle en §6):
+MCP genérico para controlar Android con lenguaje natural. Ninguna capacidad
+del core conoce apps, paquetes, contactos, textos o flujos concretos: lo
+específico lo aporta el runtime (el operador o S2 por conocimiento general).
+Tres carriles conviven, del más determinista al más semántico:
 
-- **Sistema 1 = Jev (TypeSafe, juicio discriminativo):** resuelve cada
-  paso en una sola llamada single-pass (70–500 ms), sin texto libre.
-  Primitivas: `Choice` (≤255 opciones + confianza calibrada),
-  `Score` (2–10 niveles), `Noul` (pbooleano [0,1]). 0% errores
-  estructurales por construcción, pero falible lógicamente ante
-  context-rot o ambigüedad → compuertas en §6.
-- **Sistema 2 = LLM frontera:** solo planifica hitos, diagnostica
-  anomalías visuales, fallos persistentes y redacta texto semántico.
-  Nunca toca el dispositivo directamente; emite planes que el S1
-  ejecuta paso a paso con verificación determinista.
+1. **Carril nativo (APIs directas, sin Jev, sin UI).** Jam responde por
+   framework Android / Shizuku: telemetría, settings, intents, clipboard,
+   usage, contactos, calendario, notificaciones/media, ubicación, cámara.
+   N0 (sin permisos nuevos) y N1 (con grant del usuario) implementados; N2
+   (Shizuku/`shell` on-device) queda `METHOD_NOT_ALLOWED` hasta Fase 6.
+   Detalle en `docs/specs/native-apis.md`.
+2. **Director-cliente v5 (metas complejas/multi-app).** Un único planificador
+   —el director (OpenCode/operador)— que ve cada pantalla, decide el plan paso
+   a paso y usa Jev solo como **resolver de elementos** (una `Choice` de
+   micro-intención, ciega al goal global). "El director decide, Jev señala,
+   Jam ejecuta". Detalle en `docs/specs/director-client.md`.
+3. **Dual-tier `run_goal` (SENT simple, legacy congelado).** El bucle
+   autónomo S1 Jev + S2 LLM sigue soportado para el goal simple
+   (`docs/specs/generic-dual-tier.md` + `plan-ahead.md` v4), pero está
+   **congelado**: sin features nuevas, solo bugfixes de seguridad/regresión.
+
+Arquitectura **Dual-Tier** del carril 3 (detalle en §6):
+
+- **Sistema 1 = Jev (TypeSafe, juicio discriminativo):** resuelve cada paso
+  en una sola llamada single-pass (70–500 ms), sin texto libre. Primitivas
+  `Choice` (≤255 opciones + confianza calibrada), `Score`, `Noul`. 0% errores
+  estructurales por construcción, falible lógicamente ante context-rot.
+- **Sistema 2 = LLM frontera (GLM-5.3):** planifica/diagnostica/redacta.
+  Nunca toca el dispositivo; (v4) compila el plan paso 0 y solo vuelve ante
+  anomalía o terminal. Bajo v5 el director humano/OpenCode asume el plan.
 
 ## 2. Decisiones congeladas
 
 | # | Decisión | Implementación |
 |---|---|---|
-| 1 | Transporte | WebSocket RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback). Listener B (opt-in): `wss://<ip-tailnet>:38472`, bind a la IP del tailnet (rango `100.64.0.0/10`), **nunca `0.0.0.0` por defecto**. Single-client (`BUSY` al segundo). Frame 4 MiB |
+| 1 | Transporte | WebSocket RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback). Listener B (opt-in): `wss://<ip-tailnet>:38472`, bind a la IP del tailnet (`100.64.0.0/10`), **nunca `0.0.0.0` por defecto**. Single-client (`BUSY` al segundo). Frame 4 MiB |
 | 2 | MCP | Python + `uv` en el PC (`JEV_WS_URL`; `adb forward` para loopback). Mismo protocolo sirve en Termux |
 | 3 | Privilegios | **App non-root.** UI = AccessibilityService. Shell = Shizuku (UID 2000). **`su` prohibido en código** |
 | 4 | TLS + token | Self-signed por instalación (BouncyCastle), pinning TOFU (QR). `ws` solo en loopback; **WSS obligatorio en no-loopback. Token obligatorio en todos los binds** |
 | 5 | Token | Hand-rolled: AES-256 en AndroidKeyStore + AES/GCM, bearer en el frame `hello` (nunca en URL) |
 | 6 | Jev | OpenRouter `typesafe/jev-1.13` por defecto; `jev_client` abstraído para swap a TypeSafe oficial |
-| 7 | Shell | OFF por defecto. `shell` **bloquea hasta 60 s** esperando grant (notificación: 1 comando = SHA-256 exacto / 5 min / 30 min). Expira sola |
-| 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay TECNO API 31) |
-| 9 | Nombre y banco (2026-10-01) | App = **Jam** (`dev.jev.jam`). Banco principal = **TECNO KJ5 (API 33, sin root)**; LG7n (API 31, Magisk) secundario. Aceptación Fase 1: nodos con `text`/`resource_id` coinciden ≥95% con `uiautomator`, latencia in-app < 100 ms. KJ5 trae un clon **Shizuku+** (`af.shizuku.plus.api`), no el oficial: Fase 3 exige instalar `moe.shizuku.privileged.api` oficial |
-| 10 | Latencia y `secure` (2026-10-02) | Criterio re-ratificado: **≤300 ms para ≤150 nodos; ~2 ms/nodo; peor caso ~1 s a 500**. Bucle Jev ≈ 500–800 ms/paso. **`secure` fuera de `dump_ui`** (FLAG_SECURE no oculta el árbol); solo `screenshot` → `SECURE_SURFACE`. Acciones sin post-snapshot; `type` exige foco (`NOT_FOCUSED`) |
-| 11 | Fase 3a (2026-10-02) | **`open_app`/`force_stop` vía Shizuku; `screenshot` vía `takeScreenshot()` (API 30+) sin Shizuku; `shell` diferido a Fase 6.** Fase 2b (WSS/cert/Keystore) diferida a después de 3a. Shizuku lo arranca el usuario; sin él → `SHIZUKU_UNAVAILABLE` + hint. Banco: LG7n (Shizuku oficial). App de prueba: genérica (cualquier app instalada; ejemplo no-normativo anterior: app de mensajería) |
+| 7 | Shell | OFF por defecto. `shell` **bloquea hasta 60 s** esperando grant (1 comando = SHA-256 exacto / 5 min / 30 min). Expira sola. **Hasta Fase 6 el dispatcher lo rechaza con `METHOD_NOT_ALLOWED`** |
+| 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay API 31/33) |
+| 9 | Nombre y banco (2026-10-01) | App = **Jam** (`dev.jev.jam`). Bancos: TECNO KJ5 (API 33, sin root, loop Wi-Fi) + **A10 USB** (Android 10, 720×1440, director v5) + LG7n (API 31, Magisk) secundario |
+| 10 | Latencia y `secure` (2026-10-02) | **≤300 ms para ≤150 nodos; ~2 ms/nodo; peor caso ~1 s a 500**. Bucle Jev ≈ 500–800 ms/paso. **`secure` fuera de `dump_ui`** (FLAG_SECURE no oculta el árbol); solo `screenshot` → `SECURE_SURFACE`. Acciones sin post-snapshot; `type` exige foco (`NOT_FOCUSED`) |
+| 11 | Fase 3a (2026-10-02) | **`open_app`/`force_stop` vía Shizuku; `screenshot` vía `takeScreenshot()` (API 30+) sin Shizuku; `shell` diferido a Fase 6.** Shizuku lo arranca el usuario; sin él → `SHIZUKU_UNAVAILABLE` + hint |
+| 12 | **plan-ahead v4 (2026-10-05)** | S2-compilador paso 0 `EXECUTE_GOAL` + `preloaded_inputs` (sin reconsulta en el camino feliz) · `FAST_TAU = 0.85` (TAU 0.70 intacto) · post-read **coalescido** (un dump/paso) · columna **`zone` 3×3** en la tabla · `MAX_TABLE = 254` (+`NONE`) · todo-a-Jev 100% inglés. Detalle en `docs/specs/plan-ahead.md` |
+| 13 | **director-client v5 (2026-10-07)** | Director-cliente: OpenCode/operador dirige, **Jev = resolver ciego** (1 `Choice` de micro-intención EN, anti-poisoning), **`loop.py` congelado** para el SENT simple. Atajos nativos en 1 salto (SO antes que dedos). Detalle en `docs/specs/director-client.md` |
+| 14 | **Carril nativo N0/N1 (2026-10-07)** | Telemetría (batería/RAM/storage/CPU/device), `settings` System get/put, intents/`open_url`, clipboard, usage, contactos, calendario, notificaciones/media (honesto), ubicación, cámara. **N2 = `METHOD_NOT_ALLOWED` hasta Fase 6.** Detalle en `docs/specs/native-apis.md` |
+| 15 | **Escala física en gestos (2026-10-07)** | `DisplayScale`: `bounds` de `dump_ui` siguen en **espacio lógico** de accesibilidad; solo `dispatchGesture` proyecta a **píxeles físicos del panel**. Medido en banco: lógico 360×720 (`wm size override`) vs panel 720×1440 → factor **2.0** por eje (identidad si no hay override) |
+| 16 | Separación de tools | De las **35 tools MCP** expuestas: **6** son primitivas del bucle Jev (`read_screen`, `tap_node`, `type_text`, `scroll`, `press_back`, `open_app`-bootstrap); **29** sirven al director / carril nativo / diagnóstico (§7) |
 
-## 3. Verdad del terreno (medido 2026-09-30…10-02)
+## 3. Verdad del terreno (medido 2026-09-30…10-07)
 
 **Host:** Debian 13, Celeron 847 (2 núcleos @ 1.1 GHz), 3.7 GiB RAM
 (~1.7 libres) + 7.5 GiB swap, JDK 21, adb/uv/python/node/rust presentes.
 Toolchain en `~/Android/Sdk`. `/home` 34 GB libres.
 
 **Dispositivos:** TECNO KJ5 (Android 13/API 33, sin root, banco principal);
+A10 USB (Android 10, 720×1440, `e03638e5`, banco director v5);
 TECNO LG7n (Android 12/API 31, Magisk root — la app no lo usa).
 
 **Latencias host→USB (incluyen ~63 ms de ida/vuelta ADB):**
@@ -61,39 +87,54 @@ TECNO LG7n (Android 12/API 31, Magisk root — la app no lo usa).
 124 nodos → 264 ms. Escalado **~2 ms/nodo** (IPC por nodo; uiautomator
 sigue siendo 16× más lento a igual carga).
 
-Conclusión: el cuello es **percepción**, no input. AccessibilityService
-es el camino primario de percepción por el árbol in-process, no por el tap.
+**Pipeline medido (v3→v5):** tap ~70 ms (`ACTION_CLICK` primero, gesto
+fallback) · S1 ~1.6 s · S2 DeepSeek ~1.9 s vs flash ~22 s por llamada ·
+`fast-path` ahorra 1 dump/paso. Coste por corrida < $0.003 (Jev
+`$0.042` in / `$0.00` out por MTok normativo; GLM por env `GLM_RATE_IN/OUT`).
+Conclusión: el cuello es **percepción**, no input; AccessibilityService es el
+camino primario de percepción (árbol in-process).
 
 ## 4. Arquitectura
 
 ```
-HOST Debian 13 (agente + opencode)
-┌──────────────────────────────────────────────────────────────┐
-│ MCP SERVER (Python + uv, stdio)                              │
-│  tools/ device · app · ui · jev · (system, adb: opt-in)      │
-│  loop.py (observe→decide→mutate→verify)                      │
-│  jev_client.py (OpenRouter / TypeSafe) · ui_normalizer.py    │
-└───────────────┬────────────────────────────┬─────────────────┘
+HOST Debian 13 (operador + OpenCode + MCP)
+┌───────────────────────────────────────────────────────────────┐
+│ DIRECTOR (OpenCode/operador) — único planificador en v5        │
+│  read_screen_state · resolve_element · tap_idx/type_text ·     │
+│  open_app · get/set_clipboard · native N0/N1                   │
+│ MCP SERVER (Python + uv, stdio)                                │
+│  tools/ device · app · ui · clipboard · native · (jev)         │
+│  director.py (fachada v5) · loop.py (run_goal CONGELADO v4)    │
+│  jev_client (S1) · s2_client (S2) · core/loop_helpers · cost   │
+└───────────────┬────────────────────────────┬──────────────────┘
   WS 127.0.0.1:38472 (adb forward) │ WSS <ip-tailnet>:38472 (opt-in)
                  ▼ USB / red                    ▼ tailnet
-┌──────────────────────────────────────────────────────────────┐
-│ TECNO (Android 12/13, app non-root)                          │
-│  ForegroundService ── 2 listeners WS (loopback + tailnet)    │
-│  JevAccessibilityService ── UI tree + tap/type/scroll        │
-│  ShizukuBridge ── newProcess/UserService (UID shell):        │
-│                   pm, am, settings, input, screencap         │
-│  MainActivity (solo onboarding: 3 estados + token + QR)      │
-└──────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│ Jam (dev.jev.jam, app non-root)                                │
+│  ForegroundService ── 2 listeners WS (loopback + tailnet)      │
+│  JevAccessibilityService ── UI tree + tap/type/scroll + gestos │
+│  ShizukuBridge ── newProcess/UserService (UID shell):          │
+│                   pm, am, settings, input, screencap           │
+│  Native providers ── BatteryManager · UsageStats · Contacts ·  │
+│                   Calendar · NotificationListener · Location · │
+│                   Camera2 (FGS) · ClipboardManager             │
+│  DisplayScale ── proyección lógico→físico para dispatchGesture │
+│  MainActivity (solo onboarding: 3 estados + token + QR)        │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-**Cascada de ejecución por operación:**
+**Cascada de ejecución por operación (carril UI):**
 percepción → AccessibilityService (obligatorio; `snapshot_id` anti-staleness) ·
-tap: `ACTION_CLICK` si `clickable`, `dispatchGesture` si no, **siempre verificar** (`via` reportado) ·
+tap: `ACTION_CLICK` si `clickable`, `dispatchGesture` si no, **siempre verificar**
+(`via` reportado); el gesto se **proyecta** a físico con `DisplayScale` ·
 type: `ACTION_SET_TEXT` con foco explícito previo ·
 lifecycle/shell/settings → Shizuku (UID shell) ·
-`open_app` → Shizuku `am start` (fallback `monkey`), nunca Intent desde background ·
+`open_app` → Shizuku `am start` (fallback `monkey`), nunca Intent desde
+background ·
 screenshot → `takeScreenshot()` (30+) → `screencap` vía Shizuku (API 29);
 `FLAG_SECURE` → `SECURE_SURFACE` (solo screenshot; el árbol no se oculta).
+**Carril nativo:** sin accesibilidad y sin gestos; Jam responde por API
+directa (§7). Sin Shizuku, N0 sigue vivo.
 
 ## 5. Modelo de privilegios (app non-root)
 
@@ -101,21 +142,24 @@ screenshot → `takeScreenshot()` (30+) → `screencap` vía Shizuku (API 29);
 App (UID normal)
 ├── AccessibilityService ── UI tree + gestos
 │      (usuario lo habilita en Ajustes → Accesibilidad)
-└── ShizukuBridge ── permiso runtime API_V23
-       └── Shell UID 2000: pm, am, settings, input, screencap
-           vía Shizuku.newProcess(...) / UserService AIDL (Fase 3)
+├── ShizukuBridge ── permiso runtime API_V23
+│      └── Shell UID 2000: pm, am, settings, input, screencap
+│          vía Shizuku.newProcess(...) / UserService AIDL (Fase 3)
+└── Providers nativos (N0/N1): sin root; grants runtime/Ajustes (§7)
 ```
 
 1. Prohibido `Runtime.exec("su")`, `su -c`, `ProcessBuilder("su")`.
    Aceptación verificable: `grep -rn "su -c\|exec(.*su" android-app/` **vacío**.
 2. Shizuku lo inicia el usuario (ADB o app de Shizuku). La app solo **pide permiso**.
 3. Sin permiso Shizuku → grupo `shell` deshabilitado, UI sigue viva,
-   error honesto `SHIZUKU_UNAVAILABLE` con hint.
+   error honesto `SHIZUKU_UNAVAILABLE` con hint. **N0 sigue operativo.**
 4. Sin accesibilidad → UI falla `ACCESSIBILITY_DISABLED`;
-   `screencap` vía Shizuku sigue disponible.
+   `screencap` vía Shizuku y N0 siguen disponibles.
 
 **Onboarding (única UI):** 3 indicadores (Accesibilidad ✓/✗, Shizuku ✓/✗,
-Servidor ●), botón "Generar token" y QR con `{url, token, fingerprint}`.
+Servidor ●), botón "Generar token" y QR con `{url, token, fingerprint}`;
+estado de grants N1 en `hello.caps` (`usage_access`, `notification_listening`,
+`contacts`, `calendar`, `location`, `camera`).
 
 **Red (Tailscale):** la app **no integra** SDK de Tailscale.
 Bindea loopback o la IP del tailnet autodetectada, con re-detección vía
@@ -126,159 +170,167 @@ mecanismo. Nunca activar Tailscale Funnel para este puerto.
 Política de grant por método: `open_app` = `ui` sin grant;
 `force_stop` = `shell` sin grant; `grant_permission` y `shell` = `shell` con grant.
 
-## 6. Dual-Tier genérico (S1 Jev vs S2 LLM)
+## 6. Inteligencia: dual-tier v3 → v4 → v5
 
-### 6.1 Reparto
+### 6.1 Reparto dual-tier (v3, `generic-dual-tier.md`)
 
-| | Sistema 1 (Jev, TypeSafe) | Sistema 2 (LLM frontera) |
+| | Sistema 1 (Jev, TypeSafe) | Sistema 2 (LLM frontera, GLM-5.3) |
 |---|---|---|
-| Rol | Juicio discriminativo por paso: elige 1 operación entre candidatas | Planifica hitos, diagnostica anomalías, redacta texto semántico |
-| Entrada | Tabla UI numerada (nodos podados, §6.3) + fase + historial resumido | Plan de tarea, forense `logs/run-<ts>.jsonl`, `screenshot` en fallback sin-árbol |
-| Salida | 1 llamada → `{op: CLICK/TYPE/SCROLL/DONE/ESCALATE, target_id, needs_system_2, conf}` | Sub-objetivos, criterios de verificación, textos a escribir |
-| Latencia/coste orientativo | 130–380 ms/paso, ~$0.0002/acción; ~80% de pasos por S1 | Solo en planificación/excepciones; ahorro >95% vs VLM puro |
-| Texto libre | Nunca genera (lo provee S2 vía slot `needs_text`) | Único que redacta texto de dominio |
+| Rol | Juicio discriminativo por paso | Planifica/compila, diagnostica, redacta |
+| Salida | `[TAP,TYPE,SCROLL_DOWN,SCROLL_UP,BACK,DONE,ESCALATE]` + `target 0..253|NONE` + `needs_system_2` + `conf` | Plan `EXECUTE_GOAL` (v4) o comando de anomalía `OPEN_APP|TYPE|TAP|BACK|HINT` |
+| Texto | **Nunca genera** (lo aporta S2 vía slot/`text_payload`) | Único que redacta |
+| Idioma | **100% inglés** (claves, instrucciones, tabla, `screen_goal`) | Único que produce inglés semántico |
 
-Patrón operativo: el MCP serializa la UI en **tabla numerada**;
-Jev resuelve en **1 llamada** operación + `target_id` + `needs_system_2`.
-El output es gratis → ramificación especulativa de coste ~0 (preguntas
-`next_action`/`last_ok`/`progress` en el mismo batch). Sin key de Jev →
-stub mock honesto (`{mock: true}`), nunca inventar opciones.
+Compuertas: `TAU = 0.70`; `conf < TAU` → `ESCALATE`; críticas/irreversibles
+(enviar/comprar/borrar/permisos/`shell`) → preview + `confirm:true`
+sin confirmar se **planean sin ejecutar** (`planned`, `needs_confirm`);
+`FORBIDDEN` solo **opt-in por goal** (`forbidden?`), nunca global. Cadena de
+poda **500 raw → candidatos normalizer → 0..253 ⊂ 255 Choice** (254 + `NONE`).
 
-Endpoint por defecto: `POST https://openrouter.ai/api/alpha/decisions`
-(`model: "typesafe/jev-1.13"`). Oficial (swap futuro):
-`POST https://api.typesafe.ai/v1/systemone` (`model: "jev-latest"`).
-Latencia 70–500 ms por llamada. Batch de preguntas en una sola llamada.
+### 6.2 plan-ahead v4 (`plan-ahead.md`)
 
-```json
-{"model": "typesafe/jev-1.13",
- "state": {"package": "<paquete genérico>", "screen": "<actividad>",
-           "elements": ["[n_0] Button \"…\"", "…"]},
- "questions": {
-   "next_action": {"type": "choice", "instructions": "…",
-                   "criteria": {"tap:n_3": "…", "type:n_5": "…",
-                                "done": "…", "abort": "…"}},
-   "ready":       {"type": "noul",   "instructions": "…",
-                   "criteria": {"true": "…", "false": "…"}},
-   "done":        {"type": "score",  "instructions": "…",
-                   "criteria": ["no", "parcial", "sí"]}}}
-→ {"answers": {…}, "model_version": "…"}
-```
+- **S2-compilador paso 0:** una sola consulta al inicio devuelve
+  `EXECUTE_GOAL{package, screen_goal_en, preloaded_inputs{slot: payload},
+  expected_terminal_state, guidance_for_s1, stop}`. Los `TYPE` del camino
+  feliz consumen los slots **sin reconsultar** a S2 (mapa `pending_payloads`
+  con `consumed`); `open_app` solo en bootstrap. Detalle §2.1–§2.3.
+- **Fast-path `FAST_TAU = 0.85`:** `conf ≥ 0.85` + trivial + no-sensible
+  despacha sin consultas secundarias ni post-read redundante. **Nunca salta
+  compuertas** (estructural, foco, `confirm`, `FORBIDDEN`, `STALE`, `STUCK`,
+  `DONE`-gate). `DONE`/`ESCALATE` nunca son fast-path.
+- **Post-read coalescido:** un solo `dump` por paso; el `verify` válido y con
+  snapshot nuevo se reutiliza como `observe` siguiente (`coalesced:true`);
+  si no es válido, se re-observa normal. Oportunista, nunca a ciegas.
+- **`zone` 3×3:** columna calculada en host desde centroide + resolución
+  (`top-left | … | bottom-right`, fallback `unknown`). Fila a Jev:
+  `[idx, class_short, zone, flags, label]`; `id`/`bounds` quedan en host
+  (`by_idx`) para validar/ejecutar. Hint, nunca señal de seguridad.
 
-**Split con nuestro stack:** Jev decide, no ejecuta. El MCP lee UI
-(`dump_ui` por WS con `hello`/token/scopes `read`+`ui`), normaliza a
-estado semántico, pregunta, ejecuta (`tap_node`/`type`/`scroll`),
-verifica (`wait_for_node`/`dump_ui`). Cuando Jev decide "escribir",
-el MCP devuelve al agente principal
-`{"needs_text": true, "slot": "…", "prompt": "…"}` y este provee el texto.
+### 6.3 director-client v5 (`director-client.md`)
 
-### 6.2 Compuertas (tau / críticas / Noul)
+La cadena OpenCode → `loop.py` → S2 → Jev → Jam apilaba tres planificadores
+sobre el mismo goal (poisoning por goal global, parálisis por indecisión,
+dedos antes que APIs). v5 la sustituye para metas complejas:
 
-- **Confianza tau (~0.70):** `conf < tau` → `ESCALATE` a Sistema 2
-  (re-planificar, pedir criterio o texto). Tau vive en el plugin de
-  tarea, no en el core; el core solo aplica el umbral parametrizado.
-- **Acciones críticas/destructivas** (enviar, borrar, pagar, conceder
-  permisos, `shell`): siempre a Sistema 2 / humano; el core las marca
-  `is_sensitive` → `dry_run` las planea sin ejecutar; sin compuerta
-  verde (identidad estricta + precondiciones deterministas) no hay
-  ejecución. `shell` además exige scope `shell` + grant activo y hasta
-  Fase 6 el dispatcher lo rechaza con `METHOD_NOT_ALLOWED`.
-- **Bloqueos semánticos** (captcha, login ajeno, superficie `SECURE_SURFACE`,
-  `FORBIDDEN_TARGET`, `WRONG_CHAT` dentro de contexto ajeno): vía `Noul`
-  → `ESCALATE`, nunca reintentar tapeando a ciegas.
-- Mecanismo en core, datos en plugin: blacklist parametrizada
-  (`FORBIDDEN_DEFAULT` en `core/guards.py`, el plugin aporta la suya),
-  `title_matches_strict`, `require_verified`, `check_stuck_same`.
+1. **Un planificador:** el director (OpenCode/operador). Ve cada pantalla
+   (`read_screen_state` + `screenshot` evidencial) y decide una primitiva por
+   paso; `run_sequence` sigue prohibido.
+2. **Jev = resolver de elementos** (`resolve_element`): **una sola `Choice`**
+   sobre índices + `NONE`, con micro-intención EN de **la pantalla actual**
+   (p.ej. `"Tap the Copy link row"`). Su `state` lleva solo
+   `screen_goal + current_app + snapshot_id + table + first_result`: **nunca**
+   el goal global, nombres propios ni paquetes (**anti-poisoning** auditable
+   en test capturando el `state`). Jev devuelve `{idx, conf}`; la acción la
+   decide el director.
+3. **SO antes que dedos:** clipboard por API (leer host `dumpsys` +
+   verificación por forma; escribir con `ClipboardManager.setPrimaryClip` en
+   la propia Jam), `open_app` directo, `ACTION_SET_TEXT` + read-back. Sin
+   método Jam → `CLIPBOARD_UNSUPPORTED` y degradación honesta a `type_text`.
+4. **`loop.py` CONGELADO** (`run_goal`, `ask_decision`, `s2_client`): sin
+   features nuevas; solo bugfixes de seguridad/regresión con test que
+   demuestre que el SENT simple sigue verde. Todo lo nuevo vive fuera, sin
+   importar `run_goal`. `@judge` certifica con `pytest` verde **antes y
+   después**.
 
-### 6.3 Poda determinista (cadena 500 → 60 ⊂ 255 Choice)
+### 6.4 Anti-giro y fail-fast (v3 §12 + v4)
 
-Cadena real: **500 raw (extractor Jam: poda invisibles + tope 500)
-→ 60 candidatos (normalizer host: poda decoración/contenedores,
-tope vigente `MAX_CANDIDATES=60`) ⊂ 255 Choice
-(capacidad Jev: 254 interactivos + 1 `NONE`)**.
-El tope 254+NONE es capacidad del `Choice`, no tope vigente del
-normalizer (subir 60→254 pendiente Fase 5 si se quiere).
-
-Poda semántica solo en normalizer; el extractor solo poda
-invisibles + tope 500:
-
-1. Extractor (app Jam): invisibles (`visible == false`) fuera;
-   tope 500 nodos/snapshot (BFS, `snapshot_id` monotónico).
-2. Normalizer (host): contenedores sin semántica (`text`/`content_desc`/
-   `resource_id` nulos y sin hijos accionables) fuera.
-3. Normalizer (host): nodos de decoración del sistema (`statusBarBackground`,
-   `navigationBarBackground`) fuera (en `ui_normalizer.py`, Fase 4).
-4. Topes: normalizer vigente `MAX_CANDIDATES=60` (editable > clickable-con-texto
-   > resto, estable); capacidad `Choice` 254 interactivos + 1 `NONE` = 255
-   opciones; exceso → priorizar visibles accionables en orden BFS, resto se
-   alcanza por `scroll` + re-dump.
-5. Cada fila lleva centroide de `bounds` para el gesto; el teclado IME
-   **no mueve coordenadas lógicas** (los `bounds` son del árbol, no de
-   pantalla física; re-dump tras IME si `ui_dirty`).
-
-### 6.4 Ejecución y fallback sin-árbol
-
-- Tap: `ACTION_CLICK` primero si `clickable` (apps filtran gestos
-  sintéticos); si no es clickable o no se verifica → `dispatchGesture`
-  al centro de `bounds`. Siempre verificar y reportar `via`.
-- Type: `ACTION_SET_TEXT` con foco explícito previo (`NOT_FOCUSED`
-  si no; el cliente tapea antes). Nunca teclado simulado.
-- Acciones no devuelven snapshot (el servidor no dumpea tras actuar);
-  el cliente verifica con `wait_for_node` / `dump_ui`.
-- **Fallback Canvas/Flutter sin árbol** (`nodes == []` con ventana
-  activa y sin `ui_dirty` pendiente): `screenshot` → Sistema 2
-  diagnostica la anomalía visual; S1 no inventa coordenadas
-  (`SELECTOR_NOT_FOUND` si no hay nodo).
-- `FLAG_SECURE` no oculta el árbol; solo `screenshot` → `SECURE_SURFACE`.
+- **`first_result`** (hint, nunca poda): índice del primer interactivo del
+  contenedor principal, viaja a S1 en la cabecera y a S2 como
+  `FIRST_RESULT: <idx>`; prior de atención, la tabla **nunca se recorta a 1**.
+- **S2-TAP-direct** (`VALID_COMMANDS` incluye `TAP`): ante escalado en lista
+  densa S2 elige el índice de la tabla vigente y el loop ejecuta `tap_node`
+  sin re-preguntar a S1; exige `clickable` (si no, no muta), valida
+  `visible`/bounds, respeta `FORBIDDEN`/crítica y hace **un** reintento por
+  `STALE` (segundo → `UI_UNSTABLE`).
+- **STALE-retry en el bucle:** ante `STALE_SNAPSHOT` en `tap_node`/`type_text`
+  el loop re-observa UNA vez, re-resuelve por `id` y reintenta UNA vez; racha
+  `×3` → `UI_UNSTABLE`. El reintento vive en el loop, no en la app.
+- **`run_signature` + fail-fast:** corrida que cierra `ok:false` emite firma
+  (`code`, `stalled_step`, snapshots/fingerprints first/last, `progress`).
+  Igual firma en 2 corridas seguidas → **no relanzar**: `diff` de forenses +
+  informe (regla operativa, no daemon).
+- **`STUCK_SAME`:** misma `(kind,node_id)` ×3, o misma decisión
+  `(action+target)` ×3 sin cambio útil de snapshot → abort. `DONE` siempre
+  con gate S2 (`verify_done` con `expected_terminal_state`); `verify_final`
+  determinista re-lee pantalla. Nunca éxito solo-Jev.
 
 ### 6.5 Anti-inyección y PII
 
 - Contenido de UI (textos de terceros, mensajes, webs) **nunca** entra
-  como instrucción a S2: se etiqueta como `data`, se recorta a lo
-  necesario y los prompts de tarea usan plantillas fijas con slots.
-- **PII mask local:** antes de loguear/subir forense o pedir a S2,
-  enmascarar en el host (números, identificadores, textos de dominio).
-  El forense guarda hashes/longitudes salvo que el plugin declare
-  explícitamente campos en claro para depuración.
-- Sin excepciones por app: la política es del core; las listas de
-  campos sensibles las parametriza cada plugin.
+  como instrucción a S2/Jev: se etiqueta como `data`, se recorta y los
+  prompts usan plantillas fijas con slots.
+- **PII mask local:** antes de loguear/subir forense o pedir a S2, enmascarar
+  en el host (números, identificadores, textos de dominio). El forense guarda
+  hashes/longitudes; textos crudos jamás si `is_sensitive` (solo `len`+`sha256`).
+- Sin excepciones por app: la política es del core; cada carril parametriza
+  lo suyo.
 
 ### 6.6 Divergencias rechazadas (AGENTS.md manda)
 
-- **Ktor / Netty / SSE / HTTP como transporte: RECHAZADO.**
-  El stack real es `Java-WebSocket` 1.5.7 (ver §8). Cualquier texto
-  que presente Ktor como plan se documenta aquí como anti-patrón y
-  no se implementa sin enmienda de AGENTS.md §4.
-- **`0.0.0.0` como bind: RECHAZADO.** Binds: `127.0.0.1:38472` (WS)
-  + IP tailnet `100.64.x.x` autodetectada (WSS obligatorio en
-  no-loopback). `0.0.0.0` solo con override explícito del usuario,
-  con advertencia en pantalla y auditado. Presentarlo como defecto
-  es anti-patrón.
-- Token bearer 32+ bytes base64url en frame `hello`, nunca en URL,
-  tiempo constante, obligatorio incluso en loopback; scopes
-  `read`/`ui`/`shell`/`admin`; lockout 5/60 s → 5 min; frame 4 MiB;
-  audit ring 500. Sin atajos.
+- **Ktor / Netty / SSE / HTTP como transporte: RECHAZADO.** El stack real es
+  `Java-WebSocket` 1.5.7 (§8). Anti-patrón sin enmienda de AGENTS.md §4.
+- **`0.0.0.0` como bind: RECHAZADO.** Binds `127.0.0.1:38472` (WS) + IP
+  tailnet `100.64.x.x` autodetectada (WSS obligatorio en no-loopback).
+  `0.0.0.0` solo con override explícito, advertencia y auditado.
+- Token bearer 32+ bytes base64url en frame `hello`, nunca en URL, tiempo
+  constante, obligatorio incluso en loopback; scopes `read`/`ui`/`shell`/`admin`;
+  lockout 5/60 s → 5 min; frame 4 MiB; audit ring 500. Sin atajos.
+- **Podador "agresivo = 20" RECHAZADO sin medir:** `MAX_TABLE = 254` intacto;
+  `EXPERIMENT-TABLE-20` queda como experimento pendiente (v4 §9.5).
 
-## 7. Árbol de herramientas MCP
+## 7. Árbol de herramientas MCP (35 tools)
 
-Pocas tools por defecto, resto opt-in por config:
+**Separación por carril (decisión §2.16):** 6 tools son las primitivas del
+bucle Jev; las otras 29 sirven al director, al carril nativo y al diagnóstico.
+El director además usa la fachada `director.py` (`resolve_element`, `tap_idx`,
+`get_clipboard`, `set_clipboard`), que no se expone como tool MCP.
 
-| Grupo | Tools | Default |
-|---|---|---|
-| `help` | `list_tools`, `describe_tool` (auto-documentación) | ✅ |
-| `device` | `get_status`, `list_packages`, `get_foreground_app` | ✅ |
-| `app` | `open_app`, `close_app`, `get_app_state` | ✅ |
-| `ui` | `tap`, `type_text`, `scroll`, `press_back`, `press_home`, `wait_for` | ✅ |
-| `jev` | `jev_decide`, `jev_next_action`, `jev_verify` | ✅ |
-| `system` | `grant_permission`, `set_setting` | opt-in |
-| `adb` | `adb_shell`, `adb_push/pull`, `adb_install/uninstall`, `adb_screencap` | opt-in |
+**6 — bucle Jev (`loop.run_goal`, congelado):** `read_screen` (`dump_ui` +
+normalizer + tabla + `snapshot_id` + `first_result`/`zone`/`focused_field`),
+`tap_node`, `type_text`, `scroll`, `press_back`, `open_app` (solo bootstrap).
 
-Mapeo tool ↔ método: `close_app`↔`force_stop`, `adb_shell`↔`shell`,
-`get_app_state`↔`dump_ui` (+normalizar), `get_foreground_app`↔`get_foreground`.
+**29 — director / nativo / diagnóstico:**
 
-Toda tool devuelve `{ok, verified, evidence, hint}`.
-Shell `adb_shell`/`shell`: denylist de irreversibles
-(`rm -rf /`, `pm uninstall` de sistema, `reboot recovery`, `dd`, `wipe`)
-→ requieren scope `admin` **y** `confirm: true`. Push/pull solo bajo
+| Grupo | Tools |
+|---|---|
+| device/diag | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, preferir `tap_node`) |
+| telemetría N0 | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
+| settings/intents N0 | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
+| clipboard | `get_clipboard_device` (Jam foreground; host prefiere `dumpsys`) |
+| usage N1 | `get_app_usage` |
+| PII N1 | `list_contacts`, `add_contact`, `list_events`, `create_event` |
+| notif/media N1 | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
+| ubicación/cámara N1 | `get_location`, `take_photo` (FGS + confirm siempre) |
+
+Mapeo tool ↔ método (PROTOCOL.md §4/§4.1): `close_app`↔`force_stop`,
+`get_app_state`↔`dump_ui`+normalizar, `get_foreground_app`↔`get_foreground`.
+Toda tool devuelve `{ok, verified, evidence, hint}`; `verified=true` solo con
+verificación real posterior, nunca por "comando enviado".
+
+**Carril nativo (resumen; detalle en `docs/specs/native-apis.md`):**
+
+- **N0 (sin permisos nuevos):** `get_battery`, `get_memory`, `get_storage`
+  (básico), `get_cpu`, `get_device_info`, `settings_get` (System),
+  `open_url`/`send_intent` (apertura), `set_clipboard` (ya en protocolo).
+- **N1 (grant del usuario, estado en `hello.caps`):** `get_app_usage`,
+  `list_contacts`/`add_contact`, `list_events`/`create_event`,
+  `list_notifications`/`reply_notification`, `media_state`/`media_control`,
+  `get_location`, `take_photo`. Proyección mínima; lectura sensible auditada;
+  escritura/crítica → `confirm:true` + preview.
+- **N2 (Shizuku/`shell` on-device):** `settings_put` Secure/Global,
+  `get_storage`/`get_cpu` `detail=fine`, `dumpsys` fino, `grant_permission`,
+  `shell`. **El dispatcher responde `METHOD_NOT_ALLOWED` hasta Fase 6.**
+- **Honestidad (no se promete lo imposible):** escritura `Secure`/`Global`
+  directa sin Shizuku, `MEDIA_CONTENT_CONTROL` directo, clipboard en segundo
+  plano (Android 10+), cámara silenciosa y "envío directo" headless a apps de
+  terceros **no existen** para una app non-root; llevan error honesto
+  (`*_UNAVAILABLE` / `METHOD_NOT_ALLOWED`) + hint.
+
+Tools nueva incorporación v5 (§2.13): `resolve_element` (resolver ciego),
+`set_clipboard` (Jam `ClipboardManager`, sin Shizuku/garant), `get_clipboard`
+(host `dumpsys`). `shell`/`adb_shell`: denylist de irreversibles
+(`rm -rf /`, `pm uninstall` de sistema, `reboot recovery`, `dd`, `wipe`) →
+scope `admin` **y** `confirm: true`. Push/pull solo bajo
 `/sdcard/Download/jev-mcp/`.
 
 ## 8. Pins de versiones (verificados contra repos)
@@ -312,29 +364,41 @@ Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 | 0a | `ARCHITECTURE.md`, `AGENTS.md`, `PROTOCOL.md` | revisión del auditor |
 | 0b | Toolchain en `~/Android/Sdk` | `sdkmanager --list_installed` OK |
 | 0c | Scaffold + manifest + onboarding stub | `assembleDebug` compila |
-| 0d | APK vacío instalado | app visible en el TECNO + grep `su` vacío + `docs/BUILD.md` |
-| 1 | AccessibilityService + `dump_ui` + onboarding | anclas ≥95% vs `uiautomator` (estático 100%); latencia §3 |
-| 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back + cliente Python | cliente Python controla una app instalada genérica; sin token → rechazado |
-| 2b | WSS tailnet + cert self-signed + token en Keystore *(después de 3a)* | remoto sin TLS → rechazado; pinning TOFU |
-| 3a | Shizuku: `open_app`/`force_stop` + `screenshot` (`takeScreenshot`, API 30+). **Sin `shell`** | monkey/`am force-stop`/captura OK; sin Shizuku → degradación honesta |
-| 3b | `shell` + audit log + kill switch *(Fase 6, seguridad cerrada)* | denylist operativa; auditoría consultable |
-| 4 | MCP + normalizer + tools device/app/ui (+ optimización IPC) | agente abre una app genérica y lee pantalla |
-| 5 | jev_client + loop + escalada de texto | tarea genérica con `dry_run` forense end-to-end (sin envíos reales) |
+| 0d | APK vacío instalado | app visible + grep `su` vacío + `docs/BUILD.md` |
+| 1 | AccessibilityService + `dump_ui` + onboarding | anclas ≥95% vs `uiautomator`; latencia §3 |
+| 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back | cliente Python controla app genérica; sin token → rechazado |
+| 2b | WSS tailnet + cert self-signed + token en Keystore | **pendiente** |
+| 3a | Shizuku `open_app`/`force_stop` + `screenshot` | OK; sin Shizuku → degradación honesta |
+| 3b | `shell` + audit log + kill switch *(Fase 6)* | denylist operativa; auditoría consultable |
+| 4 | MCP + normalizer + tools device/app/ui | agente lee pantalla |
+| 5 | dual-tier S1/S2 `run_goal` + compuertas + forense | goal genérico e2e; `planned` sin `confirm` |
+| v4 | S2-compilador `EXECUTE_GOAL` + fast-path + coalescido + `zone` | pytest verde; forense `fast_path`/`coalesced` |
+| v5 | director-cliente + `resolve_element` + `set_clipboard` + loop congelado | pytest verde antes/después; anti-poisoning en test |
+| **N0** | Carril nativo sin permisos nuevos | latencia p50/p95; UI degradada pero N0 viva |
+| **N1** | Carril nativo con grant del usuario | grants en `hello.caps`; críticas 100% con `confirm`; cero PII cruda |
+| **N2** | Shizuku-only (diseño ahora, código Fase 6+) | `METHOD_NOT_ALLOWED` vigente |
 | 6 | grupo `adb`, audit log, kill switch, docs, hardening | denylist operativa; auditoría consultable |
 
 ## 10. Riesgos
 
 - **Compilación en 2 núcleos:** mitigado con build cache + R8 solo en release.
   Plan B `-Xmx1536m`; plan C build en CI.
-- **Java-WebSocket NIO en Android:** verificar en Fase 2; plan B servidor WS
-  bloqueante propio (~200 líneas, 0 deps).
+- **Java-WebSocket NIO en Android:** verificar; plan B servidor WS bloqueante
+  propio (~200 líneas, 0 deps).
 - **BC + Keystore:** firma SHA256withRSA OK desde API 23; sin registro JCA global.
-- **API 29 sin verificar:** fallback `screencap` diseñado pero no probado.
-- **USB inestable:** ambos TECNO se caen del bus cada minutos; mitigar con
-  ventanas de comandos cortas y `adb connect` por Wi-Fi cuando sea posible.
+- **API 29 sin verificar:** fallback `screencap` diseñado pero no probado en banco.
+- **USB inestable:** ambos TECNO se caen del bus a ratos; mitigar con ventanas
+  de comandos cortas y `adb connect` por Wi-Fi (KJ5 loop va por Wi-Fi).
 - **Optimización IPC (~2 ms/nodo):** el coste está en las calls por nodo
-  (`getChild`, `getBoundsInScreen`). Candidata a Fase 4+ si el bucle lo pide.
-- **KJ5 corre Shizuku+ clon:** Fase 3 instala el oficial
+  (`getChild`, `getBoundsInScreen`). Candidata a Fase 4+.
+- **Escala física en gestos (medido):** `bounds` en espacio lógico (a11y) vs
+  píxeles físicos del panel; sin `DisplayScale` los gestos caen a la mitad del
+  recorrido (banco A10: 360×720 lógico vs 720×1440 físico → factor 2.0).
+  Corregido; identidad cuando no hay override.
+- **`open_url` sin `package` cae en `ResolverActivity` si hay >1 handler
+  (medido):** no garantiza abrir la app esperada; `send_intent` con `package`
+  salta directo al handler. Uso normal: pasar `package` cuando se conozca.
+- **KJ5 corre Shizuku+ clon:** Fase 3 exige instalar el oficial
   `moe.shizuku.privileged.api` (el LG7n ya lo trae).
 
 ## 11. Inspiración
