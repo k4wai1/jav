@@ -78,6 +78,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `press_back` / `press_home` | `{}` | `{}` | ui |
 | `wait_for_node` | `{selector, timeout_ms}` | `{node_id, snapshot_id}` o `TIMEOUT` | ui |
 | `screenshot` | `{format?: png\|webp, quality?}` | `{img_base64, w, h, via}`; superficie segura → `SECURE_SURFACE`; > 4 MiB → `PAYLOAD_TOO_LARGE` (hint: WebP q80). Fallback `screencap` en API 29 = Fase 3 | read |
+| `set_clipboard` | `{text}` | `{chars}` (v5 §4.1: la propia Jam ejecuta `ClipboardManager.setPrimaryClip`; sin Shizuku, sin grant; `text` vacío → `VALIDATION_ERROR`; la lectura sigue por host `dumpsys`) | ui, sin grant |
 | `open_app` | `{package}` | `{package, activity}` (`monkey -p <pkg> -c android.intent.category.LAUNCHER 1` por Shizuku; verificar con `get_foreground`) | ui, sin grant |
 | `force_stop` | `{package}` | `{}` | shell, sin grant |
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |

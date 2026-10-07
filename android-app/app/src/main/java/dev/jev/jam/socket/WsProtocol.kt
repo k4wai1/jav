@@ -90,6 +90,9 @@ data class ForceStopParams(@SerialName("package") val pkg: String = "")
 @Serializable
 data class ScreenshotParams(val format: String = "png", val quality: Int = 80)
 
+@Serializable
+data class SetClipboardParams(val text: String = "")
+
 /** Decodifica params o lanza JamError de validación. */
 inline fun <reified T> decodeParams(req: WsRequest): T {
     try {

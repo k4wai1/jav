@@ -1,5 +1,7 @@
 package dev.jev.jam.socket
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import dev.jev.jam.BuildConfig
 import dev.jev.jam.service.JevAccessibilityService
@@ -81,6 +83,7 @@ class CommandDispatcher(private val appContext: Context) {
                 "open_app" -> openApp(req)
                 "force_stop" -> forceStop(req)
                 "screenshot" -> screenshot(req)
+                "set_clipboard" -> setClipboard(req)
                 "shell" -> throw JamError(
                     "shell se habilita en Fase 6 (seguridad cerrada)", "METHOD_NOT_ALLOWED"
                 )
@@ -193,6 +196,24 @@ class CommandDispatcher(private val appContext: Context) {
             put("w", s.w)
             put("h", s.h)
             put("via", s.via)
+        })
+    }
+
+    /**
+     * v5 director-client §4.1: escribe el clipboard del SO sin shell.
+     * La propia app Jam ejecuta `ClipboardManager.setPrimaryClip`
+     * (foreground service, sin Shizuku, sin grant de shell; misma clase
+     * de API que `takeScreenshot`/`ACTION_SET_TEXT`, no un exec).
+     * Scope `ui`, sin grant. La lectura sigue por host `dumpsys`
+     * (Android 10+ restringe leer al foreground/IME).
+     */
+    private fun setClipboard(req: WsRequest): String {
+        val p = decodeParams<SetClipboardParams>(req)
+        if (p.text.isEmpty()) throw JamError("text vacío", "VALIDATION_ERROR")
+        val cm = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("jev", p.text))
+        return okResponse(req.id, buildJsonObject {
+            put("chars", p.text.length)
         })
     }
 

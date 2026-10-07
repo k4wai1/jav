@@ -4,6 +4,9 @@ App non-root (ver `../AGENTS.md`): expone percepción (AccessibilityService)
 y ejecución (gestos + shell UID 2000 vía Shizuku) por WebSocket.
 Fases 1–3 implementadas (dump_ui, WS, acciones + screenshot); la lógica
 de shell con seguridad cerrada llega en Fase 6.
+v5 director-client: `set_clipboard {text}` → `{chars}` vía
+`ClipboardManager.setPrimaryClip` por la propia app (sin Shizuku, sin
+grant, scope `ui`); la lectura sigue por host `dumpsys`.
 
 ## Compilar (Debian 13, máquina pequeña)
 

@@ -90,3 +90,7 @@ class JamClient:
 
     async def screenshot(self, fmt: str = "png", quality: int = 80) -> dict:
         return await self.call("screenshot", {"format": fmt, "quality": quality})
+
+    async def set_clipboard(self, text: str) -> dict:
+        """Escribe el clipboard via Jam (ClipboardManager, sin shell)."""
+        return await self.call("set_clipboard", {"text": text})
