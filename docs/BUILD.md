@@ -70,3 +70,27 @@ adb shell 'dumpsys activity activities | grep -m1 mFocusedApp'
 comportamiento esperado de Fase 0. La UI real de onboarding llega en Fase 1.
 
 Criterio Fase 0d: app instalada y en foreground ✓ + grep `su` vacío ✓ + este archivo ✓.
+
+## 5. Fix escalado de gestos (2026-10-07, 5002E/Android 10 API 29, USB e03638e5)
+
+Causa: `getBoundsInScreen` en espacio lógico (override 360x720) vs
+`dispatchGesture` en píxeles físicos (panel 720x1440). Fix: `DisplayScale`
+(`ui/DisplayScale.kt`) + proyección en `JevAccessibilityService`
+(tap-gesto y scroll). Fórmula: `x_phys=(x_log*physW+logW/2)/logW`
+(idem Y), clamp a físico-1; `bounds` de `dump_ui` queda en lógico.
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.ui.DisplayScaleTest" --tests "dev.jev.jam.ui.UiTreeExtractorTest"
+./gradlew :app:assembleDebug
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+```
+
+| Build | Resultado | Tiempo Gradle | Notas |
+|---|---|---|---|
+| test (DisplayScale 5 tests, 1 fallo assertion propia) | FALLA 1 | 4m 19s | assertion `projectX(1)=1` errónea (real 2); corregida |
+| test (DisplayScale 5 + Extractor 6) | **OK** | 3m 4s | 11 tests verdes |
+| assembleDebug (fix gestos) | **OK** | 2m 22s (wall 144s) | APK debug 16 MB |
+
+RAM: 3.7 GiB + swap; `free` durante build: ~2.9 GB usados / ~290 MB libres
++ 754 MB swap. `gradle.properties` conservador intacto (`workers.max=1`,
+`Xmx1024m`, sin daemon, sin paralelo).

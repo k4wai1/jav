@@ -2,19 +2,23 @@ package dev.jev.jam.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Point
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Display
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.jev.jam.shell.ShizukuBridge
 import dev.jev.jam.socket.JamError
+import dev.jev.jam.ui.DisplayScale
 import dev.jev.jam.ui.RealA11yNode
 import dev.jev.jam.ui.Selector
 import dev.jev.jam.ui.SelectorResolver
@@ -197,7 +201,9 @@ class JevAccessibilityService : AccessibilityService() {
             }
             val b = Rect()
             live.getBoundsInScreen(b)
-            if (!dispatchTap(b.centerX(), b.centerY())) {
+            val (px, py) = toPhysical(b.centerX(), b.centerY())
+            JevLog.d(TAG, "tap gesto log=${b.centerX()},${b.centerY()} phys=$px,$py")
+            if (!dispatchTap(px, py)) {
                 throw JamError("gesto rechazado por el sistema", "INTERNAL_ERROR")
             }
             return TapResult(node.id, "gesture")
@@ -257,7 +263,11 @@ class JevAccessibilityService : AccessibilityService() {
             "right" -> Quad(x + spanX / 2, y, x - spanX / 2, y)
             else -> throw JamError("direction debe ser up|down|left|right", "VALIDATION_ERROR")
         }
-        if (!dispatchSwipe(x1, y1, x2, y2)) {
+        val vp = currentViewport()
+        val (apx, apy) = DisplayScale.project(x1, y1, vp)
+        val (bpx, bpy) = DisplayScale.project(x2, y2, vp)
+        JevLog.d(TAG, "scroll $direction log=($x1,$y1)->($x2,$y2) phys=($apx,$apy)->($bpx,$bpy)")
+        if (!dispatchSwipe(apx, apy, bpx, bpy)) {
             throw JamError("gesto rechazado por el sistema", "INTERNAL_ERROR")
         }
         uiDirty = true
@@ -388,6 +398,42 @@ class JevAccessibilityService : AccessibilityService() {
     }
 
     // ---- gestos ----
+
+    /**
+     * Viewport actual: lógico = `Display.getRealSize` (espacio de a11y,
+     * respeta `wm size override`); físico = `Display.Mode` (panel real,
+     * inmune al override), rotado a la orientación actual.
+     * Si `getRealSize` ignorase el override (devuelve físico), el viewport
+     * sale identidad y el gesto no escala (se loguea para diagnóstico).
+     */
+    @Suppress("DEPRECATION")
+    private fun currentViewport(): DisplayScale.Viewport {
+        try {
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val d = wm.defaultDisplay
+            val real = Point()
+            d.getRealSize(real)
+            val mode = d.mode
+            var pw = mode.physicalWidth
+            var ph = mode.physicalHeight
+            if ((real.x > real.y) != (pw > ph)) {
+                val t = pw; pw = ph; ph = t
+            }
+            val dm = resources.displayMetrics
+            JevLog.d(
+                TAG,
+                "viewport real=${real.x}x${real.y} mode=${pw}x${ph} " +
+                    "dm=${dm.widthPixels}x${dm.heightPixels} rot=${d.rotation}"
+            )
+            return DisplayScale.Viewport(real.x, real.y, pw, ph)
+        } catch (t: Throwable) {
+            val dm = resources.displayMetrics
+            return DisplayScale.Viewport(dm.widthPixels, dm.heightPixels, dm.widthPixels, dm.heightPixels)
+        }
+    }
+
+    private fun toPhysical(x: Int, y: Int): Pair<Int, Int> =
+        DisplayScale.project(x, y, currentViewport())
 
     private fun dispatchTap(x: Int, y: Int): Boolean =
         dispatchStroke(x, y, x, y, TAP_MS)
