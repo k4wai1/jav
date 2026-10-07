@@ -117,9 +117,19 @@ async def get_clipboard_device(_call=None) -> dict:
 
 # --- N1: con grant del usuario -----------------------------------------------
 
-async def get_app_usage(hours: int = 24, _call=None) -> dict:
-    """Uso de apps agregado por paquete (ventana <=24h). Sin grant -> USAGE_ACCESS_DISABLED."""
-    return await _jam_call("get_app_usage", {"hours": hours}, _call)
+async def get_app_usage(hours: int = 24, window: str | None = None, _call=None) -> dict:
+    """Aggregate foreground time per package, ranked by `foreground_ms` (top 50).
+
+    Without `window` returns the last `hours` (clamped 1..24), the legacy
+    behavior. With `window`, `hours` is reinterpreted or ignored:
+      - "today": since local midnight of the current day.
+      - "week": the last 7 days.
+      - "raw": the last `hours` (clamped 1..168).
+    Evidence carries `window`, `begin`, `now`, `window_h` and
+    `apps[{package, foreground_ms, last_used}]`. Without the special usage
+    access grant Jam returns USAGE_ACCESS_DISABLED (honest, no guessing).
+    """
+    return await _jam_call("get_app_usage", {"hours": hours, "window": window}, _call)
 
 
 async def list_contacts(query: str = "", limit: int = 50, offset: int = 0,

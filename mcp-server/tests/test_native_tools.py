@@ -43,6 +43,22 @@ async def test_n0_params_forwarded():
 
 
 @pytest.mark.asyncio
+async def test_app_usage_window_forwarded():
+    seen = {}
+
+    async def call(method, params):
+        seen.update({"m": method, "p": params})
+        return {"window": "week", "count": 0, "apps": []}
+
+    d = await N.get_app_usage(window="week", _call=call)
+    assert d["ok"]
+    assert seen == {"m": "get_app_usage", "p": {"hours": 24, "window": "week"}}
+    # sin window, el contrato previo se mantiene (hours explícito)
+    await N.get_app_usage(hours=12, _call=call)
+    assert seen["p"] == {"hours": 12, "window": None}
+
+
+@pytest.mark.asyncio
 async def test_planned_not_verified():
     d = await N.send_intent("android.intent.action.SEND", _call=_ok({"planned": True}))
     assert d["ok"] and not d["verified"]

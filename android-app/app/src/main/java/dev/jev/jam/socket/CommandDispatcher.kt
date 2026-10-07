@@ -316,7 +316,7 @@ class CommandDispatcher(private val appContext: Context) {
 
     private fun appUsage(req: WsRequest): String {
         val p = decodeParams<AppUsageParams>(req)
-        return okResponse(req.id, NativeSensitive.getAppUsage(appContext, p.hours))
+        return okResponse(req.id, NativeSensitive.getAppUsage(appContext, p.hours, p.window))
     }
 
     private fun listContacts(req: WsRequest): String {

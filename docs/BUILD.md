@@ -138,3 +138,31 @@ real (21 KB b64); ubicación/Notificaciones honestas (ver §7).
 - Artefactos de prueba revertidos: contacto `JevTestDelete` y evento
   `JevTestDelete` borrados; `screen_brightness` restaurado a `10`.
 - Suite MCP: 146 passed (incl. `test_native_tools.py`, 7 tests con stubs).
+
+## 8. Ventana `today`/`week` en `get_app_usage` (2026-10-07, 5002E/API 29, USB e03638e5)
+
+`get_app_usage` topaba en 24 h (`clampHours` 1..24, `INTERVAL_DAILY`).
+Ahora acepta `window` opcional: `today` (medianoche local),
+`week` (7 días) y `raw` (`hours` 1..168); sin `window` = comportamiento
+previo `hours`. El cálculo de `begin` se factoriza a `NatPolicies.usageBegin`
+(puro JVM, `Calendar` para medianoche local) y suma
+`totalTimeInForeground` por paquete en el rango (top 50). MCP expone
+`get_app_usage(hours=24, window=None)`.
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest" :app:assembleDebug
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+```
+
+| Build | Resultado | Tiempo Gradle (wall) | Notas |
+|---|---|---|---|
+| test NatPolicies (11 tests JVM) + assembleDebug | **OK** | 4m 20s (261s) | APK debug 16 MB; 11/11 verdes (clamp raw 1..168, ventanas válidas, `usageBegin` today/week/raw) |
+
+Verificación hello + uso real en el equipo (token sin cambios; scopes
+`read`,`ui`; appop `GET_USAGE_STATS: allow`; accesibilidad re-habilitada
+por `settings put secure`; `shizuku_server` ya corría): `get_battery`,
+`get_memory`, `get_storage` y `get_app_usage(window=today|week)` con
+valores reales (batería 100%, RAM disp. ~1.13 GB, libre ~12.8 GB;
+top hoy `org.fossify.math` 647.2 min / `dev.jev.jam` 144.1 min;
+top semana `com.termux` 1214.1 min / `org.fossify.math` 647.2 min).
+Suite MCP: **147 passed**.

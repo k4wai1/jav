@@ -160,9 +160,10 @@ async def get_clipboard_device() -> dict:
 
 
 @mcp.tool()
-async def get_app_usage(hours: int = 24) -> dict:
-    """Uso de apps agregado por paquete (≤24h). Requiere acceso a uso."""
-    return await native_tools.get_app_usage(hours)
+async def get_app_usage(hours: int = 24, window: str | None = None) -> dict:
+    """Uso de apps agregado por paquete (top 50). `window`: today|week|raw;
+    sin él, últimas `hours` (1..24). Requiere acceso a uso."""
+    return await native_tools.get_app_usage(hours, window)
 
 
 @mcp.tool()

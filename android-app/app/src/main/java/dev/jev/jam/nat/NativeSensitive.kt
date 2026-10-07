@@ -68,16 +68,31 @@ object NativeSensitive {
         }
     }
 
-    fun getAppUsage(ctx: Context, hours: Int): JsonObject {
+    /**
+     * Uso agregado por paquete. `window` opcional:
+     *  - null/"": últimas `hours` (1..24, compat previa)
+     *  - "today": desde medianoche local de hoy
+     *  - "week": últimos 7 días
+     *  - "raw": últimas `hours` (1..168)
+     * Suma `totalTimeInForeground` por paquete en el rango (top 50).
+     * `INTERVAL_DAILY` sirve para rangos multi-día: se suman los buckets.
+     */
+    fun getAppUsage(ctx: Context, hours: Int, window: String? = null): JsonObject {
         if (!hasUsageAccess(ctx)) {
             throw JamError(
                 "acceso a uso no concedido; Ajustes → Acceso a datos de uso → Jam",
                 "USAGE_ACCESS_DISABLED"
             )
         }
-        val h = NatPolicies.clampHours(hours)
+        val win = window?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        if (!NatPolicies.validUsageWindow(win)) {
+            throw JamError(
+                "window debe ser today|week|raw (o vacío)",
+                "VALIDATION_ERROR"
+            )
+        }
         val now = System.currentTimeMillis()
-        val begin = now - h * 3600_000L
+        val begin = NatPolicies.usageBegin(now, win, hours)
         val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val stats = try {
             usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, begin, now).orEmpty()
@@ -89,7 +104,10 @@ object NativeSensitive {
                 (list.maxOfOrNull { it.lastTimeUsed } ?: 0L))
         }.sortedByDescending { it.second.first }.take(50)
         return buildJsonObject {
-            put("window_h", h)
+            put("window", win ?: "hours")
+            put("begin", begin)
+            put("now", now)
+            put("window_h", ((now - begin) / NatPolicies.HOUR_MS).toInt())
             put("count", agg.size)
             put("apps", buildJsonArray {
                 for ((pkg, tt) in agg) {

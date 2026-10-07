@@ -114,7 +114,7 @@ data class SettingsPutParams(
 )
 
 @Serializable
-data class AppUsageParams(val hours: Int = 24)
+data class AppUsageParams(val hours: Int = 24, val window: String? = null)
 
 @Serializable
 data class ContactsParams(
