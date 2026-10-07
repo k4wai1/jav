@@ -1,16 +1,20 @@
 package dev.jev.jam
 
+import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Process
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import dev.jev.jam.service.JamNotificationListener
 import dev.jev.jam.service.JevAccessibilityService
 import dev.jev.jam.service.JevForegroundService
 import dev.jev.jam.shell.ShizukuBridge
@@ -23,6 +27,11 @@ import rikka.shizuku.Shizuku
  * Fase 3a: onboarding con flujo de permiso Shizuku. El listener se
  * registra en onResume y se quita en onPause (no en onCreate: leak).
  * El botón de permiso solo aparece si Shizuku corre sin permiso.
+ *
+ * N1 (native-apis): pide grants runtime en contexto (contactos,
+ * calendario, ubicación, cámara) y guía a los accesos especiales
+ * (uso, notificaciones, escritura de ajustes). Sin grant cada método
+ * responde error honesto; la app nunca lo auto-concede.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -45,6 +54,16 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         findViewById<Button>(R.id.btnDump).setOnClickListener { dumpToLogcat() }
         findViewById<Button>(R.id.btnShizuku).setOnClickListener { askShizuku() }
+        findViewById<Button>(R.id.btnPerms).setOnClickListener { askReadPerms() }
+        findViewById<Button>(R.id.btnUsage).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+        findViewById<Button>(R.id.btnNotif).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        findViewById<Button>(R.id.btnWriteSettings).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS))
+        }
     }
 
     override fun onResume() {
@@ -76,6 +95,54 @@ class MainActivity : AppCompatActivity() {
             "Servidor: detenido"
         }
         findViewById<TextView>(R.id.tvServer).text = server
+        findViewById<TextView>(R.id.tvGrants).text = "Grants N1: uso=" + onOff(hasUsageAccess()) +
+            " notif=" + onOff(JamNotificationListener.isConnected()) +
+            " contactos=" + onOff(ok(android.Manifest.permission.READ_CONTACTS)) +
+            " calendario=" + onOff(ok(android.Manifest.permission.READ_CALENDAR)) +
+            " ubicación=" + onOff(ok(android.Manifest.permission.ACCESS_FINE_LOCATION) ||
+                ok(android.Manifest.permission.ACCESS_COARSE_LOCATION)) +
+            " cámara=" + onOff(ok(android.Manifest.permission.CAMERA))
+    }
+
+    private fun onOff(b: Boolean) = if (b) "OK" else "no"
+
+    private fun ok(perm: String) =
+        ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasUsageAccess(): Boolean {
+        return try {
+            val ops = getSystemService(AppOpsManager::class.java)
+            @Suppress("DEPRECATION")
+            ops.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), packageName
+            ) == AppOpsManager.MODE_ALLOWED
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    private fun askReadPerms() {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                android.Manifest.permission.READ_CONTACTS,
+                android.Manifest.permission.READ_CALENDAR,
+                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                android.Manifest.permission.CAMERA
+            ),
+            REQ_READ
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_READ) {
+            val n = grantResults.count { it == PackageManager.PERMISSION_GRANTED }
+            Toast.makeText(this, "Concedidos $n de ${grantResults.size}", Toast.LENGTH_SHORT).show()
+            refreshStatuses()
+        }
     }
 
     private fun isAccessibilityOn(): Boolean {
@@ -111,5 +178,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "JamUi"
+        private const val REQ_READ = 41
     }
 }

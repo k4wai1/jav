@@ -19,4 +19,4 @@ from ..director import (  # noqa: F401
     tap_idx,
     type_text,
 )
-from . import app, clipboard, device, ui  # noqa: F401
+from . import app, clipboard, device, native, ui  # noqa: F401

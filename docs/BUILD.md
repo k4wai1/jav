@@ -94,3 +94,47 @@ adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 RAM: 3.7 GiB + swap; `free` durante build: ~2.9 GB usados / ~290 MB libres
 + 754 MB swap. `gradle.properties` conservador intacto (`workers.max=1`,
 `Xmx1024m`, sin daemon, sin paralelo).
+
+## 6. Catálogo native-apis N0+N1 (2026-10-07, 5002E/API 29, USB e03638e5)
+
+Cambios: `nat/` nuevo (`NatPolicies`, `NativeDevice`, `NativeSensitive`,
+`CameraCapture`), `JamNotificationListener`, 20 métodos en el dispatcher
++ params en `WsProtocol.kt`, 8 permisos N1 + servicio NL en el manifest,
+onboarding de grants en `MainActivity`. Sin deps nuevas, sin `0.0.0.0`,
+sin `su` (grep específico limpio; el match `exec(.*su` en
+`ShizukuBridge.kt:118` es falso positivo pre-existente: `ExecResult`).
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.*" :app:assembleDebug
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+```
+
+| Build | Resultado | Tiempo Gradle | Notas |
+|---|---|---|---|
+| test NatPolicies (8 tests JVM) | **OK** | incl. abajo | reglas puras: intents críticos, paquetes, URLs, ventanas, settings, truncado |
+| test+assembleDebug | **OK** | 3m 32s | APK debug 16 MB; 3 errores de compilación propios corregidos (paréntesis, RemoteInput framework, `CameraDevice.TEMPLATE_*`) |
+
+Verificación hello + 25 llamadas WS en el equipo (token por `run-as`,
+grants de test por adb-host: `pm grant` ×7, `appops` uso/WRITE_SETTINGS,
+`allow_listener`): N0 todo OK; N2 (`settings_put` secure/global,
+`detail=fine`) → `METHOD_NOT_ALLOWED`; críticas sin `confirm` →
+`planned+preview`; `settings_put` System + `add_contact` + `create_event`
+con `confirm:true` ejecutan y se revirtieron (contacto/evento de prueba
+borrados, brillo restaurado); `take_photo` con `confirm` → JPEG 1280×720
+real (21 KB b64); ubicación/Notificaciones honestas (ver §7).
+
+## 7. Estado del banco 5002E tras la prueba (para el operador)
+
+- Reboot intermedio: el servidor WS quedó sin escucha con proceso vivo
+  (rancio tras `install -r` + `force_stop`); reboot lo dejó OK
+  (`netstat` → `127.0.0.1:38472` LISTEN). Sin cambios de código por esto.
+- Accesibilidad y Shizuku aparecen `false` en `hello.caps` tras el reboot:
+  hay que re-habilitar Jam en Ajustes → Accesibilidad y arrancar Shizuku.
+- `enabled_notification_listeners` acepta el componente por adb pero el
+  sistema no lo enlaza; la pantalla de Ajustes dice "Esta característica
+  no está disponible en este dispositivo": NL imposible en el 5002E
+  (`list_notifications`/`reply`/`media_*` quedan en error honesto).
+- Sin SIM/GPS interior: `get_location` → `LOCATION_TIMEOUT` honesto.
+- Artefactos de prueba revertidos: contacto `JevTestDelete` y evento
+  `JevTestDelete` borrados; `screen_brightness` restaurado a `10`.
+- Suite MCP: 146 passed (incl. `test_native_tools.py`, 7 tests con stubs).

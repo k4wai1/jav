@@ -7,6 +7,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Catálogo native-apis N1: grants de usuario (runtime o acceso
+         especial en Ajustes). Sin ellos cada método responde error honesto. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <!-- Package visibility para list_packages / open_app (app sideloaded). -->
     <queries>
         <intent>
@@ -48,6 +59,17 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Servidor WebSocket local para automatizacion controlada por el usuario via MCP." />
+        </service>
+
+        <!-- Puerta P1 de notificaciones/media (grant del usuario en Ajustes). -->
+        <service
+            android:name=".service.JamNotificationListener"
+            android:exported="true"
+            android:label="Jam"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
 
         <!-- Provider de Shizuku: sin esto el permiso runtime API_V23 nunca llega. -->

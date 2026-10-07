@@ -3,7 +3,15 @@ package dev.jev.jam.socket
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import dev.jev.jam.BuildConfig
+import dev.jev.jam.nat.CameraCapture
+import dev.jev.jam.nat.NatPolicies
+import dev.jev.jam.nat.NativeDevice
+import dev.jev.jam.nat.NativeSensitive
+import dev.jev.jam.nat.photoResult
+import dev.jev.jam.service.JamNotificationListener
 import dev.jev.jam.service.JevAccessibilityService
 import dev.jev.jam.shell.ShellActions
 import dev.jev.jam.ui.UiSnapshot
@@ -51,6 +59,11 @@ class CommandDispatcher(private val appContext: Context) {
         } catch (t: Throwable) {
             false
         }
+        // Caps N1 del catálogo native-apis: grants de usuario por método.
+        // (Líneas nuevas de protocolo propuestas → las anota @architect.)
+        fun granted(perm: String) =
+            ContextCompat.checkSelfPermission(appContext, perm) ==
+                PackageManager.PERMISSION_GRANTED
         // Respuesta plana según PROTOCOL §2 (sin envoltura id/result).
         val frame = JamJson.encodeToString(
             HelloResult.serializer(),
@@ -61,7 +74,15 @@ class CommandDispatcher(private val appContext: Context) {
                 caps = mapOf(
                     "accessibility" to acc,
                     "shizuku" to shizuku,
-                    "shell_grant" to false
+                    "shell_grant" to false,
+                    "usage_access" to NativeSensitive.hasUsageAccess(appContext),
+                    "notification_listening" to JamNotificationListener.isConnected(),
+                    "contacts" to granted(android.Manifest.permission.READ_CONTACTS),
+                    "calendar" to granted(android.Manifest.permission.READ_CALENDAR),
+                    "location" to (granted(
+                        android.Manifest.permission.ACCESS_FINE_LOCATION
+                    ) || granted(android.Manifest.permission.ACCESS_COARSE_LOCATION)),
+                    "camera" to granted(android.Manifest.permission.CAMERA)
                 )
             )
         )
@@ -84,6 +105,29 @@ class CommandDispatcher(private val appContext: Context) {
                 "force_stop" -> forceStop(req)
                 "screenshot" -> screenshot(req)
                 "set_clipboard" -> setClipboard(req)
+                // Catálogo native-apis N0 (sin permisos nuevos), scope read/ui.
+                "get_battery" -> okResponse(req.id, NativeDevice.getBattery(appContext))
+                "get_memory" -> okResponse(req.id, NativeDevice.getMemory(appContext))
+                "get_storage" -> storage(req)
+                "get_cpu" -> cpu(req)
+                "get_device_info" -> okResponse(req.id, NativeDevice.getDeviceInfo(appContext))
+                "settings_get" -> settingsGet(req)
+                "open_url" -> openUrl(req)
+                "send_intent" -> sendIntent(req)
+                "get_clipboard" -> okResponse(req.id, NativeSensitive.getClipboardFg(appContext))
+                // Catálogo N1 (grants de usuario), lectura sensible + críticas con confirm.
+                "get_app_usage" -> appUsage(req)
+                "list_contacts" -> listContacts(req)
+                "add_contact" -> addContact(req)
+                "list_events" -> listEvents(req)
+                "create_event" -> createEvent(req)
+                "list_notifications" -> okResponse(req.id, NativeSensitive.listNotifications())
+                "reply_notification" -> replyNotif(req)
+                "media_state" -> okResponse(req.id, NativeSensitive.mediaState(appContext))
+                "media_control" -> mediaControl(req)
+                "get_location" -> location(req)
+                "take_photo" -> takePhoto(req)
+                "settings_put" -> settingsPut(req)
                 "shell" -> throw JamError(
                     "shell se habilita en Fase 6 (seguridad cerrada)", "METHOD_NOT_ALLOWED"
                 )
@@ -215,6 +259,130 @@ class CommandDispatcher(private val appContext: Context) {
         return okResponse(req.id, buildJsonObject {
             put("chars", p.text.length)
         })
+    }
+
+    // ---- catálogo native-apis (N0 + N1; N2 = METHOD_NOT_ALLOWED) ----
+
+    private fun storage(req: WsRequest): String {
+        val p = decodeParams<DetailParams>(req)
+        // detail=fine → N2 (dumpsys vía Shizuku, Fase 6+): stub honesto.
+        return okResponse(req.id, NativeDevice.getStorage(p.detail))
+    }
+
+    private fun cpu(req: WsRequest): String {
+        val p = decodeParams<DetailParams>(req)
+        // detail=fine → N2 (per-proceso vía Shizuku, Fase 6+): stub honesto.
+        return okResponse(req.id, NativeDevice.getCpu(p.detail))
+    }
+
+    private fun settingsGet(req: WsRequest): String {
+        val p = decodeParams<SettingsGetParams>(req)
+        return okResponse(req.id, NativeDevice.settingsGet(appContext, p.namespace, p.key))
+    }
+
+    /**
+     * N2 salvo namespace `system` (P1 con WRITE_SETTINGS): Secure/Global
+     * directo es IMPOSIBLE non-root; vía Shizuku-shell llega en Fase 6+.
+     */
+    private fun settingsPut(req: WsRequest): String {
+        val p = decodeParams<SettingsPutParams>(req)
+        if (!NatPolicies.putAllowed(p.namespace)) {
+            throw JamError(
+                "settings_put ${p.namespace} requiere Shizuku/shell (Fase 6+)",
+                "METHOD_NOT_ALLOWED"
+            )
+        }
+        if (!p.confirm) return okResponse(req.id, NativeSensitive.planned(
+            mapOf("namespace" to p.namespace, "key" to p.key,
+                "value_sha256" to NativeSensitive.sha256(p.value))
+        ))
+        return okResponse(req.id, NativeSensitive.settingsPut(appContext, p.namespace, p.key, p.value))
+    }
+
+    private fun openUrl(req: WsRequest): String {
+        val p = decodeParams<OpenUrlParams>(req)
+        return okResponse(req.id, NativeSensitive.openUrl(appContext, p.url))
+    }
+
+    private fun sendIntent(req: WsRequest): String {
+        val p = decodeParams<SendIntentParams>(req)
+        return okResponse(
+            req.id,
+            NativeSensitive.sendIntent(
+                appContext, p.action, p.uri, p.pkg, p.mime, p.confirm, p.extras
+            )
+        )
+    }
+
+    private fun appUsage(req: WsRequest): String {
+        val p = decodeParams<AppUsageParams>(req)
+        return okResponse(req.id, NativeSensitive.getAppUsage(appContext, p.hours))
+    }
+
+    private fun listContacts(req: WsRequest): String {
+        val p = decodeParams<ContactsParams>(req)
+        return okResponse(
+            req.id,
+            NativeSensitive.listContacts(appContext, p.query, p.limit, p.offset, p.with_phone)
+        )
+    }
+
+    private fun addContact(req: WsRequest): String {
+        val p = decodeParams<AddContactParams>(req)
+        return okResponse(
+            req.id,
+            NativeSensitive.addContact(appContext, p.display_name, p.phone, p.email, p.confirm)
+        )
+    }
+
+    private fun listEvents(req: WsRequest): String {
+        val p = decodeParams<EventsParams>(req)
+        return okResponse(
+            req.id,
+            NativeSensitive.listEvents(
+                appContext, p.time_min, p.time_max, p.calendar_id, p.include_location
+            )
+        )
+    }
+
+    private fun createEvent(req: WsRequest): String {
+        val p = decodeParams<CreateEventParams>(req)
+        return okResponse(
+            req.id,
+            NativeSensitive.createEvent(
+                appContext, p.calendar_id, p.title, p.start_ms, p.end_ms,
+                p.description, p.confirm
+            )
+        )
+    }
+
+    private fun replyNotif(req: WsRequest): String {
+        val p = decodeParams<NotifReplyParams>(req)
+        return okResponse(
+            req.id, NativeSensitive.replyNotification(appContext, p.key, p.text, p.confirm)
+        )
+    }
+
+    private fun mediaControl(req: WsRequest): String {
+        val p = decodeParams<MediaControlParams>(req)
+        return okResponse(
+            req.id, NativeSensitive.mediaControl(appContext, p.action, p.pkg, p.confirm)
+        )
+    }
+
+    private fun location(req: WsRequest): String {
+        val p = decodeParams<LocationParams>(req)
+        return okResponse(
+            req.id, NativeSensitive.getLocation(appContext, p.timeout_ms, p.max_age_s)
+        )
+    }
+
+    /** P1-restringida: FGS + notificación + `confirm` siempre; nunca silenciosa. */
+    private fun takePhoto(req: WsRequest): String {
+        val p = decodeParams<TakePhotoParams>(req)
+        NativeSensitive.takePhotoGate(p.confirm)?.let { return okResponse(req.id, it) }
+        val b64 = CameraCapture.capture(appContext, p.camera)
+        return okResponse(req.id, photoResult(b64))
     }
 
     companion object {

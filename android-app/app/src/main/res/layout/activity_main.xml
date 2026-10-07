@@ -48,4 +48,39 @@
         android:text="Pedir permiso Shizuku"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/tvGrants"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Grants N1: …" />
+
+    <Button
+        android:id="@+id/btnPerms"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Pedir permisos de lectura" />
+
+    <Button
+        android:id="@+id/btnUsage"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Abrir acceso a uso" />
+
+    <Button
+        android:id="@+id/btnNotif"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Abrir acceso a notificaciones" />
+
+    <Button
+        android:id="@+id/btnWriteSettings"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="Abrir escritura de ajustes" />
+
 </LinearLayout>
