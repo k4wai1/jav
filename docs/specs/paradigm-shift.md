@@ -3,7 +3,9 @@
 > Estado: **nota `@architect` 2026-10-07, solo `docs/`**. No es contrato
 > ejecutable: el contrato vigente sigue en `generic-dual-tier.md` (v3 + §12),
 > `plan-ahead.md` (v4), `director-client.md` (v5) y `applied-refs.md` (P0/P1/P2).
-> En conflicto, **AGENTS.md manda**. Cero literales normativos de app en este
+> En conflicto, **AGENTS.md manda**. Nombre asentado 2026-10-07: **Jav =
+> runtime; Jev = backend táctico** (ver `ecosystem.md` §4; migración diferida).
+> Cero literales normativos de app en este
 > documento: los valores concretos de apps/personas que aparecen son
 > **ejemplos no-normativos** (valores runtime aportados por el operador/S2,
 > nunca defaults del repo). Sin keys ni secretos. Todos los payloads de

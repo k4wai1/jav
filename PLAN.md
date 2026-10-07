@@ -155,6 +155,7 @@
    solo con preview + `confirm:true` del operador, auditada en forense.
 
 ## Deuda / anotaciones (AGENTS.md §9)
+- Nombre asentado 2026-10-07: **Jav** = proyecto/runtime; **Jev** = backend táctico (`JEV_MODEL`); migración (`jev_mcp`→`jav`, `JAV_*`, `com.k4wai1.jam`) **diferida** (ver `docs/specs/ecosystem.md` §4; sin renombrar código aún).
 - Seguridad P0: **enmascarar token en logcat**
   (`android-app/.../service/JevForegroundService.kt:33` loguea
   `JamWs token=$token url=…` en claro; rotar token expuesto + pasar a

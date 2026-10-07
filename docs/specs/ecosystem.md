@@ -172,7 +172,7 @@ componente, no al sistema; además fijan marca ajena en nuestro paquete.
 5. **Forense/logs:** `logs/run-*.jsonl` históricos quedan con el nombre viejo
    (no se reescriben; se anota el corte en `PLAN.md`).
 
-### Recomendación
+### Recomendación (histórica @architect — superada por decisión del operador)
 
 **`droidmcp` (opción A).** Es el único que describe el sistema completo a un
 tercero sin explicar nada ("MCP para usar Android"), no lleva marca de
@@ -180,6 +180,30 @@ proveedor (Jev pasa a ser un backend declarado en `JEV_MODEL`, que es lo que
 ya es en v5), y sobrevive a que el S1/S2 cambien. Costo de migración medio
 (§4.2–4.4), pero cada mes que pasa el costo sube (más bancos, más forense con
 el nombre viejo). **El rename lo decide el operador; aquí no se ejecuta.**
+
+### Decisión del operador (2026-10-07) — **Jav**
+
+El operador elige **Jav** (corto, fonético, raíz jev+jam, sin marca ajena)
+sobre `droidmcp` / `jamlink` / `unroot`: "Jav, el runtime MCP de control
+integral para Android sin root". **Jev queda como backend del clasificador
+táctico** (referenciado en `JEV_MODEL`), no como nombre del proyecto.
+
+Migración **DIFERIDA** (no ejecutar ahora; solo hoja de ruta para `@coder`
+futuro con enmienda):
+
+1. **Paquete Python:** `jev_mcp` → `jav` / `jav_mcp` (`mcp-server/src/`
+   + `server.json` + imports + tests).
+2. **Env:** `JAV_*` como prefijo canónico, con alias temporales `JEV_*`
+   durante 1 versión (sin romper bancos en uso).
+3. **ApplicationId Android:** → `com.k4wai1.jam` (conserva nombre de
+   desarrollador; exige **reinstalación limpia en A10/KJ5 + re-token**;
+   el Keystore no migra; `ShizukuProvider` authority cambia con el paquete).
+4. **Docs a actualizar al migrar:** `ARCHITECTURE.md`, `README.*`,
+   `PLAN.md`, este `ecosystem.md` (+ `docs/BUILD.md`, `docs/TESTING.md`,
+   `PROTOCOL.md`, specs que citen el nombre viejo; forense histórico en
+   `logs/run-*.jsonl` no se reescribe, se anota el corte).
+5. **No-acción ahora:** no se renombra código, ni paquetes, ni
+   `applicationId` en este cambio (solo se asienta el nombre).
 
 ## 5. Roadmap de adopción priorizado (costo / beneficio)
 
