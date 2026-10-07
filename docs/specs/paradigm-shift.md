@@ -253,6 +253,45 @@ Lo posterior a la nota `@architect` 2026-10-07, medido (sin proyección):
   (`summary_b_redo ok_all: false` → B1 sigue bloqueado por entorno).
   Detalle tabular en `docs/TESTING.md` §9.
 
+## 8. Apéndice `bd1f5a4` (2026-10-07: docstrings + `open_url` + ARCHITECTURE)
+
+Posterior a §7, medido (sin proyección). Solo `docs/` + código ya
+commiteado; este apéndice lo fija:
+
+- **Docstrings MCP 35/35 al estándar 5-secciones** (`mcp-server/src/
+  jev_mcp/server.py` + `tools/*.py`). Secciones: Descripción /
+  Parámetros / Retorno / Permisos-Grants / Errores-gotchas; payloads
+  ejemplo 100% en inglés. Sin cambio de comportamiento, solo contrato
+  legible por el director/S2.
+- **`open_url(url, package="")` con componente explícito** (PROTOCOL §4
+  + `docs/BUILD.md` §9). Sin `package` = resolución del sistema
+  (chooser `ResolverActivity` si >1 handler, verificado en
+  `logs/run-intent-20261007-130650.jsonl`); con `package` se valida
+  forma, se fija componente y es **1 salto sin chooser**
+  (`via: startActivity-package`, ~130 ms en A10 USB). No instalado →
+  `PACKAGE_NOT_FOUND`; instalado sin handler → `INTENT_UNRESOLVED`;
+  fallback Shizuku `am start -n pkg/activity`. Test de forwarding MCP
+  en verde.
+- **pytest 139 → 148 en verde** (`cd mcp-server && uv run pytest -q`;
+  147 en `docs/BUILD.md` §8 + 1 test `package`). JVM
+  `NatPoliciesTest` 13 tests OK (incl. forma válida de `package`
+  forzado). Grep cero-acoplado en `mcp-server/src/` vacío.
+- **ARCHITECTURE sincronizado a v4/v5/nativo** (era 2026-10-04):
+  dual-tier v3 + plan-ahead v4 (`FAST_TAU`, `zone` 3×3) +
+  director-client v5 (`loop.py` congelado) + carril nativo N0/N1
+  (`METHOD_NOT_ALLOWED` en N2 hasta Fase 6); escala física en gestos
+  (lógico vs píxeles, factor 2.0 medido); 35 tools = 6 primitivas Jev +
+  29 director/nativo/diagnóstico.
+- **Contratos ratificados (sin cambio):** `hello` request = objeto
+  `WsRequest{id, method, params}` con `protocol_version` +
+  `client_version`, respuesta plana `{ok, protocol_version,
+  app_version, scopes}`; app = `dev.jev.jam` (Jam); `dump_ui` sin
+  campo `secure` (`SECURE_SURFACE` solo en `screenshot`).
+- **Deuda honesta nueva:** token bearer en claro en logcat
+  (`JevForegroundService.kt:33` `JamWs token=$token`); enmascarar
+  (`<redacted>`) + rotar antes de release. Backlog 2b intacto (WSS +
+  cert self-signed + Keystore).
+
 ## 6. Lo pendiente (no se finge cerrado)
 
 1. **Ranking por relevancia** (P2-8). S1 a primera vista duda (conf ~0.45

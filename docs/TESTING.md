@@ -199,7 +199,8 @@ app no exponga el método, el wrapper host falla honesto
 
 ```bash
 cd mcp-server && uv run pytest -q
-# 139 en verde (loop.py congelado + tests/test_director_*.py v5)
+# 148 en verde (loop.py congelado + tests/test_director_*.py v5 +
+# test de forwarding de `package` en `open_url` tras `bd1f5a4`)
 
 # Greps de cero-acoplado (src/ debe dar vacío / exit 1):
 grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat' src/ || true
@@ -243,4 +244,33 @@ cada llamada loguea `[COST]` + `cost_usd` por paso.
 Notas: Fossify 5/5 total ~$0.0006 (v2 finales; v1 con fallos honestos
 `STALE`/`NO_TARGET`/display erróneo conservados como historial).
 Detalle por tarea en `docs/specs/fossify-random.md`. pytest vigente:
-**139 en verde** (`cd mcp-server && uv run pytest -q`).
+**148 en verde** (`cd mcp-server && uv run pytest -q`).
+
+## 10. Intent 1-salto + `open_url` con `package` (2026-10-07, A10 USB, solo metadatos)
+
+Banco: A10 por USB (serial runtime en forense, Android 10, 720×1440).
+Sin texto sensible: goals genéricos en inglés, URLs como `host` +
+`via` + `wall`, paquetes destino solo como valores runtime del forense
+citado (nunca defaults del repo). `hello` request = objeto
+`WsRequest{id, method, params}` con `protocol_version` + `client_version`;
+respuesta plana `{ok, protocol_version, app_version, scopes}` (PROTOCOL
+§2). Costo $0 (sin LLM, sin `[COST]` S1/S2).
+
+| Goal (generic, EN) | Result | Wall | Cost | Forense |
+|---|---|---|---|---|
+| Open a short video link via `open_url` without `package` (system resolution) | OK `via: startActivity` → chooser `ResolverActivity` (multi-handler, expected) | ~12.8 s total (poll foreground) | $0 | `logs/run-intent-20261007-130650.jsonl` (`testA_open_url` + `testA_verify`) |
+| Resolve the same chooser with two taps (select handler + `Once`) | Chooser persists after first tap (`via: gesture` ×2); no default changed (honest, no 1-hop claim) | ~16.0 s | $0 | same jsonl (`A2_*`: `chooser` 25 nodes, `tap n_23` + `tap n_14`) |
+| Open a search URL via `send_intent` `VIEW` (no `package`) | OK `via: startActivity` → browser foreground, results hint + query present (`has_resultado: true`) | ~13.2 s + re-poll 18.5 s | $0 | same jsonl (`testB_*`, `B2_*`: 40→500 nodes capped) |
+| Open a short video link via `open_url` with `package` set (explicit component, 1 hop) | OK `{ok:true, verified:true, via:"startActivity-package", latency_ms:130.3}`, foreground = target app directly, no chooser | ~0.13 s call | $0 | `docs/BUILD.md` §9 (manual WS `127.0.0.1:38472`, token vía `run-as`; sin jsonl, latencia del `result`) |
+| Open a short video link with unknown `package` | Honest `PACKAGE_NOT_FOUND` (shape validated, `getPackageInfo` miss) | ms | $0 | `docs/BUILD.md` §9 |
+| Open a short video link with installed `package` without handler | Honest `INTENT_UNRESOLVED` (`resolveActivity` miss) | ms | $0 | `docs/BUILD.md` §9 |
+| Open a short video link with `package=""` (prior behavior) | Foreground = `android/ResolverActivity` (chooser, expected) | s | $0 | `docs/BUILD.md` §9 |
+
+Notas: `open_url(url, package="")` = resolución del sistema (chooser si
+>1 handler); con `package` no vacío se valida forma `a.b.c`, se fija
+componente explícito y el fallback Shizuku usa `am start -n
+pkg/activity` (`via: shizuku-am`). Docstrings MCP 35/35 al estándar
+5-secciones tras `bd1f5a4` (payloads ejemplo en inglés). App bajo
+prueba: `dev.jev.jam` (Jam); `dump_ui` sin campo `secure` (contrato
+vigente: superficie protegida solo como `SECURE_SURFACE` en
+`screenshot`).

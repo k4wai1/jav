@@ -92,9 +92,9 @@
   scope `ui`, sin Shizuku, sin grant) + wrapper host con read-back
   (commits `3944e15` + `7ee4058`; `loop.py`/`ask_decision`/`s2_client`
   congelados, solo bugfix con test).
-- [x] `@judge`: **139 pytest en verde** (`mcp-server`: `uv run pytest -q`;
-  127 en `6fc3a9a` → 139 tras `7ee4058`). Greps cero-acoplado en verde +
-  `ask_decision` ausente en path director.
+- [x] `@judge`: **148 pytest en verde** (`mcp-server`: `uv run pytest -q`;
+  127 en `6fc3a9a` → 139 tras `7ee4058` → **148 tras `bd1f5a4`**).
+  Greps cero-acoplado en verde + `ask_decision` ausente en path director.
 - [x] Bancos reales: **KJ5 (Wi-Fi)** para loop/S1-S2 + **A10 USB
   (serial `e03638e5`, Android 10, 720×1440)** para director v5.
   Suites medidas (solo metadatos; detalle en `docs/TESTING.md` §9 +
@@ -112,6 +112,22 @@
   (`logs/run-20261006-204449-calc.jsonl`, `summary_b_redo ok_all: false`;
   taps verificados por display pero resultado final no certificable → B1
   sigue bloqueado).
+- [x] Intent/`open_url` en A10 USB (`e03638e5`, Android 10): 1-salto con
+  `package` verificado (~130 ms, sin chooser), `PACKAGE_NOT_FOUND` /
+  `INTENT_UNRESOLVED` honestos, chooser `ResolverActivity` sin `package`;
+  detalle tabular en `docs/TESTING.md` §10 + `logs/run-intent-*.jsonl`
+  (costo $0, sin LLM) + `docs/BUILD.md` §9.
+- [x] `bd1f5a4` (2026-10-07, docstrings + `open_url` + ARCHITECTURE):
+  docstrings MCP **35/35 al estándar 5-secciones** (Descripción /
+  Parámetros / Retorno / Permisos-Grants / Errores-gotchas, payloads
+  ejemplo en inglés); `open_url(url, package="")` con componente
+  explícito (**1 salto, sin chooser**, `via: startActivity-package`,
+  ~130 ms en banco; no instalado → `PACKAGE_NOT_FOUND`, instalado sin
+  handler → `INTENT_UNRESOLVED`); `ARCHITECTURE.md` sincronizado a
+  **v4/v5/nativo** (dual-tier v3 + plan-ahead v4 + director-client v5 +
+  carril nativo N0/N1, `METHOD_NOT_ALLOWED` en N2); `PROTOCOL.md`
+  `open_url` + `PACKAGE_NOT_FOUND`; `docs/BUILD.md` §9 con tabla
+  build + prueba real en equipo.
 - [ ] Pendientes honestos P1/P2 (no se fingen cerrados): ranking por
   relevancia, firma anti-ticker, `assertFresh`, forense wire+timings por
   fase, recalibrar `TAU=0.70`/`FAST_TAU=0.85` con ≥20 goals. Enmienda
@@ -127,7 +143,7 @@
 
 ## Próxima tarea (director v5 vigente; loop congelado)
 
-1. `@judge`: cierre formal v5 — `uv run pytest -q` (139 en verde) +
+1. `@judge`: cierre formal v5 — `uv run pytest -q` (148 en verde) +
    suite A10 en banco USB (batería + calculadora + clipboard round-trip) +
    greps cero-acoplado + forense `logs/run-<ts>.jsonl` con `cost` por paso.
 2. `@coder` (solo bugfix con test o P1/P2 con protocolo ≥20 goals ×3):
@@ -139,6 +155,15 @@
    solo con preview + `confirm:true` del operador, auditada en forense.
 
 ## Deuda / anotaciones (AGENTS.md §9)
+- Seguridad P0: **enmascarar token en logcat**
+  (`android-app/.../service/JevForegroundService.kt:33` loguea
+  `JamWs token=$token url=…` en claro; rotar token expuesto + pasar a
+  `token=<redacted>` o hash corto). Sin esto no hay release.
+- Backlog 2b (no se finge cerrado): WSS + certificado self-signed +
+  token en Keystore (bind tailnet). Transporte actual = WS loopback
+  + `adb forward`; `hello` objeto `WsRequest{id,method,params}` con
+  `protocol_version` + `client_version`, respuesta plana
+  `{ok, protocol_version, app_version, scopes}` (PROTOCOL §2).
 - Latencia IPC por nodo (2–3×): candidata a Fase 4+.
 - `ConnectivityManager.NetworkCallback` para re-detección de IP tailnet.
 - Ring buffer audit 500 entradas (`get_audit`, Fase 6).
