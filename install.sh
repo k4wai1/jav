@@ -13,14 +13,14 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 
 case "$OS" in
-  Linux) GOOS="Linux" ;;
-  Darwin) GOOS="Darwin" ;;
-  MINGW*|MSYS*|CYGWIN*|Windows_NT) GOOS="Windows" ;;
+  Linux) GOOS="linux" ;;
+  Darwin) GOOS="darwin" ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) GOOS="windows" ;;
   *) echo "jav: unsupported OS: $OS" >&2; exit 1 ;;
 esac
 
 case "$ARCH" in
-  x86_64|amd64) GARCH="x86_64" ;;
+  x86_64|amd64) GARCH="amd64" ;;
   aarch64|arm64) GARCH="arm64" ;;
   *) echo "jav: unsupported arch: $ARCH" >&2; exit 1 ;;
 esac
