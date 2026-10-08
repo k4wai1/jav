@@ -35,11 +35,17 @@ func JevModelID() string {
 	return "typesafe/jev-1.13"
 }
 
-// S2ModelID modelo S2 OpenRouter (env S2_MODEL manda sobre GLM_MODEL).
+// S2ModelID modelo S2 agnóstico (cadena §2.1:
+// JAV_AI_MODEL → S2_MODEL → GLM_MODEL → default). Retrocompat: la cadena
+// histórica sigue mandando si JAV_AI_MODEL está vacío.
 func S2ModelID() string { return GlmModelID() }
 
-// GlmModelID alias histórico de S2ModelID (solo OpenRouter).
+// GlmModelID alias histórico de S2ModelID (nombre conservado aunque el
+// modelo ya no sea GLM; spec §2). Resuelve la cadena completa en vivo.
 func GlmModelID() string {
+	if m := os.Getenv("JAV_AI_MODEL"); m != "" {
+		return m
+	}
 	if m := os.Getenv("S2_MODEL"); m != "" {
 		return m
 	}

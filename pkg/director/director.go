@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -94,8 +96,21 @@ func toFloat(v any) (float64, bool) {
 // AskFunc inyectable para tests (equiv. _ask).
 type AskFunc func(state map[string]any, questions map[string]map[string]any) (map[string]jev.Answer, map[string]any, error)
 
+// S1Unavailable resolve_element desactivado sin key S1 (spec §1.1).
+// Nunca lleva idx utilizable; el stub {mock:true} no es resolución válida.
+type S1Unavailable struct{ Msg string }
+
+func (e *S1Unavailable) Error() string { return e.Msg }
+
 // ResolveElement resuelve un elemento vía S1 (UNA Choice, sin goal global).
 func ResolveElement(screenGoal string, serial []jev.SerialRow, snapshotID int64, currentApp string, firstResult any, ask AskFunc, tracker *cost.Tracker, runID string) (map[string]any, error) {
+	// Sin key S1 el path director queda desactivado (spec ai-providers
+	// §1.1): error honesto, nunca un idx inventado. El stub {mock:true}
+	// de jev.Ask NO es una resolución válida y ningún tap/type puede
+	// ejecutarse sobre él. S1 nunca lee JAV_AI_*: solo OPENROUTER_API_KEY.
+	if jev.IsMock() {
+		return nil, &S1Unavailable{Msg: "S1_UNAVAILABLE: resolve_element desactivado sin OPENROUTER_API_KEY; rellena OPENROUTER_API_KEY (S1 solo acepta esa key, nunca JAV_AI_API_KEY)"}
+	}
 	state, questions := BuildResolveState(screenGoal, serial, snapshotID, currentApp, firstResult)
 	fn := ask
 	if fn == nil {
@@ -343,11 +358,89 @@ func clipboardUnsupported(msg string) jam.Envelope {
 		"hint": "revisa conexion con Jam"}
 }
 
-// --- S2 vía OpenRouter (equiv. s2_client.py; solo OpenRouter) ---
+// --- S2 agnóstico OpenAI-compatible (spec ai-providers §2) ---
+//
+// S2 habla POST {base}/chat/completions con {model, messages, temperature,
+// max_tokens} y parsea choices[0].message.content como objeto JSON.
+// Cualquier servidor con ese shape sirve (OpenRouter, OpenAI-direct,
+// DeepSeek-direct, Ollama/vLLM local, Termux-local). S2 nunca toca el
+// dispositivo, sea cual sea el proveedor.
 
+const s2DefaultBase = "https://openrouter.ai/api/v1"
 const s2Endpoint = "https://openrouter.ai/api/v1/chat/completions"
 const s2Timeout = 15 * time.Second
 const s2DefaultModel = "z-ai/glm-5.3-flash"
+
+// S2BaseURL base OpenAI-compatible (env JAV_AI_BASE_URL; default OpenRouter).
+// El path de llamada es {base}/chat/completions.
+func S2BaseURL() string {
+	if b := strings.TrimSpace(os.Getenv("JAV_AI_BASE_URL")); b != "" {
+		return strings.TrimRight(b, "/")
+	}
+	return s2DefaultBase
+}
+
+// S2Endpoint URL completa de llamada {base}/chat/completions.
+func S2Endpoint() string { return S2BaseURL() + "/chat/completions" }
+
+// S2APIKey key S2 (JAV_AI_API_KEY → fallback OPENROUTER_API_KEY → ninguna).
+func S2APIKey() string {
+	if k := os.Getenv("JAV_AI_API_KEY"); k != "" {
+		return k
+	}
+	return os.Getenv("OPENROUTER_API_KEY")
+}
+
+// IsLoopbackHost true si host es loopback (127/8, localhost, ::1).
+func IsLoopbackHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "localhost" {
+		return true
+	}
+	// Quita puerto y corchetes IPv6.
+	if hh, _, err := net.SplitHostPort(h); err == nil {
+		h = hh
+	}
+	h = strings.Trim(h, "[]")
+	if h == "localhost" || h == "::1" {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return strings.HasPrefix(h, "127.")
+}
+
+// IsLoopbackBase true si la base S2 es local (loopback/localhost).
+func IsLoopbackBase() bool { return IsLoopbackURL(S2BaseURL()) }
+
+// IsLoopbackURL true si la URL dada apunta a loopback.
+func IsLoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return IsLoopbackHost(u.Host)
+}
+
+// S2AuthError S2 sin key contra base remota (spec §4): error honesto de
+// auth/config, nunca reintento mudo ni stub silencioso. Sin ninguna key
+// contra base local (loopback) → permitido sin auth.
+type S2AuthError struct{ Msg string }
+
+func (e *S2AuthError) Error() string { return e.Msg }
+
+// s2AuthCheck error si falta key contra base remota; nil si puede llamar
+// (con key, o sin key pero en loopback).
+func s2AuthCheck() error {
+	if S2APIKey() != "" {
+		return nil
+	}
+	if IsLoopbackBase() {
+		return nil
+	}
+	return &S2AuthError{Msg: "S2 sin key contra base remota (" + S2BaseURL() + "): rellena JAV_AI_API_KEY (o OPENROUTER_API_KEY como fallback); sin auth solo se permite base local loopback"}
+}
 
 // S2EmptyResponse S2 devolvió content vacío tras reintento.
 type S2EmptyResponse struct{ Msg string }
@@ -556,8 +649,15 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
-// S2ModelID modelo S2 (S2_MODEL manda sobre GLM_MODEL).
+// S2ModelID modelo S2 agnóstico (cadena §2.1:
+// JAV_AI_MODEL → S2_MODEL → GLM_MODEL → default). Retrocompat: S2_MODEL
+// manda sobre GLM_MODEL; ambas valen como alias mientras JAV_AI_MODEL
+// está vacío. Nunca hardcodeado a un vendor: el default final es el S2
+// vigente (foto, no verdad).
 func S2ModelID() string {
+	if m := os.Getenv("JAV_AI_MODEL"); m != "" {
+		return m
+	}
 	if m := os.Getenv("S2_MODEL"); m != "" {
 		return m
 	}
@@ -567,28 +667,38 @@ func S2ModelID() string {
 	return s2DefaultModel
 }
 
-// IsMockS2 true sin clave (stub honesto {mock:true}).
-func IsMockS2() bool { return os.Getenv("OPENROUTER_API_KEY") == "" }
+// IsMockS2 true sin ninguna key S2 (ni JAV_AI_API_KEY ni fallback
+// OPENROUTER_API_KEY). OJO: ya no significa "devuelve stub": contra base
+// remota sin key es error honesto (S2AuthError); solo contra base local
+// loopback se permite llamar sin auth. Se conserva por compat de tests.
+func IsMockS2() bool { return S2APIKey() == "" }
 
 func s2Headers(title string) map[string]string {
-	return map[string]string{
-		"Authorization": "Bearer " + os.Getenv("OPENROUTER_API_KEY"),
-		"Content-Type":  "application/json",
-		"HTTP-Referer":  "https://github.com/jev-android-mcp",
-		"X-Title":       title,
+	h := map[string]string{
+		"Content-Type": "application/json",
+		"HTTP-Referer": "https://github.com/jev-android-mcp",
+		"X-Title":      title,
 	}
+	if k := S2APIKey(); k != "" {
+		h["Authorization"] = "Bearer " + k
+	}
+	return h
 }
 
 func logS2Call(model string, latencyMs float64, inTok, outTok int, ok bool) {
-	line := fmt.Sprintf("[S2] provider=openrouter model=%s latency_ms=%.0f in=%d out=%d ok=%v",
-		model, latencyMs, inTok, outTok, ok)
+	line := fmt.Sprintf("[S2] provider=agnostic base=%s model=%s latency_ms=%.0f in=%d out=%d ok=%v",
+		S2BaseURL(), model, latencyMs, inTok, outTok, ok)
 	// A stderr, nunca a stdout (spec §3.2).
 	fmt.Fprintln(os.Stderr, line)
 	slog.Info(line)
 }
 
 func s2Chat(system, user, title string, temperature float64, maxTokens int) (map[string]any, map[string]any, error) {
+	if err := s2AuthCheck(); err != nil {
+		return nil, nil, err
+	}
 	model := S2ModelID()
+	endpoint := S2Endpoint()
 	body := map[string]any{"model": model,
 		"messages": []any{
 			map[string]any{"role": "system", "content": system},
@@ -600,7 +710,7 @@ func s2Chat(system, user, title string, temperature float64, maxTokens int) (map
 	for attempt := 0; attempt < 2; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), s2Timeout)
 		raw, _ := json.Marshal(body)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, s2Endpoint, bytes.NewReader(raw))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 		if err != nil {
 			cancel()
 			return nil, nil, err
@@ -689,13 +799,11 @@ func maskLines(lines []string, max int) []string {
 }
 
 // Advise pide un comando ejecutable a S2 (§5.1).
+// Sin key contra base remota → S2AuthError honesto (nunca stub silencioso).
+// Sin key contra base local loopback → llamada real sin auth.
 func Advise(goal, reason string, tableLines []string, history, needText, currentApp, screenGoal string, maxLines int) (map[string]any, map[string]any, error) {
-	if IsMockS2() {
-		slog.Info("s2 stub (sin clave): sin plan real")
-		return map[string]any{"command": "HINT", "package": "", "target": "NONE",
-				"text": "", "guidance_for_s1": "re-observe the screen",
-				"stop": false, "mock": true},
-			map[string]any{"in_tokens": 0, "out_tokens": 0, "mock": true}, nil
+	if err := s2AuthCheck(); err != nil {
+		return nil, nil, err
 	}
 	if maxLines <= 0 {
 		maxLines = 60
@@ -761,15 +869,10 @@ func fromLegacy(obj map[string]any) map[string]any {
 }
 
 // CompileGoal compila el goal en un plan EXECUTE_GOAL (paso 0).
+// Sin key contra base remota → S2AuthError honesto; local sin key → real.
 func CompileGoal(goal string, tableLines []string, history, currentApp string, maxLines int) (map[string]any, map[string]any, error) {
-	if IsMockS2() {
-		slog.Info("s2 compile stub (sin clave): sin plan real")
-		return map[string]any{"command": PlanCommand, "package": "",
-				"screen_goal_en": "", "preloaded_inputs": map[string]string{},
-				"expected_terminal_state": "",
-				"guidance_for_s1":         "re-observe the screen",
-				"stop":                    false, "mock": true},
-			map[string]any{"in_tokens": 0, "out_tokens": 0, "mock": true}, nil
+	if err := s2AuthCheck(); err != nil {
+		return nil, nil, err
 	}
 	if maxLines <= 0 {
 		maxLines = 60
@@ -796,11 +899,10 @@ func CompileGoal(goal string, tableLines []string, history, currentApp string, m
 }
 
 // VerifyDone verifica goal-achieved contra snapshot final + historial.
+// Sin key contra base remota → S2AuthError honesto; local sin key → real.
 func VerifyDone(goal string, tableLines []string, history string, nActions int, finalSnapshot any, expectedTerminal string, maxLines int) (map[string]any, map[string]any, error) {
-	if IsMockS2() {
-		slog.Info("s2 verify stub (sin clave): sin veredicto")
-		return map[string]any{"achieved": false, "evidence": "", "mock": true},
-			map[string]any{"in_tokens": 0, "out_tokens": 0, "mock": true}, nil
+	if err := s2AuthCheck(); err != nil {
+		return nil, nil, err
 	}
 	if maxLines <= 0 {
 		maxLines = 60

@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -40,6 +41,30 @@ func ModelID() string {
 		return m
 	}
 	return "typesafe/jev-1.13"
+}
+
+// IsJevModel true solo para slugs Jev documentados (spec ai-providers §3).
+// Válidos: typesafe/jev-1.13 (OpenRouter decisions) y jev-latest (API
+// oficial TypeSafe, swap futuro). Se acepta el prefijo typesafe/jev-
+// para menores futuros sin romper. Cualquier chat-model
+// OpenAI-compatible (gpt-4o-mini, qwen-*, deepseek-*, glm-*, …) → false:
+// no exponen la API de decisiones y jamás pasan ValidateChoice.
+// S1 solo lee JEV_MODEL y OPENROUTER_API_KEY (nunca env agnóstica S2).
+func IsJevModel(m string) bool {
+	if m == "typesafe/jev-1.13" || m == "jev-latest" {
+		return true
+	}
+	return strings.HasPrefix(m, "typesafe/jev-")
+}
+
+// checkModelID devuelve JevHallucination si JEV_MODEL no es un slug Jev.
+// Se llama al inicio de Ask, antes de cualquier red/stub: cero mutaciones.
+func checkModelID() error {
+	m := ModelID()
+	if IsJevModel(m) {
+		return nil
+	}
+	return &JevHallucination{Msg: "JEV_MODEL " + m + " no expone la API de decisiones (S1 es Choice/Noul, no chat-model); usa typesafe/jev-1.13"}
 }
 
 // IsMock true sin clave (stub honesto {mock:true}).
@@ -264,6 +289,9 @@ func postJSON(payload map[string]any) (map[string]any, error) {
 
 // Ask una request con TODAS las preguntas (batch). Devuelve (answers, usage).
 func Ask(state map[string]any, questions map[string]map[string]any) (map[string]Answer, map[string]any, error) {
+	if err := checkModelID(); err != nil {
+		return nil, nil, err
+	}
 	if IsMock() {
 		slog.Info("jev stub (sin clave): happy-path")
 		out := make(map[string]Answer, len(questions))
