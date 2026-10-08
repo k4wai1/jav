@@ -64,11 +64,14 @@
 ## 2. Estructura exigida
 
 ```text
-go-mcp/                        # raíz NUEVA, hermana de mcp-server/ (no la sustituye aún)
+.                              # raíz del repo = raíz del módulo Go (2026-10-08:
+                               # go-mcp/ reubicado a raíz para que el proxy
+                               # resuelva `go run github.com/k4wai1/jav/cmd/jav@latest`)
   go.mod                       # module github.com/k4wai1/jav
   go.sum
   Makefile                     # build-all estático (ver §7)
-  .env.example                 # ver §8 (sin secretos)
+  .env.example                 # ver §8 (sin secretos; sección Jav fusionada)
+  scripts/tools-list-diff.py   # diff tools/list Go vs Python (ver §11.3)
   cmd/jav/main.go              # entrypoint stdio ÚNICO (sin daemon, sin flags mutantes)
   pkg/jam/                     # JamClient Go (equiv. socket_client.py + _base.py)
   pkg/normalizer/              # normalizer + tabla/zone (equiv. ui_normalizer.py + loop_helpers puros)
@@ -319,7 +322,7 @@ manda sobre `GLM_MODEL`.
   "mcp": {
     "jav": {
       "type": "local",
-      "command": ["$HOME/jev-android-mcp/go-mcp/dist/jav-linux-amd64"],
+      "command": ["$HOME/jev-android-mcp/dist/jav-linux-amd64"],
       "enabled": true,
       "environment": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
@@ -340,7 +343,7 @@ manda sobre `GLM_MODEL`.
 {
   "mcpServers": {
     "jav": {
-      "command": "/home/user/jev-android-mcp/go-mcp/dist/jav-linux-amd64",
+      "command": "/home/user/jev-android-mcp/dist/jav-linux-amd64",
       "env": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
         "JAV_TOKEN": "",
@@ -358,7 +361,7 @@ Cursor (`~/.cursor/mcp.json` o `.cursor/mcp.json`):
 {
   "mcpServers": {
     "jav": {
-      "command": "/home/user/jev-android-mcp/go-mcp/dist/jav-linux-amd64",
+      "command": "/home/user/jev-android-mcp/dist/jav-linux-amd64",
       "env": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
         "JAV_TOKEN": "",
@@ -379,7 +382,8 @@ fichero local (nunca commiteado, `chmod 600`).
 
 1. `mcp-server/` **no se modifica** en esta migración (ni código, ni
    `pyproject`, ni tests). El loop Python congelado no se toca.
-2. `go-mcp/` es directorio **nuevo y hermano**; cero imports cruzados.
+2. El árbol Go vive en la **raíz del repo** (`cmd/`, `pkg/`, `go.mod`,
+   `Makefile`); cero imports cruzados con Python.
 3. Durante la convivencia solo **un** servidor está registrado como
    `jav`/`jam` en cada cliente; el otro queda deshabilitado o con
    nombre distinto (`jam-py` vs `jav-go`) para el diff `tools/list`.
@@ -391,7 +395,7 @@ fichero local (nunca commiteado, `chmod 600`).
 
 ## 11. Aceptación (`@judge`, sin editar)
 
-Desde `go-mcp/` (+ referencia `mcp-server/`):
+Desde la raíz del repo (+ referencia `mcp-server/`):
 
 1. `go build ./...` limpio + `go vet ./...` limpio, sin warnings.
 2. `initialize + tools/list` por stdio con stdout puro JSON-RPC:
@@ -402,7 +406,7 @@ Desde `go-mcp/` (+ referencia `mcp-server/`):
 4. `uv run pytest` en `mcp-server/` sigue **verde** (Go no rompió Python).
 5. Smoke `device_status` sin Jam → `{ok:false,…}` honesto con hint
    (no cuelgue, no pánico, exit del servidor limpio).
-6. Greps en `go-mcp/`: nada app-específico, nada de keys, nada de `su`
+6. Greps en `cmd/` + `pkg/`: nada app-específico, nada de keys, nada de `su`
    (`grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat|api[_-]?key|sk-|su -c|exec(.*su' --include='*.go' .` → vacío salvo la línea
    histórica de este spec que documenta la eliminación de DeepSeek-direct).
 

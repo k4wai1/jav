@@ -22,8 +22,10 @@ vet:
 	go vet ./...
 
 # Compara tools/list Go vs Python (nombre + required + tipos). Diff vacío = OK.
+# Se corre desde la raíz del repo (el Makefile vive aquí tras la reubicación
+# de go-mcp/ → raíz; sin `cd ..`).
 tools-list-diff: build
-	cd .. && uv run --project mcp-server --with ./mcp-server python go-mcp/tools-list-diff.py --bin go-mcp/$(BIN)
+	uv run --project mcp-server --with ./mcp-server python scripts/tools-list-diff.py --bin $(BIN)
 
 clean:
 	rm -rf dist

@@ -7,7 +7,6 @@ project_name: jav
 
 builds:
   - id: jav
-    dir: go-mcp
     main: ./cmd/jav
     binary: jav
     goos:

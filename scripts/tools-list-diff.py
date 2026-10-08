@@ -16,7 +16,11 @@ import sys
 
 
 def py_reference() -> dict:
-    sys.path.insert(0, "../mcp-server/src")
+    # Raíz del repo = padre del dir que contiene este script
+    # (scripts/tools-list-diff.py tras la reubicación de go-mcp/ → raíz).
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(repo_root / "mcp-server" / "src"))
     import jev_mcp.server as s
 
     tools = asyncio.run(s.mcp.list_tools())

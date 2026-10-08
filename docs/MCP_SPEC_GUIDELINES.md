@@ -12,7 +12,7 @@
 >
 > Fuentes normativas leídas para v1:
 >
-> - `go-mcp/` — servidor Go: `cmd/jav/main.go` (stdio, logs solo a
+> - Servidor Go (raíz del repo): `cmd/jav/main.go` (stdio, logs solo a
 >   stderr), `pkg/tools/register.go` (35 tools, descripciones ES de
 >   5 secciones verbatim de Python), `pkg/tools/helpers.go` + `ui.go`
 >   (validación client-side, envolvente, `readScreenState` sin
@@ -428,4 +428,4 @@ pregunta al operador) en vez de improvisar.
    schema nuevo; solo criterios SÍ/NO por capa para los 2 Resources y
    3 Prompts nombrados.
 6. `tools/list` Python ≡ Go sigue idéntico (este documento es solo
-   texto; no toca `mcp-server/` ni `go-mcp/`).
+   texto; no toca `mcp-server/` ni `cmd/`/`pkg/`).
