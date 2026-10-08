@@ -1,0 +1,46 @@
+# GoReleaser mínima para jav (binario Go MCP stdio).
+# Targets: linux-amd64, linux-arm64, darwin-arm64, windows-amd64.
+# Build estático: CGO_ENABLED=0. Tags: v* (ver .github/workflows/release.yml).
+version: 2
+
+project_name: jav
+
+builds:
+  - id: jav
+    dir: go-mcp
+    main: ./cmd/jav
+    binary: jav
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: amd64
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  prerelease: auto
