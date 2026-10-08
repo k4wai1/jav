@@ -30,7 +30,9 @@ async def device_status() -> dict:
     Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta
       conectada (el foreground puede venir vacio); conexion caida ->
       ok:false.
-    """
+
+    Cuándo NO usar: NO usar para un dato concreto → usa la tool nativa (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO cachear el foreground → re-lee con get_foreground tras cada mutación.
+    Ejemplo: device_status() → {scopes[], app_version, foreground{package, activity}}"""
     return await device_tools.device_status()
 
 
@@ -47,7 +49,9 @@ async def list_packages(filter: str = "") -> dict:
     Errores/gotchas: host sin adb o dispositivo desconectado -> fallo;
       por la visibilidad de paquetes (`<queries>`) la lista puede ser
       parcial.
-    """
+
+    Cuándo NO usar: NO adivinar el paquete → el paquete lo aporta el operador y se verifica con list_packages; NO asumir lista total → puede ser parcial por visibilidad de paquetes.
+    Ejemplo: list_packages(filter="a.b") → {count, packages[]}"""
     return await device_tools.list_packages(filter)
 
 
@@ -62,7 +66,9 @@ async def get_foreground() -> dict:
     Permisos/Grants: accesibilidad (scope read).
     Errores/gotchas: ACCESSIBILITY_DISABLED; sin ventana activa
       `package` puede ser "" (transitorio).
-    """
+
+    Cuándo NO usar: NO cachear el foreground → re-lee tras cada mutación; NO actuar sobre su salida sin snapshot vigente → tap_node/type_text exigen el snapshot_id de read_screen.
+    Ejemplo: get_foreground() → {package, activity}"""
     return await device_tools.get_foreground()
 
 
@@ -80,7 +86,9 @@ async def open_app(package: str) -> dict:
     Errores/gotchas: SHIZUKU_UNAVAILABLE sin Shizuku; VALIDATION_ERROR
       con forma invalida; VERIFY_FAILED si no llego a foreground;
       fallback `monkey` cuando no hay activity LAUNCHER.
-    """
+
+    Cuándo NO usar: NO abrir por intent directo desde fondo → es Shizuku am start + verify foreground; NO asumir éxito sin get_foreground/read_screen (la acción no devuelve snapshot).
+    Ejemplo: open_app(package="a.b.c") → {package, activity, foreground}"""
     return await app_tools.open_app(package)
 
 
@@ -97,7 +105,9 @@ async def close_app(package: str) -> dict:
       Shizuku.
     Errores/gotchas: SHIZUKU_UNAVAILABLE; VERIFY_FAILED si sigue en
       foreground.
-    """
+
+    Cuándo NO usar: NO asumir la salida sin get_foreground (la acción no devuelve snapshot); NO cerrar paquetes del sistema.
+    Ejemplo: close_app(package="a.b.c") → {package, foreground}"""
     return await app_tools.close_app(package)
 
 
@@ -116,7 +126,9 @@ async def read_screen() -> dict:
     Errores/gotchas: ACCESSIBILITY_DISABLED; el `snapshot_id` es
       obligatorio para tap_node/type_text y falla con STALE_SNAPSHOT si
       la UI cambio. Filtra nodos de decoracion del sistema.
-    """
+
+    Cuándo NO usar: NO sondear en bucle → usa wait_for_text con timeout; NO actuar sobre su salida sin snapshot_id → tap_node/type_text lo exigen.
+    Ejemplo: read_screen() → {package, activity, snapshot_id, candidates[], render}"""
     return await ui_tools.read_screen()
 
 
@@ -134,7 +146,9 @@ async def tap_text(text: str) -> dict:
     Errores/gotchas: SELECTOR_NOT_FOUND si no matchea; preferir
       tap_node(node_id, snapshot_id) si ya hay snapshot fresco (evita el
       dump interno).
-    """
+
+    Cuándo NO usar: NO usar con snapshot fresco → usa tap_node (evita dump interno); NO es acción del enum decisor. Verifica después con read_screen (no devuelve snapshot).
+    Ejemplo: tap_text(text="<texto del operador>") → {node_id, via}"""
     return await ui_tools.tap_text(text)
 
 
@@ -153,7 +167,9 @@ async def tap_node(node_id: str, snapshot_id: int) -> dict:
     Errores/gotchas: STALE_SNAPSHOT si la UI cambio (re-lee y usa el
       nuevo id); SELECTOR_NOT_FOUND si el id no existe. La accion no
       devuelve snapshot: verificar el efecto con read_screen.
-    """
+
+    Cuándo NO usar: NO reutilizar snapshot tras cualquier evento/mutación → re-lee; NO esperar snapshot en su respuesta → verifica después con read_screen.
+    Ejemplo: tap_node(node_id="<id>", snapshot_id=123) → {node_id, via}"""
     return await ui_tools.tap_node(node_id, snapshot_id)
 
 
@@ -171,7 +187,9 @@ async def type_text(node_id: str, snapshot_id: int, text: str) -> dict:
     Errores/gotchas: NOT_FOCUSED si el nodo no esta enfocado (haz tap
       antes; no hay taps implicitos); STALE_SNAPSHOT. No devuelve
       snapshot: verifica con read_screen.
-    """
+
+    Cuándo NO usar: NO escribir sin foco → tap + re-lee primero; NO añadir: es REPLACE del contenido final; NO inventar texto: solo goal/UI o payload del nivel superior. Verifica después con read_screen.
+    Ejemplo: type_text(node_id="<id>", snapshot_id=123, text="<texto del operador>") → {chars, snapshot_id}"""
     return await ui_tools.type_text(node_id, snapshot_id, text)
 
 
@@ -188,7 +206,9 @@ async def scroll(direction: str = "down", node_id: str | None = None) -> dict:
     Permisos/Grants: accesibilidad (scope ui).
     Errores/gotchas: VALIDATION_ERROR con direccion invalida; no
       devuelve snapshot: verifica con read_screen.
-    """
+
+    Cuándo NO usar: NO insistir >2 veces sin cambio de snapshot → usa wait_for_text o BACK; NO asumir fin de lista sin re-leer. Verifica después con read_screen.
+    Ejemplo: scroll(direction="down") → {direction}"""
     return await ui_tools.scroll(direction, node_id)
 
 
@@ -201,7 +221,9 @@ async def press_back() -> dict:
     Retorno: {ok, verified, evidence, hint}; evidence = {action}.
     Permisos/Grants: accesibilidad (scope ui).
     Errores/gotchas: ACCESSIBILITY_DISABLED; verifica con read_screen.
-    """
+
+    Cuándo NO usar: NO encadenar backs a ciegas → verifica con read_screen tras cada uno (no devuelve snapshot); NO usar para listas largas → prueba scroll/wait_for_text primero.
+    Ejemplo: press_back() → {action}"""
     return await ui_tools.press_back()
 
 
@@ -215,7 +237,9 @@ async def press_home() -> dict:
     Retorno: {ok, verified, evidence, hint}; evidence = {action}.
     Permisos/Grants: accesibilidad (scope ui).
     Errores/gotchas: ACCESSIBILITY_DISABLED.
-    """
+
+    Cuándo NO usar: NO usar como limpieza entre pasos sin verificar → confirma con read_screen/get_foreground (no devuelve snapshot); NO es acción del enum decisor.
+    Ejemplo: press_home() → {action}"""
     return await ui_tools.press_home()
 
 
@@ -232,7 +256,9 @@ async def wait_for_text(text: str, timeout_ms: int = 5000) -> dict:
     Permisos/Grants: accesibilidad (scope read).
     Errores/gotchas: TIMEOUT si no aparece; el snapshot_id sirve directo
       en tap_node si no hubo mas cambios.
-    """
+
+    Cuándo NO usar: NO usar como lectura general → es espera bloqueante con timeout; su snapshot_id sirve directo solo sin cambios intermedios.
+    Ejemplo: wait_for_text(text="<texto del operador>", timeout_ms=5000) → {node_id, snapshot_id}"""
     return await ui_tools.wait_for_text(text, timeout_ms)
 
 
@@ -250,7 +276,9 @@ async def screenshot(fmt: str = "png", quality: int = 80) -> dict:
     Permisos/Grants: accesibilidad/Shizuku segun la via (scope read).
     Errores/gotchas: SECURE_SURFACE si la ventana tiene FLAG_SECURE;
       PAYLOAD_TOO_LARGE si excede 4 MiB (hint: WebP q80).
-    """
+
+    Cuándo NO usar: NO usar para localizar nodos → usa read_screen (el árbol sigue visible bajo FLAG_SECURE); NO png gigante → webp q80 ante PAYLOAD_TOO_LARGE.
+    Ejemplo: screenshot(fmt="webp", quality=80) → {w, h, via, img_base64}"""
     return await ui_tools.screenshot(fmt, quality)
 
 
@@ -267,7 +295,9 @@ async def get_battery() -> dict:
        latency_ms}. `level_pct`/`capacity_pct` en %, `temp_c` en grados C.
     Permisos/Grants: scope read; sin permisos nuevos.
     Errores/gotchas: -1 si el sistema no reporta; `temp_c` opcional.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO asumir temp_c presente → es opcional (-1 si no reporta).
+    Ejemplo: get_battery() → {level_pct, charging, saver, latency_ms}"""
     return await native_tools.get_battery()
 
 
@@ -283,7 +313,9 @@ async def get_memory() -> dict:
     Permisos/Grants: scope read; sin permisos nuevos.
     Errores/gotchas: `low_memory` puede parpadear; no confundir bytes
       con MiB.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO confundir BYTES con MiB.
+    Ejemplo: get_memory() → {avail_bytes, total_bytes, low_memory, latency_ms}"""
     return await native_tools.get_memory()
 
 
@@ -299,7 +331,9 @@ async def get_storage(detail: str = "basic") -> dict:
     Permisos/Grants: scope read; `fine` requeriria shell/Shizuku (Fase 6+).
     Errores/gotchas: detail="fine" -> METHOD_NOT_ALLOWED (N2);
       `free_bytes` != `avail_bytes`.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir detail=fine donde es N2 → METHOD_NOT_ALLOWED.
+    Ejemplo: get_storage(detail="basic") → {path, total_bytes, free_bytes, avail_bytes, latency_ms}"""
     return await native_tools.get_storage(detail)
 
 
@@ -317,7 +351,9 @@ async def get_cpu(detail: str = "basic") -> dict:
     Errores/gotchas: `usage_pct = -1` es deliberado si SELinux bloquea
       `/proc/stat` (no es error); `cores` (`processors`) siempre valido;
       detail="fine" -> METHOD_NOT_ALLOWED (N2).
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir detail=fine donde es N2 → METHOD_NOT_ALLOWED.
+    Ejemplo: get_cpu(detail="basic") → {processors, usage_pct, latency_ms}"""
     return await native_tools.get_cpu(detail)
 
 
@@ -334,7 +370,9 @@ async def get_device_info() -> dict:
     Permisos/Grants: scope read; sin permisos nuevos.
     Errores/gotchas: no incluye IDs persistentes; `device` no es un id
       unico (es la placa).
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO esperar identificadores persistentes → nunca los devuelve.
+    Ejemplo: get_device_info() → {manufacturer, model, sdk_int, screen_w, screen_h, latency_ms}"""
     return await native_tools.get_device_info()
 
 
@@ -350,7 +388,9 @@ async def settings_get(namespace: str = "system", key: str = "") -> dict:
     Permisos/Grants: scope read; claves sensibles pueden estar denegadas.
     Errores/gotchas: FORBIDDEN si la clave esta restringida;
       VALIDATION_ERROR con namespace invalido o key vacia.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO asumir clave legible → FORBIDDEN si está restringida.
+    Ejemplo: settings_get(namespace="system", key="<clave>") → {namespace, key, found, value?, latency_ms}"""
     return await native_tools.settings_get(namespace, key)
 
 
@@ -372,7 +412,9 @@ async def settings_put(namespace: str = "system", key: str = "",
       WRITE_SETTINGS_DISABLED sin permiso; SETTINGS_PUT_FAILED si el
       sistema rechaza. Revertir = put con el valor previo (leer antes
       con settings_get).
-    """
+
+    Cuándo NO usar: NO ejecutar sin preview aprobado → primera llamada planea; NO reenviar preview distinto con el confirm anterior. Verifica con settings_get.
+    Ejemplo: settings_put(namespace="system", key="<clave>", value="<valor>") → {planned:true, preview, hint} sin confirm; {namespace, key, written} con confirm:true"""
     return await native_tools.settings_put(namespace, key, value, confirm)
 
 
@@ -394,7 +436,9 @@ async def open_url(url: str, package: str = "") -> dict:
       `package` no hay chooser. Paquete no instalado -> PACKAGE_NOT_FOUND;
       instalado sin handler -> INTENT_UNRESOLVED; esquema invalido ->
       VALIDATION_ERROR. No envia (eso es send_intent + Jev).
-    """
+
+    Cuándo NO usar: NO usar para enviar/comunicar → eso es send_intent + carril UI con compuertas; NO fijar package salvo 1 salto determinista. Verifica con get_foreground/read_screen.
+    Ejemplo: open_url(url="https://<forma>") → {url, via, latency_ms}"""
     return await native_tools.open_url(url, package)
 
 
@@ -417,7 +461,9 @@ async def send_intent(action: str, uri: str = "", package: str = "", mime: str =
     Errores/gotchas: SEND/CALL sin confirm -> planned (nunca envia solo);
       no finge envio nativo; package invalido -> VALIDATION_ERROR;
       fallback Shizuku `am start` -> via "shizuku-am".
-    """
+
+    Cuándo NO usar: NO esperar envío headless → como máximo abre editor pre-rellenado; crítica sin confirm → planned, nunca ejecuta.
+    Ejemplo: send_intent(action="VIEW", uri="https://<forma>") → {action, via}"""
     return await native_tools.send_intent(action, uri, package, mime, confirm, extras)
 
 
@@ -434,7 +480,9 @@ async def get_clipboard_device() -> dict:
     Permisos/Grants: scope read sensible.
     Errores/gotchas: background Android 10+ o vacio -> CLIPBOARD_EMPTY
       honesto; no sondea ni inventa.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO inventar contenido ante CLIPBOARD_EMPTY → copia primero en la app-origen y re-lee.
+    Ejemplo: get_clipboard_device() → {len, sha256, via, forense{via, len, sha256}, latency_ms}"""
     return await native_tools.get_clipboard_device()
 
 
@@ -455,7 +503,9 @@ async def get_app_usage(hours: int = 24, window: str | None = None) -> dict:
     Errores/gotchas: sin grant -> USAGE_ACCESS_DISABLED; apps de fondo
       que acumulan tiempo (p.ej. Termux) inflan `foreground_ms`; solo
       agregados.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO esperar eventos crudos → solo agregados top 50.
+    Ejemplo: get_app_usage(hours=24) → {window_h, count, apps[{package, foreground_ms}], latency_ms}"""
     return await native_tools.get_app_usage(hours, window)
 
 
@@ -474,7 +524,9 @@ async def list_contacts(query: str = "", limit: int = 50, offset: int = 0,
     Permisos/Grants: READ_CONTACTS (runtime).
     Errores/gotchas: sin permiso -> CONTACTS_PERMISSION_DENIED; sin
       `total`; el forense solo guarda count+sha256 (sin PII cruda).
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO subir crudo a modelos externos → forense solo count+sha256.
+    Ejemplo: list_contacts(query="<filtro>", limit=50) → {returned, contacts[{id, display_name}], forense{count, sha256}, latency_ms}"""
     return await native_tools.list_contacts(query, limit, offset, with_phone)
 
 
@@ -494,7 +546,9 @@ async def add_contact(display_name: str, phone: str = "", email: str = "",
     Errores/gotchas: sin confirm -> planned; sin permiso ->
       CONTACTS_PERMISSION_DENIED; VALIDATION_ERROR si display_name vacio;
       preview solo longitudes/hashes.
-    """
+
+    Cuándo NO usar: NO ejecutar sin preview aprobado → primera llamada planea; NO reenviar preview distinto con el confirm anterior.
+    Ejemplo: add_contact(display_name="<nombre del operador>") → {planned:true, preview, hint} sin confirm; {added, uri} con confirm:true"""
     return await native_tools.add_contact(display_name, phone, email, confirm)
 
 
@@ -516,7 +570,9 @@ async def list_events(time_min: int = 0, time_max: int = 0, calendar_id: int = 0
     Errores/gotchas: time_min/time_max/begin/end en MILISEGUNDOS Unix;
       ventana > 7 dias -> VALIDATION_ERROR; sin permiso ->
       CALENDAR_PERMISSION_DENIED; sin `total`; PII solo conteos/hash.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir ventana > 7 días → VALIDATION_ERROR.
+    Ejemplo: list_events(time_min=0, time_max=0) → {returned, events[{event_id, title, begin, end}], latency_ms}"""
     return await native_tools.list_events(time_min, time_max, calendar_id, include_location)
 
 
@@ -540,7 +596,9 @@ async def create_event(title: str, start_ms: int, end_ms: int, calendar_id: int 
       planned; sin permiso -> CALENDAR_PERMISSION_DENIED; sin calendario
       visible -> CALENDAR_UNAVAILABLE; title/vals invalidos ->
       VALIDATION_ERROR; preview hashea el titulo.
-    """
+
+    Cuándo NO usar: NO ejecutar sin preview aprobado → primera llamada planea; NO reenviar preview distinto con el confirm anterior.
+    Ejemplo: create_event(title="<título>", start_ms=1, end_ms=2) → {planned:true, preview, hint} sin confirm; {created, event_id} con confirm:true"""
     return await native_tools.create_event(title, start_ms, end_ms, calendar_id,
                                            description, confirm)
 
@@ -562,7 +620,9 @@ async def list_notifications() -> dict:
     Errores/gotchas: sin listener -> NOTIFICATION_LISTENER_DISABLED; en
       algunas ROM el servicio no enlaza aunque se active (p.ej. 5002E:
       "no disponible en este dispositivo"): error honesto, no inventa.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO asumir listener vivo en toda ROM → error honesto si no enlaza.
+    Ejemplo: list_notifications() → {count, notifications[{key, package, title}], latency_ms}"""
     return await native_tools.list_notifications()
 
 
@@ -582,7 +642,9 @@ async def reply_notification(key: str, text: str, confirm: bool = False) -> dict
       NOTIFICATION_LISTENER_DISABLED; notificacion inactiva ->
       NOTIFICATION_GONE; sin RemoteInput -> NO_REMOTE_INPUT; fallo ->
       REPLY_FAILED; NL puede no existir en algunas ROM.
-    """
+
+    Cuándo NO usar: NO ejecutar sin preview aprobado → primera llamada planea; NO reenviar preview distinto con el confirm anterior.
+    Ejemplo: reply_notification(key="<key>", text="<texto del operador>") → {planned:true, preview, hint} sin confirm; {replied, key, via} con confirm:true"""
     return await native_tools.reply_notification(key, text, confirm)
 
 
@@ -599,7 +661,9 @@ async def media_state() -> dict:
     Permisos/Grants: NotificationListener habilitado.
     Errores/gotchas: sin listener/permiso -> MEDIA_SESSIONS_UNAVAILABLE;
       algunas ROM no exponen el listener.
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO asumir sesiones sin listener → MEDIA_SESSIONS_UNAVAILABLE.
+    Ejemplo: media_state() → {count, sessions[{package, state}], latency_ms}"""
     return await native_tools.media_state()
 
 
@@ -619,7 +683,9 @@ async def media_control(action: str, package: str = "",
     Errores/gotchas: sin sesiones -> MEDIA_SESSIONS_UNAVAILABLE; paquete
       sin sesion -> MEDIA_SESSION_GONE; fallo -> MEDIA_CONTROL_FAILED;
       action invalida -> VALIDATION_ERROR.
-    """
+
+    Cuándo NO usar: NO ejecutar stop sin preview aprobado → primera llamada planea; NO reenviar preview distinto con el confirm anterior. Verifica con media_state.
+    Ejemplo: media_control(action="pause") → {action, package, via}"""
     return await native_tools.media_control(action, package, confirm)
 
 
@@ -642,7 +708,9 @@ async def get_location(timeout_ms: int = 8000, max_age_s: int = 300) -> dict:
     Errores/gotchas: timeout_ms en MILISEGUNDOS y max_age_s en SEGUNDOS;
       sin permiso -> LOCATION_PERMISSION_DENIED; proveedores apagados ->
       LOCATION_UNAVAILABLE; sin fix -> LOCATION_TIMEOUT (nunca inventa).
-    """
+
+    Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO inventar fix ante LOCATION_TIMEOUT → re-observe y decide (timeout_ms en MILISEGUNDOS, max_age_s en SEGUNDOS).
+    Ejemplo: get_location(timeout_ms=8000, max_age_s=300) → {lat, lon, accuracy_m, via, latency_ms}"""
     return await native_tools.get_location(timeout_ms, max_age_s)
 
 
@@ -662,7 +730,9 @@ async def take_photo(confirm: bool = False, camera: str = "back") -> dict:
     Errores/gotchas: sin confirm -> planned; sin permiso -> CAMERA_DENIED;
       sin camara -> CAMERA_UNAVAILABLE; fallo -> CAMERA_FAILED; en
       pantalla bloqueada o algunas ROM puede degradar.
-    """
+
+    Cuándo NO usar: NO ejecutar sin preview aprobado → primera llamada planea (confirm SIEMPRE); NO reenviar preview distinto con el confirm anterior.
+    Ejemplo: take_photo(camera="back") → {planned:true, preview, hint} sin confirm; {img_base64, w, h, via} con confirm:true"""
     return await native_tools.take_photo(confirm, camera)
 
 

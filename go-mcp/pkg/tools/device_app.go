@@ -89,7 +89,7 @@ func hOpenApp(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult
 	}
 	if fgPkg, _ := fg["package"].(string); fgPkg != pkg {
 		return result(jam.Fail("VERIFY_FAILED", "foreground no es la app pedida",
-			"la app no llegó a foreground; reintenta open_app"))
+			"confirma con get_foreground/read_screen; si no llegó, un reintento y luego informe"))
 	}
 	return result(jam.OK(true, map[string]any{
 		"package": pkg, "activity": r["activity"], "foreground": fg,
@@ -116,7 +116,7 @@ func hCloseApp(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	}
 	if fgPkg, _ := fg["package"].(string); fgPkg == pkg {
 		return result(jam.Fail("VERIFY_FAILED", "la app sigue en foreground",
-			"reintenta close_app"))
+			"confirma con get_foreground/read_screen; si no salió, un reintento y luego informe"))
 	}
 	return result(jam.OK(true, map[string]any{
 		"package": pkg, "foreground": fg,

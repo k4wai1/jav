@@ -32,7 +32,9 @@ type JamError struct {
 
 func (e *JamError) Error() string { return e.Code + ": " + e.Message }
 
-// hintFor mapea código Jam → hint accionable (idéntico a _base.jam_fail).
+// hintFor mapea código Jam → hint accionable (recovery_instruction,
+// guía §3.2). Las filas originales son el núcleo canónico y no se tocan
+// (compatibilidad forense); aquí solo se extienden las restantes.
 func hintFor(code string) string {
 	switch code {
 	case "STALE_SNAPSHOT":
@@ -55,8 +57,42 @@ func hintFor(code string) string {
 		return "metodo no disponible en esta fase; no reintentes igual"
 	case "UNAUTHORIZED":
 		return "revisa JAV_TOKEN en el entorno del servidor"
+	// --- Extensión guía §3.2 (v1): sin cambiar las anteriores ---
+	case "SHIZUKU_DENIED":
+		return "concede el permiso runtime de Shizuku a Jam y reintenta"
+	case "FORBIDDEN":
+		return "pide scope/permiso correspondiente; no reintentes el mismo payload"
+	case "VALIDATION_ERROR":
+		return "revisa los parametros de la tool (forma, enum, rangos, unidades)"
+	case "INTENT_UNRESOLVED":
+		return "elige otra app destino o abre sin package (chooser) y verifica"
+	case "PACKAGE_NOT_FOUND":
+		return "verifica el paquete con list_packages; el paquete lo aporta el operador, no lo adivines"
+	case "CLIPBOARD_EMPTY":
+		return "copia primero en la app-origen y re-lee (host dumpsys o pegado-readback); no inventes contenido"
+	case "UI_UNSTABLE":
+		return "para: dif de forenses + informe (firma igual en 2 corridas = no relanzar)"
+	case "VERIFY_FAILED":
+		return "confirma con get_foreground/read_screen; si no llegó, un reintento y luego informe"
+	case "CONNECTION_FAILED":
+		return "revisa adb forward + dispositivo conectado; reintenta una vez tras forward"
+	case "RATE_LIMITED", "BUSY":
+		return "espera y reintenta con backoff; segundo cliente recibe BUSY"
+	case "SHELL_DENIED", "SHELL_DENYLIST":
+		return "pide grant en el dispositivo (1 comando/5 min/30 min); denylist exige admin + confirm:true"
+	case "USAGE_ACCESS_DISABLED", "CONTACTS_PERMISSION_DENIED",
+		"CALENDAR_PERMISSION_DENIED", "NOTIFICATION_LISTENER_DISABLED",
+		"MEDIA_SESSIONS_UNAVAILABLE", "LOCATION_PERMISSION_DENIED",
+		"CAMERA_DENIED", "WRITE_SETTINGS_DISABLED":
+		return "concede el acceso en el dispositivo (estado visible en hello.caps) y reintenta; sin grant, error honesto"
+	case "NOTIFICATION_GONE", "NO_REMOTE_INPUT", "REPLY_FAILED",
+		"MEDIA_SESSION_GONE", "MEDIA_CONTROL_FAILED",
+		"LOCATION_UNAVAILABLE", "LOCATION_TIMEOUT",
+		"CAMERA_UNAVAILABLE", "CAMERA_FAILED",
+		"SETTINGS_PUT_FAILED", "CALENDAR_UNAVAILABLE", "INTENT_FAILED":
+		return "re-observe el destino (lista/sesiones/permiso) y decide de nuevo; nunca inventes el efecto"
 	}
-	return ""
+	return "revisa evidence.code/error y re-observe el estado antes de reintentar (nunca reintentes el mismo payload a ciegas)"
 }
 
 // Envelope es la envolvente {ok, verified, evidence, hint} (AGENTS.md §6).

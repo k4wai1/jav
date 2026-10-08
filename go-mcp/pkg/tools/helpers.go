@@ -98,7 +98,7 @@ func result(env jam.Envelope) (*mcp.CallToolResult, error) {
 }
 
 func validationError(msg string) jam.Envelope {
-	return jam.Fail("VALIDATION_ERROR", msg, "revisa los parametros de la tool")
+	return jam.Fail("VALIDATION_ERROR", msg, "revisa los parametros de la tool (forma, enum, rangos, unidades)")
 }
 
 // --- Validaciones client-side (spec §6.3) ---
