@@ -1,7 +1,6 @@
 package director
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/k4wai1/jav/pkg/jam"
@@ -19,45 +18,6 @@ func TestBuildResolveStateBlind(t *testing.T) {
 	}
 	if _, ok := questions["target"]; !ok {
 		t.Fatalf("solo pregunta target: %v", questions)
-	}
-}
-
-func TestParseCommand(t *testing.T) {
-	out, err := ParseCommand(map[string]any{"command": "TAP", "target": 3})
-	if err != nil || out["target"] != 3 {
-		t.Fatalf("TAP válido: %v %v", out, err)
-	}
-	if _, err := ParseCommand(map[string]any{"command": "TAP", "target": "NONE"}); err == nil {
-		t.Fatalf("TAP con NONE debe fallar")
-	}
-	if _, err := ParseCommand(map[string]any{"command": "TYPE"}); err == nil {
-		t.Fatalf("TYPE sin text debe fallar")
-	}
-	if _, err := ParseCommand(map[string]any{"command": "OPEN_APP", "package": "no-es-paquete"}); err == nil {
-		t.Fatalf("package con mala forma debe fallar")
-	}
-}
-
-func TestParseExecuteGoal(t *testing.T) {
-	out, err := ParseExecuteGoal(map[string]any{
-		"command": "EXECUTE_GOAL", "package": "com.example",
-		"preloaded_inputs": map[string]any{"slot1": "texto exacto"},
-	})
-	if err != nil {
-		t.Fatalf("plan válido: %v", err)
-	}
-	slots, _ := out["preloaded_inputs"].(map[string]string)
-	if slots["slot1"] != "texto exacto" {
-		t.Fatalf("slots: %v", out)
-	}
-}
-
-func TestMaskPII(t *testing.T) {
-	if got := MaskPII("llama al 123456 ahora"); !strings.Contains(got, "<digits:6>") {
-		t.Fatalf("rachas ≥5 dígitos se enmascaran: %s", got)
-	}
-	if got := MaskPII("pin 1234"); strings.Contains(got, "<digits") {
-		t.Fatalf("4 dígitos no se tocan: %s", got)
 	}
 }
 

@@ -48,7 +48,6 @@ import (
 var sensitiveEnv = map[string]bool{
 	"JAV_TOKEN": true, "JEV_TOKEN": true,
 	"OPENROUTER_API_KEY": true, "TYPESAFE_API_KEY": true,
-	"DEEPSEEK_API_KEY": true, "JAV_AI_API_KEY": true,
 	"JEV_CERT_FINGERPRINT": true,
 }
 
@@ -89,7 +88,7 @@ func loadEnvFile(path string) {
 		_ = os.Setenv(k, v)
 	}
 	// Solo presencia, NUNCA valores.
-	for _, k := range []string{"JAV_WS_URL", "JAV_TOKEN", "JEV_WS_URL", "JEV_TOKEN", "OPENROUTER_API_KEY", "JEV_MODEL", "S2_MODEL", "JAV_AI_BASE_URL", "JAV_AI_MODEL"} {
+	for _, k := range []string{"JAV_WS_URL", "JAV_TOKEN", "JEV_WS_URL", "JEV_TOKEN", "OPENROUTER_API_KEY", "JEV_MODEL"} {
 		st := "ausente"
 		if os.Getenv(k) != "" {
 			st = "presente"

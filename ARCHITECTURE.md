@@ -18,8 +18,12 @@
 
 MCP genérico para controlar Android con lenguaje natural. Ninguna capacidad
 del core conoce apps, paquetes, contactos, textos o flujos concretos: lo
-específico lo aporta el runtime (el operador o S2 por conocimiento general).
-Tres carriles conviven, del más determinista al más semántico:
+específico lo aporta el runtime (el Director externo o S2 por conocimiento
+general). El **Director es el cliente externo** (OpenCode/operador, nunca
+parte de Jav): es el único planificador; **Jav es un servidor MCP Go delgado
+(`cmd/jav` stdio, `pkg/tools`, sin bucles y sin S2 interno)** que expone 35
+tools atómicas + `resolve_element` ciego. Tres carriles conviven, del más
+determinista al más semántico:
 
 1. **Carril nativo (APIs directas, sin Jev, sin UI).** Jam responde por
    framework Android / Shizuku: telemetría, settings, intents, clipboard,
@@ -27,17 +31,18 @@ Tres carriles conviven, del más determinista al más semántico:
    N0 (sin permisos nuevos) y N1 (con grant del usuario) implementados; N2
    (Shizuku/`shell` on-device) queda `METHOD_NOT_ALLOWED` hasta Fase 6.
    Detalle en `docs/specs/native-apis.md`.
-2. **Director-cliente v5 (metas complejas/multi-app).** Un único planificador
-   —el director (OpenCode/operador)— que ve cada pantalla, decide el plan paso
+2. **Director-cliente v5 (metas complejas/multi-app, vía activa).** Un único planificador
+   **externo** —el director (OpenCode/operador, cliente de Jav, no módulo de Jav)—
+   que ve cada pantalla, decide el plan paso
    a paso y usa Jev solo como **resolver de elementos** (una `Choice` de
    micro-intención, ciega al goal global). "El director decide, Jev señala,
-   Jam ejecuta". Detalle en `docs/specs/director-client.md`.
-3. **Dual-tier `run_goal` (SENT simple, legacy congelado).** El bucle
-   autónomo S1 Jev + S2 LLM sigue soportado para el goal simple
-   (`docs/specs/generic-dual-tier.md` + `plan-ahead.md` v4), pero está
-   **congelado**: sin features nuevas, solo bugfixes de seguridad/regresión.
+   Jam ejecuta". Jav no loopea ni planifica dentro. Detalle en `docs/specs/director-client.md`.
+3. **Dual-tier `run_goal` (histórico, congelado, no la vía activa).** El bucle
+   autónomo S1 Jev + S2 LLM queda como referencia congelada
+   (`docs/specs/generic-dual-tier.md` + `plan-ahead.md` v4): sin features nuevas,
+   solo bugfixes de seguridad/regresión. El runtime activo no corre ese loop.
 
-Arquitectura **Dual-Tier** del carril 3 (detalle en §6):
+Arquitectura **Dual-Tier** histórica del carril 3 (congelada; detalle en §6):
 
 - **Sistema 1 = Jev (TypeSafe, juicio discriminativo):** resuelve cada paso
   en una sola llamada single-pass (70–500 ms), sin texto libre. Primitivas
@@ -52,7 +57,7 @@ Arquitectura **Dual-Tier** del carril 3 (detalle en §6):
 | # | Decisión | Implementación |
 |---|---|---|
 | 1 | Transporte | WebSocket RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback). Listener B (opt-in): `wss://<ip-tailnet>:38472`, bind a la IP del tailnet (`100.64.0.0/10`), **nunca `0.0.0.0` por defecto**. Single-client (`BUSY` al segundo). Frame 4 MiB |
-| 2 | MCP | Python + `uv` en el PC (`JEV_WS_URL`; `adb forward` para loopback). Mismo protocolo sirve en Termux |
+| 2 | MCP | Go en el PC: binario **`jav`** (`cmd/jav`, stdio, `JAV_WS_URL`; `adb forward` para loopback). Harness Python `mcp-server/` congelado como referencia histórica, no runtime |
 | 3 | Privilegios | **App non-root.** UI = AccessibilityService. Shell = Shizuku (UID 2000). **`su` prohibido en código** |
 | 4 | TLS + token | Self-signed por instalación (BouncyCastle), pinning TOFU (QR). `ws` solo en loopback; **WSS obligatorio en no-loopback. Token obligatorio en todos los binds** |
 | 5 | Token | Hand-rolled: AES-256 en AndroidKeyStore + AES/GCM, bearer en el frame `hello` (nunca en URL) |
@@ -98,15 +103,14 @@ camino primario de percepción (árbol in-process).
 ## 4. Arquitectura
 
 ```
-HOST Debian 13 (operador + OpenCode + MCP)
+HOST Debian 13 (Director externo + Jav Go + Jam en teléfono)
 ┌───────────────────────────────────────────────────────────────┐
-│ DIRECTOR (OpenCode/operador) — único planificador en v5        │
-│  read_screen_state · resolve_element · tap_idx/type_text ·     │
-│  open_app · get/set_clipboard · native N0/N1                   │
-│ MCP SERVER (Python + uv, stdio)                                │
-│  tools/ device · app · ui · clipboard · native · (jev)         │
-│  director.py (fachada v5) · loop.py (run_goal CONGELADO v4)    │
-│  jev_client (S1) · s2_client (S2) · core/loop_helpers · cost   │
+│ DIRECTOR EXTERNO (OpenCode/operador) — único planificador (v5) │
+│  cliente de Jav, fuera de Jav; decide una primitiva por paso   │
+│ JAV Go (cmd/jav, MCP stdio, sin bucles ni S2 interno)          │
+│  tools/ device · app · ui · clipboard · native · jev-resolver  │
+│  director/ (adaptadores pasivos paso a paso) · normalizer · cost│
+│  (histórico Python loop.py/run_goal congelado, no activo)      │
 └───────────────┬────────────────────────────┬──────────────────┘
   WS 127.0.0.1:38472 (adb forward) │ WSS <ip-tailnet>:38472 (opt-in)
                  ▼ USB / red                    ▼ tailnet
@@ -171,9 +175,15 @@ mecanismo. Nunca activar Tailscale Funnel para este puerto.
 Política de grant por método: `open_app` = `ui` sin grant;
 `force_stop` = `shell` sin grant; `grant_permission` y `shell` = `shell` con grant.
 
-## 6. Inteligencia: dual-tier v3 → v4 → v5
+## 6. Inteligencia: dual-tier v3 → v4 (histórico congelado) → v5 (vía activa)
 
-### 6.1 Reparto dual-tier (v3, `generic-dual-tier.md`)
+> Lectura v1.0.2: el runtime Jav **no corre loops ni S2 interno**. El único
+> Sistema 2 es el **Director externo** (OpenCode/operador, cliente de Jav).
+> S1 Jev actúa solo como resolver ciego por paso (`pkg/jev` + `pkg/director`,
+> adaptadores pasivos). v3/v4 (`generic-dual-tier.md`, `plan-ahead.md`) quedan
+> como historial congelado; v5 (`director-client.md`) es la vía activa.
+
+### 6.1 Reparto dual-tier (v3 histórico, `generic-dual-tier.md`)
 
 | | Sistema 1 (Jev, TypeSafe) | Sistema 2 (LLM frontera, GLM-5.3) |
 |---|---|---|
@@ -188,7 +198,7 @@ sin confirmar se **planean sin ejecutar** (`planned`, `needs_confirm`);
 `FORBIDDEN` solo **opt-in por goal** (`forbidden?`), nunca global. Cadena de
 poda **500 raw → candidatos normalizer → 0..253 ⊂ 255 Choice** (254 + `NONE`).
 
-### 6.2 plan-ahead v4 (`plan-ahead.md`)
+### 6.2 plan-ahead v4 (histórico, `plan-ahead.md`)
 
 - **S2-compilador paso 0:** una sola consulta al inicio devuelve
   `EXECUTE_GOAL{package, screen_goal_en, preloaded_inputs{slot: payload},
@@ -207,14 +217,17 @@ poda **500 raw → candidatos normalizer → 0..253 ⊂ 255 Choice** (254 + `NON
   `[idx, class_short, zone, flags, label]`; `id`/`bounds` quedan en host
   (`by_idx`) para validar/ejecutar. Hint, nunca señal de seguridad.
 
-### 6.3 director-client v5 (`director-client.md`)
+### 6.3 director-client v5 (vía activa, `director-client.md`)
 
-La cadena OpenCode → `loop.py` → S2 → Jev → Jam apilaba tres planificadores
+> El Director es **cliente externo** (OpenCode/operador). Jav expone tools
+> atómicas y el resolver ciego; no decide planes, no loopea, no hospeda S2.
+
+La cadena histórica OpenCode → `loop.py` → S2 → Jev → Jam apilaba tres planificadores
 sobre el mismo goal (poisoning por goal global, parálisis por indecisión,
 dedos antes que APIs). v5 la sustituye para metas complejas:
 
-1. **Un planificador:** el director (OpenCode/operador). Ve cada pantalla
-   (`read_screen_state` + `screenshot` evidencial) y decide una primitiva por
+1. **Un planificador externo:** el director (OpenCode/operador, cliente de Jav, fuera de Jav). Ve cada pantalla
+   (`read_screen` + `screenshot` evidencial) y decide una primitiva por
    paso; `run_sequence` sigue prohibido.
 2. **Jev = resolver de elementos** (`resolve_element`): **una sola `Choice`**
    sobre índices + `NONE`, con micro-intención EN de **la pantalla actual**
@@ -227,11 +240,12 @@ dedos antes que APIs). v5 la sustituye para metas complejas:
    verificación por forma; escribir con `ClipboardManager.setPrimaryClip` en
    la propia Jam), `open_app` directo, `ACTION_SET_TEXT` + read-back. Sin
    método Jam → `CLIPBOARD_UNSUPPORTED` y degradación honesta a `type_text`.
-4. **`loop.py` CONGELADO** (`run_goal`, `ask_decision`, `s2_client`): sin
-   features nuevas; solo bugfixes de seguridad/regresión con test que
-   demuestre que el SENT simple sigue verde. Todo lo nuevo vive fuera, sin
-   importar `run_goal`. `@judge` certifica con `pytest` verde **antes y
-   después**.
+4. **Loop histórico CONGELADO** (`mcp-server/loop.py`: `run_goal`, `ask_decision`, `s2_client`):
+   sin features nuevas; referencia congelada, no runtime. **El runtime Go
+   (`cmd/jav` + `pkg/`) no contiene loops ni S2 interno**: solo adaptadores
+   pasivos paso a paso (`pkg/director`: "sin bucles, sin planificación macro").
+   Todo lo nuevo vive fuera del loop, sin importar `run_goal`. `@judge`
+   certifica con `go test ./...` verde (histórico Python: `pytest` al congelar).
 
 ### 6.4 Anti-giro y fail-fast (v3 §12 + v4)
 
@@ -279,16 +293,17 @@ dedos antes que APIs). v5 la sustituye para metas complejas:
 - **Podador "agresivo = 20" RECHAZADO sin medir:** `MAX_TABLE = 254` intacto;
   `EXPERIMENT-TABLE-20` queda como experimento pendiente (v4 §9.5).
 
-## 7. Árbol de herramientas MCP (35 tools)
+## 7. Árbol de herramientas MCP (35 tools, runtime Go)
 
-**Separación por carril (decisión §2.16):** 6 tools son las primitivas del
-bucle Jev; las otras 29 sirven al director, al carril nativo y al diagnóstico.
-El director además usa la fachada `director.py` (`resolve_element`, `tap_idx`,
-`get_clipboard`, `set_clipboard`), que no se expone como tool MCP.
+**Separación por carril (decisión §2.16):** 6 tools son atómicas de UI
+(dirigidas paso a paso por el **Director externo**, no por un loop interno);
+las otras 29 sirven al director, al carril nativo y al diagnóstico.
+Implementación activa: `pkg/tools/` (Go). El histórico Python
+(`mcp-server/src/jev_mcp/tools/`, `director.py`, `loop.py`) está congelado.
 
-**6 — bucle Jev (`loop.run_goal`, congelado):** `read_screen` (`dump_ui` +
+**6 — UI atómicas (vía activa = Director externo paso a paso):** `read_screen` (`dump_ui` +
 normalizer + tabla + `snapshot_id` + `first_result`/`zone`/`focused_field`),
-`tap_node`, `type_text`, `scroll`, `press_back`, `open_app` (solo bootstrap).
+`tap_node`, `type_text`, `scroll`, `press_back`, `open_app` (solo bootstrap por el director).
 
 **29 — director / nativo / diagnóstico:**
 
@@ -367,14 +382,14 @@ Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 | 0c | Scaffold + manifest + onboarding stub | `assembleDebug` compila |
 | 0d | APK vacío instalado | app visible + grep `su` vacío + `docs/BUILD.md` |
 | 1 | AccessibilityService + `dump_ui` + onboarding | anclas ≥95% vs `uiautomator`; latencia §3 |
-| 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back | cliente Python controla app genérica; sin token → rechazado |
+| 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back | cliente genérico controla app genérica; sin token → rechazado |
 | 2b | WSS tailnet + cert self-signed + token en Keystore | **pendiente** |
 | 3a | Shizuku `open_app`/`force_stop` + `screenshot` | OK; sin Shizuku → degradación honesta |
 | 3b | `shell` + audit log + kill switch *(Fase 6)* | denylist operativa; auditoría consultable |
-| 4 | MCP + normalizer + tools device/app/ui | agente lee pantalla |
-| 5 | dual-tier S1/S2 `run_goal` + compuertas + forense | goal genérico e2e; `planned` sin `confirm` |
-| v4 | S2-compilador `EXECUTE_GOAL` + fast-path + coalescido + `zone` | pytest verde; forense `fast_path`/`coalesced` |
-| v5 | director-cliente + `resolve_element` + `set_clipboard` + loop congelado | pytest verde antes/después; anti-poisoning en test |
+| 4 | MCP Go + normalizer + tools device/app/ui | director externo lee pantalla (`go test ./...`) |
+| 5 | dual-tier S1/S2 `run_goal` + compuertas + forense *(histórico congelado)* | goal genérico e2e; `planned` sin `confirm` |
+| v4 | S2-compilador `EXECUTE_GOAL` + fast-path + coalescido + `zone` *(histórico)* | suite verde; forense `fast_path`/`coalesced` |
+| v5 | director-cliente externo + `resolve_element` + `set_clipboard`, sin loops ni S2 en Jav | `go test ./...` verde; anti-poisoning en test |
 | **N0** | Carril nativo sin permisos nuevos | latencia p50/p95; UI degradada pero N0 viva |
 | **N1** | Carril nativo con grant del usuario | grants en `hello.caps`; críticas 100% con `confirm`; cero PII cruda |
 | **N2** | Shizuku-only (diseño ahora, código Fase 6+) | `METHOD_NOT_ALLOWED` vigente |

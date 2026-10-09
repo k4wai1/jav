@@ -16,21 +16,22 @@
 
 **Jav is a full-control Android MCP runtime without root.** An on-device app
 (**Jam**, `dev.jev.jam`) exposes the screen via `AccessibilityService` and
-privileged actions via **Shizuku** (started by the user) to an MCP server on
-the PC (Python + `uv`). A dual-tier agent — **S1 Jev** (discriminative
-judgment, single-pass, no free text) + **S2 frontier LLM** (planning,
-diagnosis, composition) — executes natural-language goals through a single
-general entrypoint:
+privileged actions via **Shizuku** (started by the user) to a Go MCP runtime
+on the PC (`jav` binary, `cmd/jav`, stdio). The **Director is the external
+client** (OpenCode/operator, never part of Jav): it sees each screen and
+drives one atomic tool per step; Jav runs no loops and no internal S2.
+Tactical judgment comes from **S1 Jev** (discriminative, single-pass, no free
+text, blind `resolve_element`) through a single general entrypoint per step:
 
 ```python
-run_goal(goal: str)   # e.g. run_goal("List the alarms in the clock app")
+resolve_element(screen_goal_en: str)   # e.g. resolve_element("Tap the Copy link row")
 ```
 
 - **Generic core, zero hardcoded apps.** No package names, contacts, texts or
-  flows in the core. Specifics travel at runtime (operator or S2).
+  flows in the core. Specifics travel at runtime (external Director or S2).
 - **Three lanes:** native APIs (OS before fingers) · director-client v5
-  (complex goals: operator directs, Jev resolves) · dual-tier `run_goal`
-  (simple goals, frozen `loop.py`).
+  (complex goals: the external Director directs, Jev resolves, Jam executes) ·
+  historical autonomous `run_goal` (frozen, not the active path).
 - **Secure by design.** Non-root app, `su` forbidden, `shell` OFF until
   Phase 6, bearer token + scopes on every bind, explicit confirm on critical
   actions, JSONL forensics per run.
@@ -40,20 +41,21 @@ run_goal(goal: str)   # e.g. run_goal("List the alarms in the clock app")
 1. Jam serves 2 WS listeners: loopback `ws://127.0.0.1:38472` + tailnet-IP WSS.
 2. `hello` with bearer token + scopes (`read` / `ui` / `shell` / `admin`).
 3. Perception = accessibility tree (`dump_ui`, ≤500 nodes, ~2 ms/node).
-4. Host normalizes and prunes (system decor filtered) → table `0..253` + `NONE`.
-5. S1 Jev picks 1 primitive (`TAP / TYPE / SCROLL_DOWN / SCROLL_UP / BACK / DONE / ESCALATE`) + target.
-6. S2 compiles (`EXECUTE_GOAL` + preloaded inputs) or the v5 director drives step by step.
+4. Jav normalizes and prunes (system decor filtered) → table `0..253` + `NONE`.
+5. S1 Jev resolves 1 element (`resolve_element`, blind to the global goal) + `conf`.
+6. The external Director (OpenCode/operator) decides one atomic primitive per step; Jav never loops nor plans internally.
 7. Atomic mutation (`tap_node` / `type_text` / `open_app`) + post verification.
 8. OS clipboard before fingers (`get` via host `dumpsys`, `set` via Jam API).
 9. Audited costs (`[COST]` + `CostTracker`) and forensics `logs/run-<ts>.jsonl`.
 10. No key → honest `{mock: true}` stub; options are never invented.
 
 ```
-PC (Debian, uv, MCP stdio)              Phone (Jam, non-root)
-┌─ server.py: device/app/ui/jev ─┐      ┌─ ForegroundService: 2×WS ─┐
-│ run_goal / director + S1 + S2  │─WS──▶│ Accessibility: tree+gest. │
-│ normalizer, guards, cost, logs  │◀─WS──│ Shizuku: am/monkey/screen│
-└────────────────────────────────┘      └───────────────────────────┘
+PC (Debian, Go, MCP stdio)                 Phone (Jam, non-root)
+┌─ jav (cmd/jav): device/app/ui/native ─┐  ┌─ ForegroundService: 2×WS ─┐
+│ atomic tools + resolve_element + cost  │─WS──▶│ Accessibility: tree+gest. │
+│ normalizer, guards, logs (no loops)    │◀─WS──│ Shizuku: am/monkey/screen│
+└────────────────────────────────────────┘  └───────────────────────────┘
+  Director = EXTERNAL client (OpenCode) ──▶ jav (no S2/live loops inside)
   adb forward tcp:38472 │  WSS tailnet (opt-in, TOFU pinning)
 ```
 
@@ -62,7 +64,7 @@ PC (Debian, uv, MCP stdio)              Phone (Jam, non-root)
 Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only
 with real post-verification, never on "command sent".
 
-**6 — Jev loop primitives (`loop.run_goal`, frozen):**
+**6 — UI atomic tools (driven step by step by the external Director; historical `loop.run_goal` frozen, not the active path):**
 
 | Tool | What it does |
 |---|---|
@@ -99,39 +101,48 @@ Native lanes: **N0** needs no new grants · **N1** needs user grants
 (advertised in `hello.caps`) · **N2** (Shizuku/`shell` on-device) answers
 `METHOD_NOT_ALLOWED` until Phase 6.
 
-## Real runs with numbers
+## Real runs with numbers (summary)
 
-Benches: TECNO KJ5 (API 33, Wi-Fi) for S1/S2 loop + A10 USB (Android 10,
-720×1440) for director v5. Host: Debian 13, Celeron 847, ~2 ms/node
-(`dump_ui`), tap ~70 ms (`ACTION_CLICK` first), S1 ~1.6 s. Full tables in
-`docs/TESTING.md` §9–10, forensics in `mcp-server/logs/run-*.jsonl`.
+> Benchmarks own the numbers: [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md)
+> (per-tool latencies on real hardware) and
+> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md)
+> (closed tasks with wall/cost/forensics). This table only summarizes.
 
-| Run | Result | Wall | Cost |
-|---|---|---|---|
-| Messaging-A SENT | SENT, verified on-screen (25 steps) | ~84.9 s | ~$0.0038 |
-| Messaging-B SENT (`stale_recovered` ×1) | SENT, verified on-screen (12 steps) | ~22 s | ~$0.0023 |
-| Clock alarms read-only | OK | seconds | <$0.0001 |
-| Fossify gallery (folders lens) | OK | 2.3 s | $0 |
-| Fossify clock (alarms) | OK | 5.7 s | ~$0.00005 |
-| Fossify files (Download, incl. scroll) | OK | 9.1 s | ~$0.00013 |
-| Fossify calculator (3-digit × 2-digit) | OK, double-snap verified | 15.5 s | ~$0.00031 |
-| Fossify music (track lens) | OK | 5.6 s | ~$0.00010 |
-| **Fossify 5/5 total** | **all OK** | **~38 s** | **~$0.0006** |
-| Battery level in settings | OK (`avg_tap_ms 84.6`) | ~23.1 s | ~$0.00067 |
-| Stock calculator redo | BLOCKED by environment (`ok_all: false`, honest) | n/a | $0 |
-| Multi-app copy-link → downloader | Honest BLOCK (`DOWNLOAD_NOT_STARTED`) | 25 phases | ~$0.0011 |
-| Intent 1-hop `open_url` with `package` | OK `via: startActivity-package` | ~0.13 s | $0 |
-| Intent without `package` | Chooser `ResolverActivity` (expected) | ~13 s | $0 |
+| Area | Figure (measured) |
+|---|---|
+| Perception `dump_ui` | ~2 ms/node (13n/40 ms, 66n/106 ms, 124n/264 ms; ~1 s worst @500) |
+| tap (`ACTION_CLICK` first) | ~70 ms (`avg_tap_ms` 69.7–84.6) |
+| S1 Jev | ~1.6 s (`avg_s1_ms` 1589.5) |
+| S2 DeepSeek-direct (historical, retired) | ~1.9 s/call vs flash ~22 s/call |
+| N0 native (Go e2e) | ~50–190 ms/tool (media 173 ms) |
+| Intent 1-hop `open_url` + `package` | ~0.13 s (`latency_ms` 130.3) |
+| Closed tasks | messaging-A SENT ~84.9 s (~$0.0038); messaging-B SENT ~22 s (~$0.0023); Fossify 5/5 ~38 s (~$0.0006); YT→Brave honest BLOCK (~$0.0011) |
+| Cost ceiling | **<$0.003** per run |
 
-Per-run cost **<$0.003**. pytest suite **148 green**
-(`cd mcp-server && uv run pytest -q`).
+Benches: TECNO KJ5 (API 33, Wi-Fi) + A10 USB (Android 10, 720×1440).
+Host: Debian 13, Celeron 847. `dump_ui` 16× faster than `uiautomator dump`
+(4353 ms). Full tables in `docs/benchmarks/`; forensics in `logs/` (Go) plus
+historical `mcp-server/logs/` (frozen Python harness).
+
+Runtime is 100% Go (`go test ./...`, `make build`); the Python `mcp-server`
+harness is frozen history, not an active component.
 
 ## Current status + roadmap
 
-- **Today:** Phases 0–4 green; Phase 5 `run_goal` + plan-ahead v4 + §12 in
-  tree; v5 director-client (`resolve_element` blind resolver + `set_clipboard`
-  + frozen `loop.py`) in `docs/` + code; native lane N0/N1 live, N2 gated;
-  35/35 MCP docstrings at the 5-section standard.
+- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 35 tools,
+  `go test ./...` green); Phases 0–4 green; v5 director-client vigente
+  (**Director = external OpenCode/operator**, Jav = thin server with no loops
+  and no internal S2: `resolve_element` blind resolver + `set_clipboard` +
+  historical `loop.py` frozen); native lane N0/N1 live, N2 gated;
+  35/35 docstrings at the 5-section standard.
+- **Roadmap:** formal A10 suite close (battery + calculator + clipboard
+  round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
+  forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals) →
+  Phase 6 (`shell` with denylist + grant + 500-audit + kill switch) → tailnet
+  WSS 2b. Live tracker: `PLAN.md`. Name: **Jav** = project/runtime,
+  **Jev** = tactical backend (`JEV_MODEL`); rename migration deferred
+  (`docs/specs/ecosystem.md` §4). Historical Python harness (`mcp-server`,
+  148 pytest green at freeze) kept only as forensics reference.
 - **Roadmap:** formal A10 suite close (battery + calculator + clipboard
   round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
   forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals) →
@@ -152,22 +163,19 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 # 3. Forward + environment (on the PC)
 adb forward tcp:38472 tcp:38472
-cd mcp-server && cp ../.env.example ../.env   # edit: JEV_TOKEN, OPENROUTER_API_KEY, models
-uv sync
+cp .env.example .env   # edit: JAV_TOKEN, OPENROUTER_API_KEY, models (chmod 600)
 
 # 4. Checks without Android Studio
-uv run pytest -q                       # 148 green
-cd ../android-app && ./gradlew :app:testDebugUnitTest
+go build ./... && go vet ./... && go test ./...   # Go suite green
+cd android-app && ./gradlew :app:testDebugUnitTest
 
-# 5a. Generic run_goal (simple goal)
-cd ../mcp-server
-JEV_TOKEN=... OPENROUTER_API_KEY=... uv run python scripts/run_goal_check.py \
-  --goal "List the alarms in the clock app"
-
-# 5b. Step-by-step director (complex goal): per screen,
-# read_screen_state → resolve_element("<micro EN of THIS screen>")
-# → tap_idx / type_text / open_app → verification read → get/set_clipboard
+# 5. Director step by step (the only active path; the Director is external):
+# per screen, read_screen → resolve_element("<micro EN of THIS screen>")
+# → tap_node / type_text / open_app → verification read → get/set_clipboard
 # → forensics in logs/run-<ts>.jsonl. See docs/specs/director-client.md §9.4.
+#
+# Historical frozen loop (reference only, not runtime):
+# mcp-server/ + uv + pytest (148 green at freeze).
 ```
 
 ## Security
@@ -206,20 +214,23 @@ see the [LICENSE](LICENSE) file for details.
 **Jav es un runtime MCP de control integral de Android sin root.** Una app
 en el dispositivo (**Jam**, `dev.jev.jam`) expone la pantalla por
 `AccessibilityService` y las acciones privilegiadas por **Shizuku**
-(lo arranca el usuario) a un servidor MCP en el PC (Python + `uv`). Un agente
-dual-tier — **S1 Jev** (juicio discriminativo, single-pass, sin texto libre)
-+ **S2 LLM frontera** (planifica, diagnostica, redacta) — ejecuta objetivos
-en lenguaje natural con un único punto de entrada general:
+(lo arranca el usuario) a un runtime MCP Go en el PC (binario `jav`,
+`cmd/jav`, stdio). El **Director es el cliente externo**
+(OpenCode/operador, nunca parte de Jav): ve cada pantalla y dirige una
+herramienta atómica por paso; Jav no corre bucles ni S2 interno.
+El juicio táctico lo aporta **S1 Jev** (discriminativo, single-pass, sin
+texto libre, `resolve_element` ciego) con un único punto de entrada general
+por paso:
 
 ```python
-run_goal(goal: str)   # p. ej. run_goal("List the alarms in the clock app")
+resolve_element(screen_goal_en: str)   # p. ej. resolve_element("Tap the Copy link row")
 ```
 
 - **Core genérico, cero apps prefijadas.** Sin paquetes, contactos, textos ni
-  flujos en el core. Lo específico viaja en runtime (operador o S2).
+  flujos en el core. Lo específico viaja en runtime (Director externo o S2).
 - **Tres carriles:** APIs nativas (el SO antes que los dedos) ·
-  director-cliente v5 (metas complejas: el operador dirige, Jev resuelve) ·
-  dual-tier `run_goal` (metas simples, `loop.py` congelado).
+  director-cliente v5 (metas complejas: el Director externo dirige, Jev resuelve,
+  Jam ejecuta) · `run_goal` autónomo histórico (congelado, no la vía activa).
 - **Seguro por diseño.** App sin root, `su` prohibido, `shell` OFF hasta
   Fase 6, token bearer + scopes en cada bind, confirmación explícita en
   críticas, forense JSONL por corrida.
@@ -229,20 +240,21 @@ run_goal(goal: str)   # p. ej. run_goal("List the alarms in the clock app")
 1. Jam sirve 2 listeners WS: loopback `ws://127.0.0.1:38472` + WSS a IP tailnet.
 2. `hello` con token bearer + scopes (`read` / `ui` / `shell` / `admin`).
 3. Percepción = árbol de accesibilidad (`dump_ui`, ≤500 nodos, ~2 ms/nodo).
-4. El host normaliza y poda (decoración fuera) → tabla `0..253` + `NONE`.
-5. S1 Jev elige 1 primitiva (`TAP / TYPE / SCROLL_DOWN / SCROLL_UP / BACK / DONE / ESCALATE`) + target.
-6. S2 compila (`EXECUTE_GOAL` + inputs precargados) o el director v5 dirige paso a paso.
+4. Jav normaliza y poda (decoración fuera) → tabla `0..253` + `NONE`.
+5. S1 Jev resuelve 1 elemento (`resolve_element`, ciego al goal global) + `conf`.
+6. El Director externo (OpenCode/operador) decide una primitiva atómica por paso; Jav no loopea ni planifica dentro.
 7. Mutación atómica (`tap_node` / `type_text` / `open_app`) + verificación posterior.
 8. Clipboard del SO antes que dedos (`get` por `dumpsys` host, `set` por API Jam).
 9. Costos auditados (`[COST]` + `CostTracker`) y forense `logs/run-<ts>.jsonl`.
 10. Sin key → stub honesto `{mock: true}`; nunca se inventan opciones.
 
 ```
-PC (Debian, uv, MCP stdio)              Teléfono (Jam, sin root)
-┌─ server.py: device/app/ui/jev ─┐      ┌─ ForegroundService: 2×WS ─┐
-│ run_goal / director + S1 + S2  │─WS──▶│ Accesibilidad: árbol+gest│
-│ normalizer, guards, cost, logs │◀─WS──│ Shizuku: am/monkey/pant. │
-└────────────────────────────────┘      └───────────────────────────┘
+PC (Debian, Go, MCP stdio)                 Teléfono (Jam, sin root)
+┌─ jav (cmd/jav): device/app/ui/nativo ─┐  ┌─ ForegroundService: 2×WS ─┐
+│ tools atómicas + resolve_element+costo │─WS──▶│ Accesibilidad: árbol+gest│
+│ normalizer, guards, logs (sin bucles)  │◀─WS──│ Shizuku: am/monkey/pant. │
+└────────────────────────────────────────┘  └───────────────────────────┘
+  Director = cliente EXTERNO (OpenCode) ──▶ jav (sin S2 ni bucles dentro)
   adb forward tcp:38472 │  WSS tailnet (opt-in, pinning TOFU)
 ```
 
@@ -251,7 +263,7 @@ PC (Debian, uv, MCP stdio)              Teléfono (Jam, sin root)
 Toda tool devuelve `{ok, verified, evidence, hint}`. `verified: true` solo con
 verificación real posterior, nunca por "comando enviado".
 
-**6 — primitivas del bucle Jev (`loop.run_goal`, congelado):**
+**6 — herramientas UI atómicas (las dirige paso a paso el Director externo; `loop.run_goal` histórico congelado, no la vía activa):**
 
 | Tool | Qué hace |
 |---|---|
@@ -288,39 +300,40 @@ Carriles nativos: **N0** sin permisos nuevos · **N1** con grants del usuario
 (anunciados en `hello.caps`) · **N2** (Shizuku/`shell` on-device) responde
 `METHOD_NOT_ALLOWED` hasta Fase 6.
 
-## Pruebas reales con números
+## Pruebas reales con números (resumen)
 
-Bancos: TECNO KJ5 (API 33, Wi-Fi) para bucle S1/S2 + A10 USB (Android 10,
-720×1440) para director v5. Host: Debian 13, Celeron 847, ~2 ms/nodo
-(`dump_ui`), tap ~70 ms (`ACTION_CLICK` primero), S1 ~1.6 s. Tablas completas
-en `docs/TESTING.md` §9–10, forense en `mcp-server/logs/run-*.jsonl`.
+> Los benchmarks mandan: [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md)
+> (latencias por herramienta en hardware real) y
+> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md)
+> (tareas cerradas con tiempo/costo/forense). Esta tabla solo resume.
 
-| Corrida | Resultado | Tiempo | Costo |
-|---|---|---|---|
-| Mensajería-A SENT | SENT, verificado en pantalla (25 pasos) | ~84.9 s | ~$0.0038 |
-| Mensajería-B SENT (`stale_recovered` ×1) | SENT, verificado en pantalla (12 pasos) | ~22 s | ~$0.0023 |
-| Alarmas del reloj solo-lectura | OK | segundos | <$0.0001 |
-| Fossify galería (lente de carpetas) | OK | 2.3 s | $0 |
-| Fossify reloj (alarmas) | OK | 5.7 s | ~$0.00005 |
-| Fossify archivos (Download, con scroll) | OK | 9.1 s | ~$0.00013 |
-| Fossify calculadora (3 dígitos × 2 dígitos) | OK, doble snapshot verificado | 15.5 s | ~$0.00031 |
-| Fossify música (lente de pistas) | OK | 5.6 s | ~$0.00010 |
-| **Fossify 5/5 total** | **todo OK** | **~38 s** | **~$0.0006** |
-| Batería en ajustes | OK (`avg_tap_ms 84.6`) | ~23.1 s | ~$0.00067 |
-| Calculadora stock redo | BLOQUEO por entorno (`ok_all: false`, honesto) | n/a | $0 |
-| Multi-app copiar-link → descargador | BLOQUEO honesto (`DOWNLOAD_NOT_STARTED`) | 25 fases | ~$0.0011 |
-| Intent 1-salto `open_url` con `package` | OK `via: startActivity-package` | ~0.13 s | $0 |
-| Intent sin `package` | Chooser `ResolverActivity` (esperado) | ~13 s | $0 |
+| Área | Cifra (medida) |
+|---|---|
+| Percepción `dump_ui` | ~2 ms/nodo (13n/40 ms, 66n/106 ms, 124n/264 ms; ~1 s peor @500) |
+| tap (`ACTION_CLICK` primero) | ~70 ms (`avg_tap_ms` 69.7–84.6) |
+| S1 Jev | ~1.6 s (`avg_s1_ms` 1589.5) |
+| S2 DeepSeek-direct (histórico, retirado) | ~1.9 s/llamada vs flash ~22 s/llamada |
+| Nativo N0 (e2e Go) | ~50–190 ms/tool (media 173 ms) |
+| Intent 1-salto `open_url` + `package` | ~0.13 s (`latency_ms` 130.3) |
+| Tareas cerradas | mensajería-A SENT ~84.9 s (~$0.0038); mensajería-B SENT ~22 s (~$0.0023); Fossify 5/5 ~38 s (~$0.0006); YT→Brave BLOQUEO honesto (~$0.0011) |
+| Techo de costo | **<$0.003** por corrida |
 
-Costo por corrida **<$0.003**. Suite pytest **148 en verde**
-(`cd mcp-server && uv run pytest -q`).
+Bancos: TECNO KJ5 (API 33, Wi-Fi) + A10 USB (Android 10, 720×1440).
+Host: Debian 13, Celeron 847. `dump_ui` 16× más rápido que `uiautomator dump`
+(4353 ms). Tablas completas en `docs/benchmarks/`; forense en `logs/` (Go) más
+histórico `mcp-server/logs/` (harness Python congelado).
+
+Runtime 100% Go (`go test ./...`, `make build`); el harness Python
+`mcp-server` es historia congelada, no un componente activo.
 
 ## Estado actual + roadmap
 
-- **Hoy:** Fases 0–4 verdes; Fase 5 `run_goal` + plan-ahead v4 + §12 en el
-  árbol; v5 director-cliente (`resolve_element` ciego + `set_clipboard` +
-  `loop.py` congelado) en `docs/` + código; carril nativo N0/N1 vivo, N2
-  gateado; 35/35 docstrings MCP al estándar de 5 secciones.
+- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 35 tools,
+  `go test ./...` verde); Fases 0–4 verdes; v5 director-cliente vigente
+  (**Director = OpenCode/operador externo**, Jav = servidor delgado sin bucles
+  ni S2 interno: `resolve_element` ciego + `set_clipboard` + `loop.py`
+  histórico congelado); carril nativo N0/N1 vivo, N2 gateado;
+  35/35 docstrings al estándar de 5 secciones.
 - **Roadmap:** cierre formal suite A10 (batería + calculadora + clipboard
   round-trip) → P1 (firma anti-ticker, `assertFresh`, forense wire+timings) →
   P2 (ranking por relevancia + recalibrar `TAU` con ≥20 goals) → Fase 6
@@ -341,22 +354,19 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 # 3. Forward + entorno (en el PC)
 adb forward tcp:38472 tcp:38472
-cd mcp-server && cp ../.env.example ../.env   # edita: JEV_TOKEN, OPENROUTER_API_KEY, modelos
-uv sync
+cp .env.example .env   # edita: JAV_TOKEN, OPENROUTER_API_KEY, modelos (chmod 600)
 
 # 4. Chequeos sin Android Studio
-uv run pytest -q                       # 148 en verde
-cd ../android-app && ./gradlew :app:testDebugUnitTest
+go build ./... && go vet ./... && go test ./...   # suite Go verde
+cd android-app && ./gradlew :app:testDebugUnitTest
 
-# 5a. run_goal general (caso simple)
-cd ../mcp-server
-JEV_TOKEN=... OPENROUTER_API_KEY=... uv run python scripts/run_goal_check.py \
-  --goal "List the alarms in the clock app"
-
-# 5b. Director paso a paso (meta compleja): por pantalla,
-# read_screen_state → resolve_element("<micro EN de ESTA pantalla>")
-# → tap_idx / type_text / open_app → read de verificación → get/set_clipboard
+# 5. Director paso a paso (única vía activa; el Director es externo): por pantalla,
+# read_screen → resolve_element("<micro EN de ESTA pantalla>")
+# → tap_node / type_text / open_app → read de verificación → get/set_clipboard
 # → forense en logs/run-<ts>.jsonl. Ver docs/specs/director-client.md §9.4.
+#
+# Bucle histórico congelado (solo referencia, no runtime):
+# mcp-server/ + uv + pytest (148 en verde al congelar).
 ```
 
 ## Seguridad

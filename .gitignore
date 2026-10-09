@@ -45,3 +45,6 @@ Thumbs.db
 .vscode/
 *~
 refs/
+
+# --- OpenCode local (utilidades locales, no parte del repo) ---
+.opencode/skills/
