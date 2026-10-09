@@ -97,7 +97,7 @@ func hOpenURL(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult
 
 func hSendIntent(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := argsOf(req)
-	action := getString(args, "action", "")
+	action := CanonicalizeIntentAction(getString(args, "action", ""))
 	uri := getString(args, "uri", "")
 	pkg := getString(args, "package", "")
 	mime := getString(args, "mime", "")

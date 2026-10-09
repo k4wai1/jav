@@ -18,12 +18,42 @@ object NatPolicies {
     /** Esquemas de URI que comunican cuando van con acción de envío. */
     val SEND_SCHEMES = setOf("sms", "smsto", "mms", "mmsto", "tel", "mailto")
 
+    /**
+     * Canonicaliza una acción de intent a su forma `android.intent.action.X`.
+     * Estricta: trim + uppercase; acepta `SEND`, `ACTION_SEND`, `ACTION.SEND`,
+     * `action.send`, `.SEND` y la forma completa con/sin prefijo
+     * `android.intent.` (cualquier caja) → `android.intent.action.SEND`.
+     * Igual para CALL, VIEW, SENDTO, SEND_MULTIPLE y DIAL. Desconocidas:
+     * devuelve el input con trim (sin inventar).
+     */
+    fun canonicalizeAction(raw: String): String {
+        val t = raw.trim().uppercase()
+        if (t.isEmpty()) return ""
+        var core = t
+        // Prefijo `android.intent.` opcional (cubre `action.*` y `action_*`).
+        if (core.startsWith("ANDROID.INTENT.")) {
+            core = core.removePrefix("ANDROID.INTENT.")
+        }
+        core = when {
+            core.startsWith("ACTION_") -> core.removePrefix("ACTION_")
+            core.startsWith("ACTION.") -> core.removePrefix("ACTION.")
+            core.startsWith(".") -> core.removePrefix(".")
+            else -> core
+        }
+        return when (core) {
+            "SEND", "SENDTO", "SEND_MULTIPLE", "CALL", "VIEW", "DIAL" ->
+                "android.intent.action.$core"
+            else -> raw.trim()
+        }
+    }
+
     /** Apertura/pre-relleno (P0) vs envío crítico (confirm). */
     fun isCritical(action: String, uri: String): Boolean {
-        if (action in CRITICAL_ACTIONS) return true
+        val a = canonicalizeAction(action)
+        if (a in CRITICAL_ACTIONS) return true
         val scheme = uri.substringBefore(":", "").lowercase()
         if (scheme in SEND_SCHEMES &&
-            (action == "android.intent.action.VIEW" || action in CRITICAL_ACTIONS)
+            (a == "android.intent.action.VIEW" || a in CRITICAL_ACTIONS)
         ) return true
         return false
     }

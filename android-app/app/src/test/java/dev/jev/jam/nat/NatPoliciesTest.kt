@@ -26,6 +26,66 @@ class NatPoliciesTest {
     }
 
     @Test
+    fun `canonicalizeAction estricta SEND-CALL-VIEW`() {
+        // SEND → ACTION_SEND canónico (bypass con punto cerrado)
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("ACTION_SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction(".SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("action.send"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("ACTION.SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("android.intent.action.SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("android.intent.ACTION.SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("android.intent.SEND"))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("  send  "))
+        assertEquals("android.intent.action.SEND", NatPolicies.canonicalizeAction("android.intent.action.send"))
+        // CALL igual (familia completa con punto)
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction("CALL"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction("ACTION_CALL"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction(".CALL"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction("action.call"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction("ACTION.CALL"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction("android.intent.action.CALL"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction("android.intent.CALL"))
+        assertEquals("android.intent.action.CALL", NatPolicies.canonicalizeAction(" android.intent.action.call "))
+        // VIEW igual (libre con https, crítica solo por esquema sms)
+        assertEquals("android.intent.action.VIEW", NatPolicies.canonicalizeAction("VIEW"))
+        assertEquals("android.intent.action.VIEW", NatPolicies.canonicalizeAction("ACTION_VIEW"))
+        assertEquals("android.intent.action.VIEW", NatPolicies.canonicalizeAction("ACTION.VIEW"))
+        assertEquals("android.intent.action.VIEW", NatPolicies.canonicalizeAction("action.view"))
+        assertEquals("android.intent.action.VIEW", NatPolicies.canonicalizeAction(".VIEW"))
+        assertEquals("android.intent.action.VIEW", NatPolicies.canonicalizeAction("android.intent.action.VIEW"))
+        // SENDTO / SEND_MULTIPLE / DIAL también canónicos
+        assertEquals("android.intent.action.SENDTO", NatPolicies.canonicalizeAction("sendto"))
+        assertEquals("android.intent.action.SEND_MULTIPLE", NatPolicies.canonicalizeAction("ACTION_SEND_MULTIPLE"))
+        assertEquals("android.intent.action.DIAL", NatPolicies.canonicalizeAction("dial"))
+        // Desconocida: trim sin inventar; vacía → ""
+        assertEquals("com.ejemplo.CUSTOM", NatPolicies.canonicalizeAction("  com.ejemplo.CUSTOM "))
+        assertEquals("", NatPolicies.canonicalizeAction("   "))
+    }
+
+    @Test
+    fun `formas cortas tambien son criticas`() {
+        assertTrue(NatPolicies.isCritical("SEND", ""))
+        assertTrue(NatPolicies.isCritical("ACTION_SEND", ""))
+        assertTrue(NatPolicies.isCritical("action_send", ""))
+        assertTrue(NatPolicies.isCritical(".SEND", ""))
+        assertTrue(NatPolicies.isCritical("action.send", ""))
+        assertTrue(NatPolicies.isCritical("ACTION.SEND", ""))
+        assertTrue(NatPolicies.isCritical("android.intent.SEND", ""))
+        assertTrue(NatPolicies.isCritical(" call ", "tel:123"))
+        assertTrue(NatPolicies.isCritical("ACTION_CALL", "tel:123"))
+        assertTrue(NatPolicies.isCritical(".CALL", "tel:123"))
+        assertTrue(NatPolicies.isCritical("action.call", "tel:123"))
+        assertTrue(NatPolicies.isCritical("ACTION.CALL", "tel:123"))
+        assertTrue(NatPolicies.isCritical("VIEW", "sms:123?body=hola"))
+        assertTrue(NatPolicies.isCritical("ACTION.VIEW", "sms:123?body=hola"))
+        assertFalse(NatPolicies.isCritical("VIEW", "https://x.test/a"))
+        assertFalse(NatPolicies.isCritical("ACTION.VIEW", "https://x.test/a"))
+        assertFalse(NatPolicies.isCritical("action.view", "https://x.test/a"))
+        assertFalse(NatPolicies.isCritical("DIAL", "tel:123"))
+    }
+
+    @Test
     fun `paquetes con forma`() {
         assertTrue(NatPolicies.validPackage("dev.jev.jam"))
         assertTrue(NatPolicies.validPackage("com.ejemplo.app"))

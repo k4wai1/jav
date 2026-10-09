@@ -221,3 +221,95 @@ Suite MCP: **148 passed** (147 + test de forwarding). N2 y demás métodos
 sin cambios. `grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat|
 felix' mcp-server/src/` → **vacío** (el único `forward` es
 `adb forward`/`ensure_forward` de `_base.py`, no la acción de reenvío).
+
+## 10. P0 `send_intent`: canonicalización estricta + replay Go/Python (2026-10-09, 5002E/API 29, USB e03638e5, SOLO USB)
+
+Deuda documentada en `cf66b7d`: `hSendIntent` (Go) pasaba `action`
+verbatim y `NatPolicies.isCritical` (Jam) solo cubría formas plenas
+`android.intent.action.*`; `SEND`/`CALL` cortos sin `confirm` daban `ok`
+en vez de `planned` (bypass determinista del confirm).
+
+Cambios:
+- Kotlin `nat/NatPolicies.kt`: `canonicalizeAction` estricta (trim +
+  uppercase; `SEND`/`ACTION_SEND`/`.SEND`/forma plena → forma canónica;
+  igual CALL, VIEW, SENDTO, SEND_MULTIPLE, DIAL; desconocidas → trim sin
+  inventar). `isCritical` canonicaliza antes de comparar; `sendIntent`
+  (`NativeSensitive`) canonicaliza al entrar (preview, `Intent` y `am`
+  usan la forma canónica; vacía → `VALIDATION_ERROR`).
+- Go `pkg/tools/sendintent.go` (nuevo): espejo exacto
+  (`CanonicalizeIntentAction` + `IsCriticalIntent`); `hSendIntent`
+  canonicaliza antes del frame WS (el gate `planned` lo pone Jam).
+- Tests: JVM `NatPoliciesTest` 2 nuevos (canónica SEND/CALL/VIEW +
+  cortas críticas); Go `sendintent_test.go` (misma matriz);
+  Go `pkg/normalizer/replay_test.go`: paridad conductual Go vs Python.
+- Cobertura replay real (no inventada): 70 `run-*.jsonl`
+  (`mcp-server/logs/` + `logs/`) con **0 árboles crudos** (solo
+  forense/conteos); replay sobre 2 dumps reales con árbol:
+  `mcp-server/tests/fixtures/wa_home.json` (WhatsApp, 174→65) y
+  `pkg/normalizer/testdata/jam_live_18.json` (Jam onboarding en e03638e5
+  vía `dump_ui`, 18→10; token saneado a `TOKEN-REDACTED`). Esperado
+  generado por Python (`normalize` + `build_table` + `serialize_table` +
+  `zone_of`, 720x1440); Go da poda/índices/zonas 3×3 idénticos.
+- Rutas Go en raíz (`pkg/`, `cmd/`, `go.mod`); `go-mcp/` no existe:
+  solo queda la nota histórica en `docs/specs/go-migration-plan.md §2`
+  (reubicación documentada, sin código que actualizar).
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest"  # 14/14 verdes
+./gradlew :app:assembleDebug
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+go build ./... && go vet ./... && go test ./...                          # 6 pkgs OK
+uv run pytest tests/                                                     # 140 passed (mcp-server/)
+```
+
+| Build | Resultado | Tiempo Gradle (wall) | Notas |
+|---|---|---|---|
+| test NatPolicies (14 tests JVM) | **OK** | 2m 50s | 12 previos + canonicalize + cortas-críticas |
+| assembleDebug | **OK** | 2m 33s (wall 155s) | APK debug 16 MB |
+| install -r | **Success** | — | 5002E (USB e03638e5) |
+
+Verificación hello + P0 en vivo (token del operador, sin exponer):
+`hello{ok:true, proto:1, app:0.1.0, scopes:[read,ui]}`;
+`SEND`/`ACTION_SEND`/`.SEND`/`CALL`/`action_call` sin `confirm` →
+`planned:true` con `action` canónica; `VIEW https` → `startActivity`
+(apertura, sin planned); `VIEW sms` → `planned:true`.
+
+Nota: un `compileDebugKotlin` incremental intermedio falló con
+`Unresolved reference: photoResult` (caché incremental rancia);
+`--rerun-tasks` → SUCCESS sin cambios de código (pre-existente,
+no relacionado al P0).
+
+Sin commits (cierra @judge), sin push.
+
+## 11. P0 bypass con punto `action.send`/`ACTION.SEND` (2026-10-09, 5002E/API 29, USB e03638e5, SOLO USB)
+
+`@judge` frenó el commit: `canonicalizeAction` pelaba `ACTION_`
+(guion-bajo) y `.` inicial, pero `action.send`→`ACTION.SEND` caía al
+`else` y ejecutaba por `shizuku-am` sin `planned` (bypass del gate).
+Igual `ACTION.SEND`.
+
+Fix:
+- Kotlin `nat/NatPolicies.kt`: strip secuencial — prefijo opcional
+  `ANDROID.INTENT.` y luego `ACTION_`/`ACTION.`/`.` (case-insensitive).
+  Cubre `SEND`, `ACTION_SEND`, `.SEND`, `action.send`, `ACTION.SEND`,
+  familia CALL, `VIEW` libre, con/sin `android.intent.`.
+- Go `pkg/tools/sendintent.go`: espejo exacto.
+- Tests: JVM `NatPoliciesTest` (canónica + críticas con punto) y Go
+  `sendintent_test.go` (misma matriz: SEND, ACTION_SEND, .SEND,
+  action.send, ACTION.SEND, CALL y familia, VIEW libre con https).
+
+```bash
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest"  # 14/14 verdes
+./gradlew :app:assembleDebug
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+go test ./pkg/tools/ -run 'TestCanonicalize|TestIsCritical' -v
+```
+
+| Build | Resultado | Tiempo Gradle (wall) | Notas |
+|---|---|---|---|
+| test NatPolicies (14 tests JVM) | **OK** | 5m 6s | canónica + punto (`action.send`/`ACTION.SEND`/CALL/VIEW) |
+| assembleDebug | **OK** | 3m 42s | APK debug 16 MB |
+| install -r | **Success** | — | 5002E (USB e03638e5) |
+| go test pkg/tools (canon+critical) | **OK** | <1s | matriz con punto en verde |
+
+Sin commits (cierra @judge), sin push.

@@ -677,19 +677,20 @@ object NativeSensitive {
         ctx: Context, action: String, uri: String, pkg: String,
         mime: String, confirm: Boolean, extras: Map<String, String>
     ): JsonObject {
-        if (action.isBlank()) throw JamError("action vacía", "VALIDATION_ERROR")
+        val canon = NatPolicies.canonicalizeAction(action)
+        if (canon.isBlank()) throw JamError("action vacía", "VALIDATION_ERROR")
         if (pkg.isNotBlank() && !NatPolicies.validPackage(pkg)) {
             throw JamError("package con forma inválida", "VALIDATION_ERROR")
         }
-        if (NatPolicies.isCritical(action, uri) && !confirm) {
+        if (NatPolicies.isCritical(canon, uri) && !confirm) {
             return planned(
-                mapOf("action" to action, "uri_scheme" to uri.substringBefore(":"),
+                mapOf("action" to canon, "uri_scheme" to uri.substringBefore(":"),
                     "package" to pkg, "extras_n" to extras.size.toString())
             )
         }
         // Vía directa primero (Jam en foreground la permite); si el
         // background-start la bloquea, Shizuku `am start` (camino open_app).
-        val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(canon).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (uri.isNotBlank()) intent.data = Uri.parse(uri)
         if (pkg.isNotBlank()) intent.setPackage(pkg)
         if (mime.isNotBlank()) intent.type = mime
@@ -697,11 +698,11 @@ object NativeSensitive {
         return try {
             ctx.startActivity(intent)
             buildJsonObject {
-                put("action", action)
+                put("action", canon)
                 put("via", "startActivity")
             }
         } catch (t: Exception) {
-            val args = mutableListOf("am", "start", "-a", action)
+            val args = mutableListOf("am", "start", "-a", canon)
             if (uri.isNotBlank()) {
                 args.add("-d")
                 args.add(uri)
@@ -717,7 +718,7 @@ object NativeSensitive {
             }
             shizukuAm(args)
             buildJsonObject {
-                put("action", action)
+                put("action", canon)
                 put("via", "shizuku-am")
             }
         }
