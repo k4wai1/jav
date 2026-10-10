@@ -481,3 +481,5 @@ arranque en frío (puerto sin LISTEN en proceso rancio, ya visto
 en §7).
 
 Sin commits (cierra @judge), sin push. Sin keys/tokens.
+
+## 14. CI `build-apk`: sin `setup-android@v3` (pedía paquete obsoleto `tools`); se usa el SDK del runner + `sdkmanager --install "platforms;android-34" "build-tools;34.0.0"` (AGP 8.5.2 default, `compileSdk 34`).

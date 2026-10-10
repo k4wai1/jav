@@ -23,8 +23,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages (runner already provides SDK)
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK root: $SDK_ROOT"
+          SDMGR="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDMGR" --sdk_root="$SDK_ROOT" --licenses > /dev/null
+          "$SDMGR" --sdk_root="$SDK_ROOT" --install "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build Jam companion APK (debug)
         working-directory: android-app
