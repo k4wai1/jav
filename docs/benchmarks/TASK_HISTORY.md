@@ -53,3 +53,18 @@ Fuente: `docs/TESTING.md §9–10` + `docs/BUILD.md §9`.
 Costo por corrida **<$0.003** en todas las filas con LLM (las de director
 puro/intents son $0). Tarifas: Jev `$0.042` in / `$0.00` out por MTok
 (normativo); S2 por env (placeholder ajustable). Cada paso loguea `[COST]`.
+
+## 5. Cotidiano 2026-10-10 en A10 USB (solo lectura + 1 tap omitido por bloqueo)
+
+Fuente: `logs/run-20261010-011841-cotidiano.jsonl` (15 pasos) + reintentos
+YouTube en stdout (`open_url` ×3 OK, `read` 34 nodos, resolves S1 ×4
+`envelope S1 no-JSON`). Banco 5002E Android 10 USB `e03638e5`, binario Go
+por stdio, pantalla ON, forward `tcp:38472`. Sin commits, sin push,
+sin descargas, sin crear alarma/mensaje.
+
+| Tarea (genérica, EN) | Resultado | Tiempo | Costo | Forense |
+|---|---|---|---|---|
+| Open a video link via `open_url` with explicit client `package` (1 hop, no chooser) | OK ×3 (`via: startActivity-package`, 73–199 ms; foreground morphe `MainActivity` en reintentos; primer intento cayó a `systemui` transitorio) | ~0.07–0.20 s/call | $0 | `logs/run-20261010-011841-cotidiano.jsonl` (`youtube/open_url`) |
+| Resolve Play/Pause or Share button via Jev S1 on the player screen (34 nodes) | **BLOQUEO honesto** (`envelope S1 no-JSON` ×5, 408–1354 ms; endpoint OpenRouter 200 vacío en debug sintético n=2/10/34) → **sin tap ciego, sin descarga** | n/a (Jev 0.4–1.4 s) | $0 afectable | mismo jsonl (`youtube/resolve_element` FAIL) |
+| Open the messages app and resolve a field via Jev S1 (read-only, no create) | OK resolve (`idx 0 conf 0.86`, 415 ms) + persistencia por re-`read` (162 ms); **NO tap/type, NO crear alarma/mensaje** | ~6 s (`open_app` 5546 ms poll + reads) | ~$0.00004 (`[COST]` S1) | mismo jsonl (`fossify/*`) |
+| Verify a clean open-source APK is installed via `list_packages` (no install/uninstall) | OK (130 pkgs; fossify 8, morphe 2, rvx 1, seal 0; 104–115 ms) | ms | $0 | mismo jsonl (`paquetes/*`) |

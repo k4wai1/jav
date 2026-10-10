@@ -417,7 +417,7 @@ const dMediaControl = `Controla el transporte multimedia.
 
 Descripcion: play/pause/next/prev (reversibles); stop es destructivo y exige confirmacion.
 Parametros: action (str): "play"|"pause"|"next"|"prev"|"stop"; package (str): "" = primera sesion; confirm (bool).
-Retorno: stop sin confirm -> {ok:true, verified:false, evidence={planned:true, preview}}; con exito -> {ok:true, verified:true, evidence={action, package, via}}.
+Retorno: stop sin confirm -> {ok:true, verified:false, evidence={planned:true, preview, hint}}; con exito -> {ok:true, verified:true, evidence={action, package, via}}.
 Permisos/Grants: listener habilitado; stop exige confirm=true.
 Errores/gotchas: sin sesiones -> MEDIA_SESSIONS_UNAVAILABLE; paquete sin sesion -> MEDIA_SESSION_GONE; fallo -> MEDIA_CONTROL_FAILED; action invalida -> VALIDATION_ERROR.
 Cuándo NO usar: NO ejecutar stop sin preview aprobado → primera llamada planea; NO reenviar preview distinto con el confirm anterior. Verifica con media_state.

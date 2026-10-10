@@ -77,6 +77,13 @@ Fuentes: `docs/BUILD.md §9` (medición manual WS `127.0.0.1:38472`) +
 | `press_back` / `press_home` reales | 55–67 ms / 61–66 ms |
 | Media e2e Go 2.ª corrida (53 entradas: ok + planned + errores honestos) | **lat_media 173 ms**, lat_max 3073 ms (`get_location` TIMEOUT 3 s) |
 | Media e2e Go 1.ª corrida (referencia) | lat_media 298 ms, lat_max 3658 ms (`send_intent` VIEW con poll) |
+| Cotidiano 2026-10-10 A10 USB (`logs/run-20261010-011841-cotidiano.jsonl`): `open_url` morphe 1-salto (×3) | **73–199 ms** (`via: startActivity-package`, foreground morphe OK en reintentos) |
+| Cotidiano 2026-10-10: `read_screen` morphe player 34 nodos / Fossify messages 11 nodos | **366–486 ms** / **162–192 ms** |
+| Cotidiano 2026-10-10: `list_packages` 130 pkgs + filtros fossify/morphe/rvx/seal | **104–115 ms** |
+| Cotidiano 2026-10-10: `device_status` (WS RTT/hello) / `get_foreground` / `press_back`+`press_home` | **190 ms** / **79–241 ms** / **56–134 ms + 44 ms** |
+| Cotidiano 2026-10-10: `open_app` Fossify messages (Shizuku + poll foreground) | **5546 ms** (poll, no nativa) |
+| Cotidiano 2026-10-10: S1 Jev resolve Fossify OK (`idx 0 conf 0.86`, sin tap) | **415 ms** (<1.8 s) |
+| Cotidiano 2026-10-10: S1 Jev resolve YouTube BLOQUEO (`envelope S1 no-JSON`, endpoint 200 vacío ×5) | **408–1354 ms** (sin tap ciego, sin descarga) |
 
 `package` desconocido → `PACKAGE_NOT_FOUND`; instalado sin handler →
 `INTENT_UNRESOLVED`. Costo $0 (sin LLM). Detalle tabular en
