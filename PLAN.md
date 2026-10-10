@@ -180,10 +180,10 @@
 
 ## Deuda / anotaciones (AGENTS.md §9)
 - Nombre asentado 2026-10-07: **Jav** = proyecto/runtime; **Jev** = backend táctico (`JEV_MODEL`); migración (`jev_mcp`→`jav`, `JAV_*`, `com.k4wai1.jam`) **diferida** (ver `docs/specs/ecosystem.md` §4; sin renombrar código aún).
-- Seguridad P0: **enmascarar token en logcat**
-  (`android-app/.../service/JevForegroundService.kt:33` loguea
-  `JamWs token=$token url=…` en claro; rotar token expuesto + pasar a
-  `token=<redacted>` o hash corto). Sin esto no hay release.
+- Seguridad P0: **resuelto** (36fc93a "token enmascarado", verificado
+  2026-10-10): `JevForegroundService.kt:35` loguea
+  `JamWs token_sha256=<8 hex> len=<n>` (nunca el token en claro). Antes de
+  un release, rotar cualquier token históricamente expuesto.
 - Backlog 2b (no se finge cerrado): WSS + certificado self-signed +
   token en Keystore (bind tailnet). Transporte actual = WS loopback
   + `adb forward`; `hello` objeto `WsRequest{id,method,params}` con
