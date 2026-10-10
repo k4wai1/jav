@@ -53,3 +53,16 @@ func TestAskStubWithoutKey(t *testing.T) {
 		t.Fatalf("stub honesto: %+v %v %v", answers, usage, err)
 	}
 }
+
+func TestAskDecisionDoesNotMutateTable(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("JEV_MODEL", "typesafe/jev-1.13")
+	table := []SerialRow{{0, "Button", "top-left", "click", "×"}}
+	_, _, err := AskDecision("goal", table, 3, AskDecisionOpts{})
+	if err != nil {
+		t.Fatalf("mock no debe fallar: %v", err)
+	}
+	if table[0][4] != "×" {
+		t.Fatalf("no debe mutar la tabla de entrada: %v", table[0][4])
+	}
+}

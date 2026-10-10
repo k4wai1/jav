@@ -83,7 +83,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 |---|---|---|---|
 | `dump_ui` | `{}` | `{snapshot_id, package, activity, timestamp, nodes[]}` (sin ventana activa → `package: ""`, `nodes: []`) | read |
 | `tap` | `{selector}` | `{node_id, via}` | ui |
-| `tap_node` | `{node_id, snapshot_id}` | `{via}` (mismatch → `STALE_SNAPSHOT`) | ui |
+| `tap_node` | `{node_id, snapshot_id}` | `{via: action_click\|click_ancestor\|gesture}` (mismatch → `STALE_SNAPSHOT`) | ui |
 | `type` | `{node_id, snapshot_id, text}` | `{chars}` (nodo sin foco → `NOT_FOCUSED`; el cliente hace `tap` previo explícito) | ui |
 | `scroll` | `{direction: up\|down\|left\|right, node_id?}` | `{}` | ui |
 | `press_back` / `press_home` | `{}` | `{}` | ui |
@@ -103,6 +103,20 @@ Aprobación "1 comando" → ejecuta solo si `SHA-256(command)` coincide
 exacto; aprobación "5/30 min" → cubre cualquier `shell` en la ventana.
 Denegación → `SHELL_DENIED`. Timeout 60 s → `TIMEOUT`.
 Denylist (§8) → `SHELL_DENYLIST` salvo `admin` + `confirm: true`.
+
+**Frescura y `via` (contrato):**
+
+- `via` informa el camino ejecutado por `tap_node`: `action_click` (el
+  nodo objetivo era clickable → `ACTION_CLICK`), `click_ancestor` (el
+  objetivo no era clickable → se ejecutó `ACTION_CLICK` sobre el ancestro
+  cliqueable más próximo, ≤3 niveles) o `gesture` (fallback: gesto al
+  centro de `bounds`).
+- El `snapshot_id` caduca ante cambios **reales** de estructura/estado.
+  Los eventos `TYPE_WINDOW_CONTENT_CHANGED` (ruido cosmético de sistema y
+  de la app: relojes, animaciones, cursores) **no** invalidan el snapshot
+  por diseño. La consistencia fina la aporta la identidad del nodo
+  (`text` + `resource_id` + `class`) verificada al actuar: si cambió →
+  `STALE_SNAPSHOT`.
 
 ### 4.1 Catálogo nativo N0+N1 (carril APIs directas, sin Jev)
 
@@ -151,6 +165,10 @@ responde `ok: true, verified: false`; repetir con `confirm: true` ejecuta.
 `nodes` es un **array plano**; el parentesco va por `children: [id]`.
 `snapshot_id` es un contador monotónico persistido; `tap_node`/`type`
 lo exigen y fallan con `STALE_SNAPSHOT` si cambió la UI.
+
+Un `TYPE_WINDOW_CONTENT_CHANGED` puramente cosmético **no** cuenta como
+cambio de UI (anti-ticker): la frescura fina la decide la identidad del
+nodo en el momento de actuar (ver §4 "Frescura y `via`").
 
 ```json
 {"id": "n_0", "text": "Buscar", "content_desc": null,

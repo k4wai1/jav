@@ -274,3 +274,41 @@ pkg/activity` (`via: shizuku-am`). Docstrings MCP 35/35 al estándar
 prueba: `dev.jev.jam` (Jam); `dump_ui` sin campo `secure` (contrato
 vigente: superficie protegida solo como `SECURE_SURFACE` en
 `screenshot`).
+
+## 11. Robustez táctica P1+P2 en A10 (`e03638e5`, Android 10, 2026-10-10)
+
+Banco: A10 USB `e03638e5`, Android 10 (SDK 29), 720×1440. APK debug
+reconstruido con el fix e instalado (`adb install -r`); accesibilidad
+activa; forward `tcp:38472`; token vía `run-as`
+(`shared_prefs/jam_auth.xml` → `ws_token`). Sonda temporal (cliente `pkg/jam`):
+
+1. `hello` → scopes `[read ui]`.
+2. Para cada muestra: `dump_ui` (S_i) → esperar 3.5 s (ticks de reloj) →
+   `type_text` sobre un nodo no enfocado. `NOT_FOCUSED` = snapshot fresco
+   (el fix funciona); `STALE_SNAPSHOT` = caducado (bug).
+
+| Build | Pantalla | Fresco | STALE |
+|---|---|---|---|
+| sin fix (filtro SystemUI) | Jam MainActivity (estática) | 3/3 | 0/3 |
+| sin fix | Fossify Clock (viva) | 0/3 | 3/3 |
+| fix SystemUI-only | Fossify Clock (viva) | 0/3 | 3/3 |
+| **fix content-changed** | Fossify Clock (viva) | **3/3** | 0/3 |
+| fix content-changed | Fossify Clock + `press_back` | 0/1 | 1/1 (control) |
+
+**Hallazgo:** el reloj de la barra de estado (avanza por minuto) **no**
+reproduce el fallo; el reloj con segundos de la **app** (Fossify Clock) sí,
+y el filtro SystemUI-only **no** lo arregla. La corrección real es ignorar
+`TYPE_WINDOW_CONTENT_CHANGED` en `onAccessibilityEvent` (ruido cosmético de
+sistema y app) y confiar en `verifySame` como compuerta fina. El control de
+cambio real (navegación) sigue dando `STALE_SNAPSHOT`.
+
+**Calculadora (Fossify Math, rejilla densa `9`/`×`/`C`/`.`):** secuencia
+`9 × 9 =` por `tap_node` con snapshot fresco por paso. Botones resueltos por
+`via=action_click` (los propios nodos son clickables; el walk-up no se
+ejercita aquí). El tap de `×` tras cambiar el display dio `STALE_SNAPSHOT`
+(control correcto: el display cambió por un evento distinto de
+content-changed). Walk-up y glifos quedan cubiertos por tests unitarios
+(`ClickAncestorTest`, `TestFormatCandidateLabel`).
+
+Estado de suites: `go test ./...` verde · `./gradlew testDebugUnitTest` 49
+tests verde · `make audit-mcp` **11/11 PASS** (35 tools, 0 diffs de schema).

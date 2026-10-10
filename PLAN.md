@@ -84,6 +84,27 @@
 - [ ] Forense por corrida `logs/run-<ts>.jsonl` (fase, snapshot, opciones,
   respuestas con `conf`/`tau`, acción por paso). Sin forense no hay certificación.
 
+### Robustez táctica P1+P2 (2026-10-10, banco A10 `e03638e5`, SDK 29)
+- [x] P1-a anti-ticker Kotlin: `isVolatileEvent` ignora
+  `TYPE_WINDOW_CONTENT_CHANGED` (ruido cosmético de sistema **y** app);
+  la frescura fina se delega a `verifySame` (identidad del nodo).
+  Validado A/B en A10: Fossify Clock 3/3 fresco (el filtro SystemUI-only
+  **no** lo arreglaba); control `press_back` → `STALE_SNAPSHOT`.
+  Evidencia: `docs/TESTING.md §11`, `docs/specs/tactical-robustness-p1p2.md §1`.
+- [x] P1-b anti-ticker Go: `isVolatileNode` (regex hora/`%`) en
+  `ScreenFingerprint`; lista solo-volátil → `""`.
+- [x] P1-c walk-up `ClickAncestor` (≤3 niveles, `via: click_ancestor`).
+  Validado por unit tests JVM (en Fossify Math los botones ya son
+  `action_click`: el walk-up no se ejercita en banco).
+- [x] P2-a glifos: `FormatCandidateLabel` en capa adaptadora
+  (`pkg/jev` + `pkg/director`); `SerializeTable` **intacta** (paridad golden).
+- [x] Stepper Canónico en `docs/MCP_SPEC_GUIDELINES.md §4.4`.
+- [x] Enmiendas `PROTOCOL.md`: `via` enumerado en `tap_node` + semántica
+  de frescura (`TYPE_WINDOW_CONTENT_CHANGED` no invalida).
+- [ ] Pendiente honesto: walk-up y glifos validados en tests unitarios, sin
+  corrida con modelo S1 live. `verify_state`/`tap_point` siguen fuera
+  (invariante estricta de 35 tools; `make audit-mcp` 11/11).
+
 ### Fase v5 — Director-cliente (loop congelado; `resolve_element` + `set_clipboard`)
 - [x] Contratos `@architect`: `docs/specs/paradigm-shift.md` (3 giros 2026-10-06),
   `docs/specs/director-client.md` v5, `README.es.md`/`README.en.md`.
@@ -147,12 +168,15 @@
    suite A10 en banco USB (batería + calculadora + clipboard round-trip) +
    greps cero-acoplado + forense `logs/run-<ts>.jsonl` con `cost` por paso.
 2. `@coder` (solo bugfix con test o P1/P2 con protocolo ≥20 goals ×3):
-   ranking por relevancia, firma anti-ticker, `assertFresh`,
-   timings por fase, recalibrado de `TAU`/`FAST_TAU`. Sin features en `loop.py`.
+   ranking por relevancia, `assertFresh`, timings por fase, recalibrado de
+   `TAU`/`FAST_TAU`. **Firma anti-ticker: hecha** (2026-10-10, ver arriba).
+   Sin features en `loop.py`.
 3. Orquestador: enmienda AGENTS.md §1 propuesta en `director-client.md`
    §11.4 (director decide / Jev señala / Jam ejecuta).
 4. Explícito: **sin paquetes/contactos prefijados**; acción crítica/irreversible
    solo con preview + `confirm:true` del operador, auditada en forense.
+5. Release: evaluar tag `v1.0.6` para publicar la APK con `ClickAncestor` +
+   anti-ticker (releases GitHub). Requiere antes la deuda P0 (token en logcat).
 
 ## Deuda / anotaciones (AGENTS.md §9)
 - Nombre asentado 2026-10-07: **Jav** = proyecto/runtime; **Jev** = backend táctico (`JEV_MODEL`); migración (`jev_mcp`→`jav`, `JAV_*`, `com.k4wai1.jam`) **diferida** (ver `docs/specs/ecosystem.md` §4; sin renombrar código aún).

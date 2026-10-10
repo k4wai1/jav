@@ -18,6 +18,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dev.jev.jam.shell.ShizukuBridge
 import dev.jev.jam.socket.JamError
+import dev.jev.jam.ui.ClickAncestor
 import dev.jev.jam.ui.DisplayScale
 import dev.jev.jam.ui.RealA11yNode
 import dev.jev.jam.ui.Selector
@@ -37,6 +38,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class TapResult(val nodeId: String, val via: String)
 
 data class ScreenshotData(val img: String, val w: Int, val h: Int, val via: String)
+
+// Anti-ticker (spec tactical-robustness-p1p2 §1): los
+// TYPE_WINDOW_CONTENT_CHANGED son ruido cosmético del sistema Y de la
+// propia app (relojes, animaciones, cursores). No invalidan el snapshot
+// por sí solos: la identidad real del nodo se valida en verifySame al
+// actuar (STALE_SNAPSHOT si de verdad cambió).
+internal fun isVolatileEvent(eventType: Int?): Boolean =
+    eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
 
 /**
  * Fase 2: percepción + acciones UI. Fase 3a: `open_app`/`force_stop`
@@ -72,8 +81,14 @@ class JevAccessibilityService : AccessibilityService() {
     private var lastNodes: List<UiNode> = emptyList()
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        uiDirty = true
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        if (event == null) {
+            uiDirty = true
+            return
+        }
+        if (!isVolatileEvent(event.eventType)) {
+            uiDirty = true
+        }
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.className?.toString()?.let { lastActivity = it }
         }
     }
@@ -198,6 +213,14 @@ class JevAccessibilityService : AccessibilityService() {
             verifySame(live, node)
             if (live.isClickable && live.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                 return TapResult(node.id, "action_click")
+            }
+            val ancestor = ClickAncestor.find(RealA11yNode(live))
+            if (ancestor != null) {
+                try {
+                    return TapResult(node.id, "click_ancestor")
+                } finally {
+                    ancestor.recycle()
+                }
             }
             val b = Rect()
             live.getBoundsInScreen(b)

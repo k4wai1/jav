@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Normalizer + tabla/zone puros (equiv. ui_normalizer.py + loop_helpers.py
@@ -38,6 +40,10 @@ var ZoneValues = []string{
 }
 
 var DecorSubstr = []string{"statusBarBackground", "navigationBarBackground"}
+
+// Anti-ticker (spec tactical-robustness-p1p2 §2): relojes y porcentajes no
+// cuentan como progreso de pantalla.
+var volatileTextRe = regexp.MustCompile(`^(\d{1,2}:\d{2}(:\d{2})?|\d{1,3}\s*%)$`)
 
 var Containers = map[string]bool{
 	"android.widget.LinearLayout":               true,
@@ -498,6 +504,32 @@ func SerializeTable(rows []Row) [][]any {
 	return out
 }
 
+// confusableRoles glifos mono-carácter que colisionan en la tokenización
+// del modelo (spec tactical-robustness-p1p2 §4).
+var confusableRoles = map[string]string{
+	"9": "digit nine",
+	"×": "multiplication sign",
+	"+": "plus sign",
+	"-": "minus sign",
+	"C": "clear",
+	".": "decimal point",
+}
+
+// FormatCandidateLabel capa adaptadora de etiquetas para el modelo:
+// amplía glifos ambiguos de una sola runa con sufijo de rol. NO la usa
+// SerializeTable (paridad golden).
+func FormatCandidateLabel(text string) string {
+	t := strings.TrimSpace(text)
+	if utf8.RuneCountInString(t) != 1 {
+		return text
+	}
+	role, ok := confusableRoles[t]
+	if !ok {
+		return text
+	}
+	return t + " [" + role + "]"
+}
+
 // FirstResult hint del primer interactivo del contenedor principal (§12.2).
 func FirstResult(rows []Row) (int, bool) {
 	if len(rows) == 0 {
@@ -635,16 +667,32 @@ func IsSensitive(goal, targetLabel string) bool {
 	return false
 }
 
+// isVolatileNode true → el candidato NO entra en la firma de pantalla.
+func isVolatileNode(c Candidate) bool {
+	eff := c.Text
+	if eff == "" {
+		eff = c.Desc
+	}
+	t := strings.TrimSpace(eff)
+	return t != "" && volatileTextRe.MatchString(t)
+}
+
 // ScreenFingerprint firma de pantalla por contenido (id+texto, sha256).
 func ScreenFingerprint(cands []Candidate) string {
 	type pair struct{ id, text string }
 	pairs := make([]pair, 0, len(cands))
 	for _, c := range cands {
+		if isVolatileNode(c) {
+			continue
+		}
 		t := c.Text
 		if t == "" {
 			t = c.Desc
 		}
 		pairs = append(pairs, pair{c.ID, t})
+	}
+	if len(pairs) == 0 {
+		return ""
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		if pairs[i].id == pairs[j].id {

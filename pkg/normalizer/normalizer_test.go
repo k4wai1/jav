@@ -116,3 +116,50 @@ func TestFingerprintStable(t *testing.T) {
 		t.Fatalf("render debe llevar snapshot")
 	}
 }
+
+func TestFingerprintIgnoresVolatile(t *testing.T) {
+	a := []Candidate{{ID: "n1", Text: "Enviar"}, {ID: "n2", Text: "9:40"}}
+	b := []Candidate{{ID: "n1", Text: "Enviar"}, {ID: "n2", Text: "9:41"}}
+	if ScreenFingerprint(a) != ScreenFingerprint(b) {
+		t.Fatalf("el reloj no debe cambiar la firma")
+	}
+	c := []Candidate{{ID: "n1", Text: "Enviar"}, {ID: "n2", Desc: "12:00:00"}}
+	d := []Candidate{{ID: "n1", Text: "Enviar"}}
+	if ScreenFingerprint(c) != ScreenFingerprint(d) {
+		t.Fatalf("reloj en desc no debe cambiar la firma")
+	}
+	e := []Candidate{{ID: "n1", Text: "Enviar"}, {ID: "n2", Text: "78 %"}}
+	f := []Candidate{{ID: "n1", Text: "Enviar"}, {ID: "n2", Text: "79%"}}
+	if ScreenFingerprint(e) != ScreenFingerprint(f) {
+		t.Fatalf("la batería no debe cambiar la firma")
+	}
+}
+
+func TestFingerprintEmptyWhenAllVolatile(t *testing.T) {
+	s := ScreenFingerprint([]Candidate{{ID: "n2", Text: "9:41"}, {ID: "n3", Text: "78%"}})
+	if s != "" {
+		t.Fatalf("firma sin contenido estable debe ser vacía, got %q", s)
+	}
+}
+
+func TestFormatCandidateLabel(t *testing.T) {
+	cases := map[string]string{
+		"9":      "9 [digit nine]",
+		"×":      "× [multiplication sign]",
+		"+":      "+ [plus sign]",
+		"-":      "- [minus sign]",
+		"C":      "C [clear]",
+		".":      ". [decimal point]",
+		" 9 ":    "9 [digit nine]",
+		"c":      "c",
+		"99":     "99",
+		"+1":     "+1",
+		"Enviar": "Enviar",
+		"":       "",
+	}
+	for in, want := range cases {
+		if got := FormatCandidateLabel(in); got != want {
+			t.Fatalf("FormatCandidateLabel(%q)=%q want %q", in, got, want)
+		}
+	}
+}

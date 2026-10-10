@@ -369,6 +369,49 @@ para actuar, lee por Tool y usa su snapshot_id vigente`.
 Ningún Prompt expone `shell`, coordenadas, ni atajos que salten
 compuertas. Los tres citan la tabla §3 en su texto.
 
+### 4.4 Stepper Canónico (el bucle de 4 pasos del carril UI)
+
+El carril UI no es una secuencia libre de tools: es un **stepper de cuatro
+pasos** que se repite hasta `DONE`, hasta un error honesto, o hasta escalar.
+La secuencia es `1 → 2 → 3 → 4 → (1 | DONE | ESCALATE)`; el paso 1 nunca es
+opcional tras un paso 4, porque la lectura del paso 4 *es* la observación del
+siguiente paso 1.
+
+1. **Observación Estructurada.** Tool `read_screen` (o `wait_for_text`).
+   Entrega `{snapshot_id, tabla de candidatos}`. Nunca se actúa sin
+   `snapshot_id` vigente; la tabla es la única representación que el modelo
+   razona (los píxeles de `screenshot` son evidencia, no entrada de decisión).
+
+2. **Vía rápida vs táctica.** `tap_text` (rápida: texto exacto e inequívoco,
+   un dump interno) o el adaptador táctico del director `resolve_element`
+   (**no** es una tool MCP: es `pkg/director.ResolveElement`, una `Choice`
+   ciega sobre índices de la tabla). Si `resolve_element` cae en Fallback
+   Soberano (`{ok:false, fallback_required:true, reason,
+   recovery_instruction}`, error de Go nil), no se inventa el nodo: se vuelve
+   al paso 1.
+
+3. **Ejecución y Fallback Soberano.** `tap_node(node_id, snapshot_id)`,
+   `type_text`, `scroll`, `press_back`. Exigen el `snapshot_id` del paso 1.
+   `via` informa el camino ejecutado: `action_click` (preferida),
+   `click_ancestor` (el clickable es un ancestro del nodo elegido), `gesture`
+   (centro del nodo). `type_text` exige foco explícito (`NOT_FOCUSED`).
+
+4. **Verificación de Estado.** `read_screen` o `wait_for_text`. Ninguna
+   acción devuelve snapshot (AGENTS.md §6); un paso 4 sin el efecto esperado
+   es verificación fallida, no un paso más: re-lee o escala. Cierre en `DONE`
+   solo cuando el goal está cumplido y verificado; si no, `ESCALATE` con
+   contexto.
+
+**Nota de implementación (capa adaptadora).** El enriquecimiento de **glifos
+confusables** (sufijo de rol para etiquetas de un solo carácter ambiguo:
+dígitos que compiten con símbolos, signos, punto decimal) vive en una **capa
+adaptadora del servidor** que se invoca al **componer la tabla que se envía
+al modelo** —en `AskDecision` y `BuildResolveState`—, y **nunca** dentro del
+serializador canónico de la tabla, que tiene paridad de bytes verificada por
+golden (`pkg/normalizer/replay_expected.json`). Los índices **no** se
+renumeran: la fila `k` sigue siendo la fila `k`. Ver
+`docs/specs/tactical-robustness-p1p2.md §4`.
+
 ## 5. Modelo mental: las 5 preguntas del LLM (respuesta estándar)
 
 Todo agente que dude debe poder responderse con exactamente estas

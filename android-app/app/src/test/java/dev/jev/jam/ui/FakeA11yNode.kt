@@ -14,13 +14,24 @@ class FakeA11yNode(
     override val isFocused: Boolean = false,
     override val isVisibleToUser: Boolean = true,
     override val boundsInScreen: List<Int> = listOf(0, 0, 10, 10),
-    private val children: List<FakeA11yNode> = emptyList()
+    private val children: List<FakeA11yNode> = emptyList(),
+    private val parentNode: FakeA11yNode? = null,
+    private val clickResult: Boolean = false
 ) : A11yNode {
     var recycled = false
         private set
 
+    var clickAttempts = 0
+        private set
+
     override val childCount: Int get() = children.size
     override fun getChild(index: Int): A11yNode = children[index]
+    override fun parent(): A11yNode? = parentNode
+    override fun performClick(): Boolean {
+        clickAttempts++
+        return clickResult
+    }
+
     override fun recycle() {
         recycled = true
     }

@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/k4wai1/jav/pkg/normalizer"
 )
 
 // Cliente S1 vía OpenRouter (equiv. jev_client.py).
@@ -357,6 +359,11 @@ func AskDecision(goal string, table []SerialRow, snapshotID int64, opts AskDecis
 	for _, r := range table {
 		cp := make(SerialRow, len(r))
 		copy(cp, r)
+		if len(cp) > 4 {
+			if s, ok := cp[4].(string); ok {
+				cp[4] = normalizer.FormatCandidateLabel(s)
+			}
+		}
 		serial = append(serial, cp)
 	}
 	screen := opts.ScreenGoal

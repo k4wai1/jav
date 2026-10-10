@@ -21,6 +21,25 @@ func TestBuildResolveStateBlind(t *testing.T) {
 	}
 }
 
+func TestBuildResolveStateEnrichesLabels(t *testing.T) {
+	serial := []jev.SerialRow{{0, "Button", "top-left", "click", "9"}}
+	state, questions := BuildResolveState("Tap nine", serial, 9, "com.example", nil)
+	rows, ok := state["table"].([]jev.SerialRow)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("table copiada: %v", state["table"])
+	}
+	if rows[0][4] != "9 [digit nine]" {
+		t.Fatalf("label enriquecido: %v", rows[0][4])
+	}
+	if serial[0][4] != "9" {
+		t.Fatalf("no debe mutar la entrada: %v", serial[0][4])
+	}
+	crit, _ := questions["target"]["criteria"].(map[string]any)
+	if _, ok := crit["0"]; !ok {
+		t.Fatalf("criteria conserva la clave 0: %v", crit)
+	}
+}
+
 func TestClipboardParse(t *testing.T) {
 	out := "Primary clip: {https://example.com/x}"
 	if got := ParseDumpsysClipboard(out); got != "https://example.com/x" {

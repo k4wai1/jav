@@ -40,9 +40,20 @@ func BuildResolveState(screenGoal string, serial []jev.SerialRow, snapshotID int
 	for _, k := range targetKeys {
 		crit[k] = k
 	}
+	table := make([]jev.SerialRow, 0, len(serial))
+	for _, r := range serial {
+		cp := make(jev.SerialRow, len(r))
+		copy(cp, r)
+		if len(cp) > 4 {
+			if s, ok := cp[4].(string); ok {
+				cp[4] = normalizer.FormatCandidateLabel(s)
+			}
+		}
+		table = append(table, cp)
+	}
 	state := map[string]any{
 		"screen_goal": screenGoal, "current_app": currentApp,
-		"snapshot_id": snapshotID, "table": serial, "first_result": firstResult,
+		"snapshot_id": snapshotID, "table": table, "first_result": firstResult,
 	}
 	questions := map[string]map[string]any{
 		"target": {"type": "choice",
@@ -201,7 +212,7 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 	inTok, outTok, pcost := jev.UsageTokens(usage)
 	stepCost := tracker.Track(cost.JevModelID(), inTok, outTok, nil, "s1", pcost)
 	out := map[string]any{
-		"ok": true,
+		"ok":  true,
 		"idx": idx, "conf": conf, "snapshot_id": snapshotID,
 		"fallback_required": false,
 		"usage":             usage, "cost_usd": stepCost,

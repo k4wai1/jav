@@ -24,6 +24,9 @@ interface A11yNode {
     val boundsInScreen: List<Int>
     val childCount: Int
     fun getChild(index: Int): A11yNode?
+    fun parent(): A11yNode?
+    /** Ejecuta ACTION_CLICK sobre el nodo nativo (false si no aplica). */
+    fun performClick(): Boolean
     /** Libera el nodo nativo. El extractor recicla todo lo que obtiene
      * vía [getChild]; la raíz la recicla el llamador (el servicio). */
     fun recycle()
@@ -54,6 +57,8 @@ class RealA11yNode(private val info: AccessibilityNodeInfo) : A11yNode {
     override val childCount: Int get() = info.childCount
     override fun getChild(index: Int): A11yNode? =
         info.getChild(index)?.let(::RealA11yNode)
+    override fun parent(): A11yNode? = info.getParent()?.let(::RealA11yNode)
+    override fun performClick(): Boolean = info.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     override fun recycle() = info.recycle()
 }
 
