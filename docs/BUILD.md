@@ -313,3 +313,99 @@ go test ./pkg/tools/ -run 'TestCanonicalize|TestIsCritical' -v
 | go test pkg/tools (canon+critical) | **OK** | <1s | matriz con punto en verde |
 
 Sin commits (cierra @judge), sin push.
+
+## 12. jam-ui-redesign: 4 tarjetas + cierre deuda token (2026-10-09, 5002E/API 29, USB e03638e5, SOLO USB)
+
+Spec: `docs/specs/jam-ui-redesign.md` (propuesta @architect, sin código).
+Alcance exacto §7: `activity_main.xml` (ScrollView + 4 tarjetas),
+`res/drawable/card_bg.xml` (nuevo, shape transparente + corners 12dp +
+stroke 1dp), `MainActivity.kt` (reescrita) + getters mínimos en
+`JevForegroundService` (`startedAtMs`, `instance`, `clientCount/
+clientAuthed/revokeClients`), `JamWsServer` (`clientCount`,
+`clientAuthed`, `revokeAll` con `UNAUTHORIZED` limpio),
+`CommandDispatcher` (contadores `AtomicLong` N0/N1/UI + `lastMethod/
+lastResult/lastAtMs` + `recordSnapshot`, coste O(1)) y `AuthStore`
+(`regenerateToken`, `masked` ••••+last4, `sha8`). Sin Compose/Hilt/
+Material ni deps nuevas; `strings.xml` intacto; sin fragments/
+ViewModel/LiveData/RecyclerView; sin polling (refresh en `onResume` +
+listener Shizuku + resultado de permisos).
+
+Deuda §5 cerrada: `MainActivity:93` (`Token: ${...}` en claro) →
+máscara `••••abcd` + Copiar (clipboard, sin pegar en TextView) +
+Regenerar (AlertDialog + gate cliente-autenticado); `JevForegroundService:33`
+(`token=$token` en logcat) → `token_sha256=<8hex> len=<n>`.
+`grep -rn 'token=\$\|Token: \$' app/src/main` → **vacío** ✓.
+`grep su` → solo el falso positivo pre-existente
+(`ShizukuBridge.kt:118` `ExecResult`, documentado en §6) ✓.
+Shizuku: `getUid()` + `getVersion()` reales (API 13.1.5; sin PID
+estable → no se inventa, se muestra `uid=… · v…`).
+Batería: `PowerManager.isIgnoringBatteryOptimizations` con try/catch
+→ "desconocida" honesta; botón con fallback a settings generales.
+
+```bash
+./gradlew :app:assembleDebug --console=plain   # 1 error propio (return en expression body, corregido)
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
+```
+
+| Build | Resultado | Tiempo Gradle (wall) | Notas |
+|---|---|---|---|
+| assembleDebug (fallido, error propio) | FALLA 1 (`batteryState` return en expression-body) | 3m 24s | corregido a block-body, sin cambios de diseño |
+| assembleDebug (reintento) | **OK** | 4m 47s (wall 4:49) | APK debug **16 464 665 bytes (16 MB)** ✓ ~16 MB |
+
+> El "<2 min" de la spec es aspiracional en máquina de referencia;
+> en esta máquina (Celeron 847, `workers.max=1`, sin daemon) los builds
+> reales miden 2m22–7m19 (§§5–11); 4m47 documentado honesto.
+
+Verificación en vivo (adb forward + cliente WS mínimo en stdlib, token
+por `run-as`, sin exponerlo; uiautomator + screencap para píxeles):
+
+- Tarjeta 1: `● ON`, `ws://127.0.0.1:38472/`, `clientes: 0 ·
+  autenticado: —`, `protocolo v1`, `desde 22:16:50` (nodos + PNG).
+- Tarjeta 2: `● Accesibilidad: OK` (tras re-bind limpio, ver abajo),
+  `Shizuku: ● OK (permiso API_V23 concedido · uid=2000 · v13)`,
+  `● Batería: optimizada…` + `PEDIR IGNORAR`,
+  `Grants N1: uso=OK notif=no contactos=OK calendario=OK ubicación=OK cámara=OK`.
+- Tarjeta 3: `Token: ••••D-D8` (máscara real); gate probado con cliente
+  autenticado conectado → diálogo `Regenerar token / Invalida el cliente
+  actual` → confirmar → aborta con hint `desconecta el cliente antes de
+  regenerar`, token intacto (misma cola).
+- Tarjeta 4: `N0 0 · N1 0 · UI 2 · clics 1 (sesión)`,
+  `último: screenshot INTERNAL_ERROR 22:19:19`,
+  `snapshot #830 · 30 nodos · 63 ms` (contadores/último/snapshot
+  validados contra llamadas WS reales: hello no cuenta; dump_ui fallido
+  sí cuenta + registra código).
+- `hello{ok:true, proto:1, app:0.1.0, scopes:[read,ui]}` ✓;
+  `dump_ui{ok:true, 30 nodos, snapshot #830}` ✓ (tras re-bind).
+- `screenshot{png}` → `INTERNAL_ERROR` honesto (pre-existente, sin
+  cambios aquí): `takeScreenshot` es API 30+, el 5002E es API 29
+  (sin fallback hasta Fase 3c). Evidencia visual por uiautomator+
+  screencap en su lugar.
+- Logcat: token completo ausente ✓ (buffer del equipo retiene poco;
+  la prueba decisiva es estática: ningún `JevLog`/UI compone el
+  secreto — solo `sha8`/`len`/máscara).
+
+Notas de banco (para el operador, sin cambios de código):
+
+1. Primer frame tras cold-start puede mostrar `● DETENIDO` ~1 s: el
+   `onResume` inicial corre antes de que `FGS.onCreate` arranque (async);
+   por diseño no hay polling/observers — cualquier `onResume`
+   posterior (HOME + reabrir) lo deja en `● ON`. Solo afecta al tout
+   primer arranque en frío (con `START_STICKY` el servicio ya suele
+   estar vivo). `am start` sobre la instancia en tope es no-op
+   (`Activity not started… delivered to top-most instance`): para
+   re-renderizar hay que pasar por HOME.
+2. Tras `install -r`/`force_stop` el puerto puede quedar LISTEN en
+   proceso rancio (ya visto en §7); `force-stop` + arranque en frío
+   lo deja OK. Procesos `dev.jev.jam:shell` antiguos (Shizuku) sobreviven
+   al force-stop; no afectan (no escuchan WS).
+3. Accesibilidad: hizo falta ciclo limpio (`settings delete` +
+   `put` con `ComponentName` **plano**
+   `dev.jev.jam/dev.jev.jam.service.JevAccessibilityService` — la forma
+   corta `.service.…` no matchea el `== flat` de `isAccessibilityOn()`)
+   para que el sistema re-enlazara en el proceso nuevo
+   (`caps.accessibility: false→true`).
+4. `input swipe/tap` en este banco usa el espacio lógico del override
+   `360x720` (coords 180/…) — con coords físicas 720x1440 el gesto cae
+   fuera y es no-op (misma causa raíz que el fix `DisplayScale` de §5).
+
+Sin commits (cierra @judge), sin push. Sin keys.

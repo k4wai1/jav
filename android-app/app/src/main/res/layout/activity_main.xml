@@ -1,86 +1,318 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- jam-ui-redesign §2: 4 tarjetas + cabecera, XML nativo, sin CardView lib.
+     Tarjeta = LinearLayout con @drawable/card_bg, padding 16dp, marginTop 12dp.
+     Raíz con ScrollView (el layout anterior no scrolleaba). -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:fillViewport="true">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Jam"
-        android:textSize="24sp"
-        android:textStyle="bold" />
+        android:orientation="vertical"
+        android:padding="16dp">
 
-    <TextView
-        android:id="@+id/tvAccessibility"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Accesibilidad: …" />
+        <!-- Cabecera: Jam + versión + subtítulo proceso -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Jam"
+            android:textSize="24sp"
+            android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/tvShizuku"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Shizuku: …" />
+        <TextView
+            android:id="@+id/tvHeaderVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="v…"
+            android:textSize="13sp" />
 
-    <TextView
-        android:id="@+id/tvServer"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Servidor: pendiente (Fase 2)" />
+        <TextView
+            android:id="@+id/tvHeaderSub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="servicio de fondo (FGS)"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp" />
 
-    <Button
-        android:id="@+id/btnDump"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Volcar UI (logcat)" />
+        <!-- Tarjeta 1: Estado del servidor -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
 
-    <Button
-        android:id="@+id/btnShizuku"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Pedir permiso Shizuku"
-        android:visibility="gone" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1 · Servidor"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-    <TextView
-        android:id="@+id/tvGrants"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Grants N1: …" />
+            <TextView
+                android:id="@+id/tvServerState"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="● …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
 
-    <Button
-        android:id="@+id/btnPerms"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Pedir permisos de lectura" />
+            <TextView
+                android:id="@+id/tvServerBind"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ws://127.0.0.1:38472/"
+                android:textSize="13sp"
+                android:typeface="monospace" />
 
-    <Button
-        android:id="@+id/btnUsage"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Abrir acceso a uso" />
+            <TextView
+                android:id="@+id/tvServerClients"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="clientes: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
 
-    <Button
-        android:id="@+id/btnNotif"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Abrir acceso a notificaciones" />
+            <TextView
+                android:id="@+id/tvServerProto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="protocolo v1"
+                android:textSize="13sp"
+                android:typeface="monospace" />
 
-    <Button
-        android:id="@+id/btnWriteSettings"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Abrir escritura de ajustes" />
+            <TextView
+                android:id="@+id/tvServerUptime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="desde …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
 
-</LinearLayout>
+            <TextView
+                android:id="@+id/tvServerHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Tarjeta 2: Permisos -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="2 · Permisos"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvPermA11y"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Accesibilidad: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <Button
+                android:id="@+id/btnA11ySettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Abrir ajustes"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvPermShizuku"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Shizuku: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <Button
+                android:id="@+id/btnShizuku"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pedir permiso Shizuku"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvPermBattery"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Batería: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <Button
+                android:id="@+id/btnBattery"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pedir ignorar"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvCatalogSub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Accesos de catálogo (opcionales)"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvGrants"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Grants N1: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <Button
+                android:id="@+id/btnPerms"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pedir lectura"
+                android:visibility="visible" />
+
+            <Button
+                android:id="@+id/btnUsage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Acceso a uso" />
+
+            <Button
+                android:id="@+id/btnNotif"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Acceso a notificaciones" />
+
+            <Button
+                android:id="@+id/btnWriteSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Escritura de ajustes" />
+        </LinearLayout>
+
+        <!-- Tarjeta 3: Token -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3 · Token"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvTokenMask"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Token: ••••"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnCopyToken"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Copiar" />
+
+                <Button
+                    android:id="@+id/btnRegenToken"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="Regenerar" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvTokenHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Tarjeta 4: Monitor liviano + diagnóstico -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="4 · Monitor (sesión) + diagnóstico"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvMonCounts"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="N0 … · N1 … · UI … · clics …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/tvMonLast"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="último: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/tvMonSnap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="snapshot …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <Button
+                android:id="@+id/btnDump"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Diagnóstico: volcar UI" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

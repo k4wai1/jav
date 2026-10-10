@@ -121,6 +121,48 @@ class JamWsServer(
         }
     }
 
+    /**
+     * jam-ui-redesign tarjeta 1: 0/1 sin identidad (nunca token ni IP
+     * en UI; el origen queda en el audit ring, no en pantalla).
+     */
+    fun clientCount(): Int = synchronized(this) {
+        val c = active
+        if (c != null && c.isOpen) 1 else 0
+    }
+
+    /**
+     * ¿El cliente activo está autenticado? null = sin cliente.
+     * Usado por la tarjeta 1 y como gate de regeneración (tarjeta 3).
+     */
+    fun clientAuthed(): Boolean? {
+        val c = synchronized(this) { active } ?: return null
+        if (!c.isOpen) return null
+        return authedScopes.containsKey(c)
+    }
+
+    /**
+     * jam-ui-redesign tarjeta 3: invalida `authedScopes` tras regenerar
+     * el token; desconecta al cliente con `UNAUTHORIZED` limpio.
+     * Normalmente no hay cliente autenticado (el gate lo impide), pero
+     * se limpian restos (conexiones sin hello, sockets medio cerrados).
+     */
+    fun revokeAll() {
+        val conns = authedScopes.keys.toList()
+        authedScopes.clear()
+        for (conn in conns) {
+            try {
+                if (conn.isOpen) conn.send(errResponse(null, "token regenerado", "UNAUTHORIZED"))
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "revoke send falló", t)
+            }
+            try {
+                conn.close(4401, "UNAUTHORIZED")
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "revoke close falló", t)
+            }
+        }
+    }
+
     fun shutdown() {
         try {
             scheduler.shutdownNow()

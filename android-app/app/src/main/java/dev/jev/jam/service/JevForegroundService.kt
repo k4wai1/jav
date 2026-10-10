@@ -26,11 +26,17 @@ class JevForegroundService : Service() {
         super.onCreate()
         ensureChannel()
         startForeground(NOTIFICATION_ID, buildNotification("Servidor ON 127.0.0.1:$PORT"))
+        startedAtMs = System.currentTimeMillis()
+        instance = this
         try {
             val token = AuthStore.getOrCreateToken(applicationContext)
             server = JamWsServer(PORT, CommandDispatcher(applicationContext)).also { it.start() }
             serverOn = true
-            JevLog.i(TAG, "JamWs token=$token url=ws://127.0.0.1:$PORT/")
+            JevLog.i(
+                TAG,
+                "JamWs token_sha256=" + AuthStore.sha8(token) +
+                    " len=" + token.length + " url=ws://127.0.0.1:$PORT/"
+            )
         } catch (t: Throwable) {
             serverOn = false
             JevLog.e(TAG, "WS no arrancó", t)
@@ -47,6 +53,7 @@ class JevForegroundService : Service() {
         }
         server = null
         serverOn = false
+        if (instance === this) instance = null
         super.onDestroy()
     }
 
@@ -81,5 +88,25 @@ class JevForegroundService : Service() {
         @Volatile
         var serverOn: Boolean = false
             private set
+
+        /**
+         * jam-ui-redesign tarjeta 1: arranque para "desde HH:MM:SS".
+         * 0 = aún no arrancado en este proceso.
+         */
+        @Volatile
+        var startedAtMs: Long = 0L
+            private set
+
+        @Volatile
+        private var instance: JevForegroundService? = null
+
+        /** Tarjeta 1 (0/1, sin identidad) y gate tarjeta 3. */
+        fun clientCount(): Int = instance?.server?.clientCount() ?: 0
+        fun clientAuthed(): Boolean? = instance?.server?.clientAuthed()
+
+        /** Tarjeta 3: tras regenerar, desconexión UNAUTHORIZED limpia. */
+        fun revokeClients() {
+            instance?.server?.revokeAll()
+        }
     }
 }

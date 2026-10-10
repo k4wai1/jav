@@ -16,6 +16,7 @@ import dev.jev.jam.service.JevAccessibilityService
 import dev.jev.jam.shell.ShellActions
 import dev.jev.jam.ui.UiSnapshot
 import dev.jev.jam.util.JevLog
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -90,8 +91,9 @@ class CommandDispatcher(private val appContext: Context) {
     }
 
     fun dispatch(req: WsRequest, scopes: Set<String>): String {
+        count(req.method)
         return try {
-            when (req.method) {
+            val frame = when (req.method) {
                 "dump_ui" -> dumpUi(req)
                 "tap" -> tap(req)
                 "tap_node" -> tapNode(req)
@@ -133,7 +135,10 @@ class CommandDispatcher(private val appContext: Context) {
                 )
                 else -> throw JamError("método desconocido: ${req.method}", "METHOD_NOT_ALLOWED")
             }
+            note(req.method, "OK")
+            frame
         } catch (e: JamError) {
+            note(req.method, e.code)
             errResponse(req.id, e.message ?: "error", e.code)
         }
     }
@@ -150,8 +155,12 @@ class CommandDispatcher(private val appContext: Context) {
         put("nodes", JamJson.encodeToJsonElement(ListSerializer(dev.jev.jam.ui.UiNode.serializer()), s.nodes))
     }
 
-    private fun dumpUi(req: WsRequest): String =
-        okResponse(req.id, snapshotJson(svc().dumpUiTree()))
+    private fun dumpUi(req: WsRequest): String {
+        val start = System.nanoTime()
+        val snap = svc().dumpUiTree()
+        recordSnapshot(snap.snapshotId, snap.nodes.size, (System.nanoTime() - start) / 1_000_000)
+        return okResponse(req.id, snapshotJson(snap))
+    }
 
     private fun tap(req: WsRequest): String {
         val p = decodeParams<TapParams>(req)
@@ -388,5 +397,81 @@ class CommandDispatcher(private val appContext: Context) {
     companion object {
         private const val TAG = "JamWs"
         const val PROTOCOL_VERSION = 1
+
+        /**
+         * jam-ui-redesign tarjeta 4: monitor liviano en memoria, sin
+         * persistencia, coste O(1) por request. Se resetea al morir el
+         * proceso (la tarjeta lo documenta con "sesión"). No se expone
+         * por WS en esta fase.
+         */
+        private val n0Count = AtomicLong(0)
+        private val n1Count = AtomicLong(0)
+        private val uiCount = AtomicLong(0)
+
+        @Volatile
+        var lastMethod: String = "—"
+            private set
+        @Volatile
+        var lastResult: String = "—"
+            private set
+        @Volatile
+        var lastAtMs: Long = 0L
+            private set
+
+        @Volatile
+        var lastSnapshotId: Long = -1L
+            private set
+        @Volatile
+        var lastSnapshotNodes: Int = -1
+            private set
+        @Volatile
+        var lastSnapshotMs: Long = -1L
+            private set
+
+        /** UI = percepción/acción; N1 = grants de usuario; N0 = resto. */
+        private val UI_METHODS = setOf(
+            "dump_ui", "tap", "tap_node", "type", "scroll",
+            "press_back", "press_home", "wait_for_node", "get_foreground",
+            "open_app", "force_stop", "screenshot", "set_clipboard"
+        )
+        private val N1_METHODS = setOf(
+            "get_app_usage", "list_contacts", "add_contact", "list_events",
+            "create_event", "list_notifications", "reply_notification",
+            "media_state", "media_control", "get_location", "take_photo",
+            "settings_put"
+        )
+        private val N0_METHODS = setOf(
+            "get_battery", "get_memory", "get_storage", "get_cpu",
+            "get_device_info", "settings_get", "open_url", "send_intent",
+            "get_clipboard"
+        )
+
+        private fun count(method: String) {
+            when (method) {
+                in UI_METHODS -> uiCount.incrementAndGet()
+                in N1_METHODS -> n1Count.incrementAndGet()
+                in N0_METHODS -> n0Count.incrementAndGet()
+                // hello / shell / desconocidos: no cuentan (pero sí se
+                // registran como último método en note()).
+                else -> {}
+            }
+        }
+
+        private fun note(method: String, code: String) {
+            lastMethod = method
+            lastResult = code
+            lastAtMs = System.currentTimeMillis()
+        }
+
+        /** La MainActivity registra aquí su volcado local (misma línea). */
+        fun recordSnapshot(id: Long, nodes: Int, ms: Long) {
+            lastSnapshotId = id
+            lastSnapshotNodes = nodes
+            lastSnapshotMs = ms
+        }
+
+        fun n0(): Long = n0Count.get()
+        fun n1(): Long = n1Count.get()
+        fun ui(): Long = uiCount.get()
     }
 }
