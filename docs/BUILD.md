@@ -409,3 +409,75 @@ Notas de banco (para el operador, sin cambios de código):
    fuera y es no-op (misma causa raíz que el fix `DisplayScale` de §5).
 
 Sin commits (cierra @judge), sin push. Sin keys.
+
+## 13. Fallback Soberano + tap_text híbrido + APK en releases (2026-10-10, 5002E/API 29, USB e03638e5, SOLO USB)
+
+Alcance `@coder` (Go + Kotlin + adb; nada de `su`; 100% genérico, sin keys):
+
+- **Fallback Soberano** (`pkg/director/director.go`): `ResolveElement`/
+  `ResolveElementWithTau` ya no devuelven error fatal de Go ante fallo
+  Jev (red, envelope vacío, alucinación, `conf<tau`, `NONE`, sin key).
+  Devuelven payload `{ok:false, idx:null, fallback_required:true,
+  reason, recovery_instruction, snapshot_id}` con
+  `recovery_instruction = "El Director examina candidates/render y
+  ejecuta tap_node/tap_text directo"`. Éxito = `{ok:true, idx, conf,
+  snapshot_id, fallback_required:false, usage, cost_usd}`. `tau<=0`
+  → `normalizer.TAU (0.70)`. Tests nuevos en
+  `pkg/director/director_test.go:TestResolveSovereignFallback`
+  (red / envelope vacío / alucinación / `conf<tau` / `NONE` / control
+  OK) + `aiproviders_test.go` actualizado a fallback sin key.
+- **tap_text híbrido** (`android-app/.../ui/Selector.kt`):
+  `textContains` matchea `text` Y `content-desc`, case-insensitive y
+  parcial. `wait_for_node` lo hereda (mismo `SelectorResolver`).
+  Tests JVM nuevos en `SelectorResolverTest` (icono sin texto,
+  case-insensitive, parcial sobre desc).
+- **Releases con APK** (`.github/workflows/release.yml` +
+  `.goreleaser.yml`): job `build-apk` (JDK 17 temurin +
+  `android-actions/setup-android@v3` + `:app:assembleDebug`) sube
+  `jav-companion.apk` como artifact; job `release` (needs
+  `build-apk`) lo descarga a `./jav-companion.apk` y GoReleaser lo
+  adjunta vía `release.extra_files` junto a los binarios Go.
+  YAML validado sintácticamente
+  (`uv run --with pyyaml python -c "yaml.safe_load(...)"` → `YAML OK`).
+  Sin tags creados (el próximo tag lo probará).
+
+```bash
+go build ./... && go vet ./... && go test ./...
+./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.ui.SelectorResolverTest"
+./gradlew :app:assembleDebug
+adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+| Build / test | Resultado | Tiempo (wall) | Notas |
+|---|---|---|---|
+| `go build ./...` | **OK** | ~19 s | sin cambios fuera de `pkg/director` |
+| `go vet ./...` | **OK** | ~4 s | limpio |
+| `go test ./...` | **OK** | ~3 s | 6 pkgs (director con 5 tests incl. soberano) |
+| Gradle `testDebugUnitTest` filtrado `SelectorResolverTest` | **OK 9/9** | 3m 59s | 6 previos + 3 híbridos nuevos |
+| Gradle `:app:assembleDebug` | **OK** | 2m 41s | APK debug **16 562 777 bytes (~16 MB)** |
+| `adb install -r` | **Success** | — | 5002E (USB e03638e5) |
+| Gradle `testDebugUnitTest` completo | **OK 37/37** | 1m 55s | DisplayScale 5 + Extractor 6 + NatPolicies 14 + WsProtocol 3 + Selector 9 |
+| `uv run pytest` | **N/A** | — | `mcp-server/tests/` sin tests propios (solo `__pycache__`); no aplica |
+
+Prueba tap_text híbrido en vivo (WS `127.0.0.1:38472`, token por
+`run-as`, sin exponerlo; YouTube `app.morphe.android.youtube` abierto
+por `monkey` desde el host):
+
+```
+dump_ui → snapshot #833, 97 nodos, package app.morphe.android.youtube
+n_65 | text='' | desc='Buscar' | cls=android.widget.ImageView | clickable=True   (1 hit)
+tap {"text_contains": "Buscar"} → {ok:true, node_id:"n_65", via:"action_click"}
+press_back + tap {"text_contains": "BUSCAR"} → {ok:true, via:"action_click"} (case-insensitive)
+```
+
+El icono sin texto solo vive en `content-desc`: con el `matches`
+anterior (`text.contains` exacto) era `SELECTOR_NOT_FOUND`; con el
+híbrido resuelve y tapea por `ACTION_CLICK`. Tras el primer tap la
+UI rota (`STALE_SNAPSHOT` en el re-tap inmediato = honesto, no bug).
+Banco dejado en YouTube con la búsqueda abierta; accesibilidad
+re-habilitada por `settings put secure` con `ComponentName` plano
+(igual que §12.3); tras `install -r` hizo falta `force-stop` +
+arranque en frío (puerto sin LISTEN en proceso rancio, ya visto
+en §7).
+
+Sin commits (cierra @judge), sin push. Sin keys/tokens.

@@ -43,3 +43,9 @@ checksum:
 
 release:
   prerelease: auto
+  # Companion Android (Jam): el workflow construye
+  # android-app :app:assembleDebug (JDK 17 temurin) y deja
+  # ./jav-companion.apk en la raíz antes de GoReleaser.
+  extra_files:
+    - glob: ./jav-companion.apk
+      name_template: jav-companion.apk

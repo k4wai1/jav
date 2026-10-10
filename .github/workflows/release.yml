@@ -9,13 +9,51 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-apk:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set up JDK 17 (temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Jam companion APK (debug)
+        working-directory: android-app
+        run: ./gradlew :app:assembleDebug --console=plain
+
+      - name: Stage APK as jav-companion.apk
+        run: cp android-app/app/build/outputs/apk/debug/app-debug.apk jav-companion.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jav-companion-apk
+          path: jav-companion.apk
+          if-no-files-found: error
+
+  release:
+    needs: build-apk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jav-companion-apk
+          path: .
 
       - name: Set up Go
         uses: actions/setup-go@v5

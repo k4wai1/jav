@@ -19,6 +19,11 @@ class SelectorResolverTest {
         UiNode("n_2", "Enviar", "enviar mensaje", "android.widget.Button", "com.x:id/send",
             listOf(0, 100, 100, 150), clickable = true, editable = false,
             scrollable = false, enabled = true, checked = false, focused = false,
+            visible = true, children = emptyList()),
+        // Icono sin texto: solo content-desc (caso YouTube/lupa).
+        UiNode("n_3", null, "Buscar", "android.widget.ImageView", "com.x:id/search_icon",
+            listOf(0, 160, 100, 210), clickable = true, editable = false,
+            scrollable = false, enabled = true, checked = false, focused = false,
             visible = true, children = emptyList())
     )
 
@@ -54,5 +59,24 @@ class SelectorResolverTest {
     fun `sin match devuelve null`() {
         assertNull(SelectorResolver.resolve(nodes, Selector(text = "Inexistente")))
         assertNull(SelectorResolver.resolve(nodes, Selector(resourceId = "id/otro")))
+    }
+
+    @Test
+    fun `text_contains hibrido matchea content-desc sin texto`() {
+        // tap_text("Buscar") debe resolver el icono sin texto (n_3 vive
+        // solo en content-desc). Con index=2 saltamos n_0/n_1 (texto).
+        assertEquals("n_3", SelectorResolver.resolve(nodes, Selector(textContains = "Buscar", index = 2))?.id)
+    }
+
+    @Test
+    fun `text_contains case-insensitive`() {
+        assertEquals("n_0", SelectorResolver.resolve(nodes, Selector(textContains = "BUSCAR"))?.id)
+        assertEquals("n_3", SelectorResolver.resolve(nodes, Selector(textContains = "buscar", index = 2))?.id)
+    }
+
+    @Test
+    fun `text_contains parcial sobre content-desc`() {
+        // "ensa" vive en "enviar mensaje" (n_2 desc) y en "Enviar" (texto).
+        assertEquals("n_2", SelectorResolver.resolve(nodes, Selector(textContains = "ENSA"))?.id)
     }
 }

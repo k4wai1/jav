@@ -34,6 +34,106 @@ func TestClipboardParse(t *testing.T) {
 	}
 }
 
+func TestResolveSovereignFallback(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "test-key-sin-red")
+	serial := []jev.SerialRow{{0, "Button", "top-left", "click", "ok"}, {1, "Button", "top-left", "click", "cancel"}}
+	assertFallback := func(name string, out map[string]any, err error, wantReason string) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: nunca error fatal: %v", name, err)
+		}
+		if out == nil {
+			t.Fatalf("%s: fallback no nil", name)
+		}
+		if ok, _ := out["ok"].(bool); ok {
+			t.Fatalf("%s: ok debe ser false: %v", name, out)
+		}
+		if out["idx"] != nil {
+			t.Fatalf("%s: idx debe ser null: %v", name, out)
+		}
+		if fb, _ := out["fallback_required"].(bool); !fb {
+			t.Fatalf("%s: fallback_required true: %v", name, out)
+		}
+		reason, _ := out["reason"].(string)
+		if reason == "" || !containsStr(reason, wantReason) {
+			t.Fatalf("%s: reason con %q: %v", name, wantReason, out)
+		}
+		rec, _ := out["recovery_instruction"].(string)
+		if !containsStr(rec, "Director examina candidates/render") {
+			t.Fatalf("%s: recovery de la directiva: %v", name, out)
+		}
+		if _, ok := out["snapshot_id"]; !ok {
+			t.Fatalf("%s: snapshot_id presente: %v", name, out)
+		}
+	}
+
+	// Red: ask devuelve error.
+	netErr := &jev.JevError{Msg: "red S1 falló tras retry: timeout"}
+	out, err := ResolveElement("Tap the ok row", serial, 7, "com.example", nil,
+		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+			return nil, nil, netErr
+		}, nil, "r-net")
+	assertFallback("red", out, err, "S1_NETWORK")
+
+	// Envelope vacío: sin respuesta target.
+	out, err = ResolveElement("Tap the ok row", serial, 7, "com.example", nil,
+		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+			return map[string]jev.Answer{}, map[string]any{}, nil
+		}, nil, "r-empty")
+	assertFallback("envelope-vacio", out, err, "S1_EMPTY_ENVELOPE")
+
+	// Alucinación: clave fuera de criteria.
+	out, err = ResolveElement("Tap the ok row", serial, 7, "com.example", nil,
+		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+			return map[string]jev.Answer{"target": {Kind: "choice", Key: "99", Confidence: 0.9}}, map[string]any{}, nil
+		}, nil, "r-hallu")
+	assertFallback("hallucination", out, err, "S1_HALLUCINATION")
+
+	// conf<tau: fallback con conf visible.
+	out, err = ResolveElementWithTau("Tap the ok row", serial, 7, "com.example", nil,
+		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+			return map[string]jev.Answer{"target": {Kind: "choice", Key: "0", Confidence: 0.40}}, map[string]any{}, nil
+		}, nil, "r-low", 0.70)
+	assertFallback("conf-baja", out, err, "LOW_CONF")
+
+	// NONE: sin candidato útil.
+	out, err = ResolveElement("Tap the ok row", serial, 7, "com.example", nil,
+		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+			return map[string]jev.Answer{"target": {Kind: "choice", Key: "NONE", Confidence: 0.95}}, map[string]any{}, nil
+		}, nil, "r-none")
+	assertFallback("none", out, err, "NO_TARGET")
+
+	// Control: conf alta resuelve sin fallback.
+	out, err = ResolveElement("Tap the ok row", serial, 7, "com.example", nil,
+		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+			return map[string]jev.Answer{"target": {Kind: "choice", Key: "1", Confidence: 0.90}}, map[string]any{}, nil
+		}, nil, "r-ok")
+	if err != nil {
+		t.Fatalf("ok: sin error: %v", err)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("ok: ok true: %v", out)
+	}
+	if fb, _ := out["fallback_required"].(bool); fb {
+		t.Fatalf("ok: sin fallback: %v", out)
+	}
+	if out["idx"] != 1 {
+		t.Fatalf("ok: idx 1: %v", out)
+	}
+}
+
+func containsStr(hay, needle string) bool {
+	if len(needle) == 0 {
+		return true
+	}
+	for i := 0; i+len(needle) <= len(hay); i++ {
+		if hay[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func TestTapIdxValidates(t *testing.T) {
 	cands := []normalizer.Candidate{
 		{ID: "n1", Cls: "Button", Text: "ok", Clickable: true, Visible: true, Bounds: [4]int{10, 10, 50, 50}},

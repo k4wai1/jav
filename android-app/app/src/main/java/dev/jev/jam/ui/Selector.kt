@@ -36,7 +36,15 @@ object SelectorResolver {
 
     fun matches(n: UiNode, sel: Selector): Boolean {
         if (sel.text != null && n.text != sel.text) return false
-        if (sel.textContains != null && (n.text == null || !n.text.contains(sel.textContains))) return false
+        // tap_text híbrido: textContains matchea text Y content-desc,
+        // case-insensitive y parcial (icono sin texto con solo
+        // content-desc, p.ej. lupa "Buscar"/"Search").
+        if (sel.textContains != null) {
+            val needle = sel.textContains.lowercase()
+            val hayText = n.text?.lowercase()?.contains(needle) == true
+            val hayDesc = n.contentDesc?.lowercase()?.contains(needle) == true
+            if (!hayText && !hayDesc) return false
+        }
         if (sel.resourceId != null) {
             val r = n.resourceId ?: return false
             if (r != sel.resourceId && !r.endsWith(sel.resourceId)) return false

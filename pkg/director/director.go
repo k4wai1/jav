@@ -95,18 +95,52 @@ type AskFunc func(state map[string]any, questions map[string]map[string]any) (ma
 
 // S1Unavailable resolve_element desactivado sin key S1 (spec §1.1).
 // Nunca lleva idx utilizable; el stub {mock:true} no es resolución válida.
+// Se conserva como tipo para compatibilidad forense; el path soberano
+// ya no lo devuelve como error fatal sino dentro del payload fallback.
 type S1Unavailable struct{ Msg string }
 
 func (e *S1Unavailable) Error() string { return e.Msg }
 
+// SovereignRecovery es la instrucción de recuperación del Fallback
+// Soberano (directiva): el Director no reintenta a Jev a ciegas.
+const SovereignRecovery = "El Director examina candidates/render y ejecuta tap_node/tap_text directo"
+
+// SovereignFallback construye el payload de fallback soberano:
+// {ok:false, idx:nil, fallback_required:true, reason,
+// recovery_instruction}. Nunca es un error fatal de Go: el llamante
+// recibe el mapa con error nil y decide en el Director.
+func SovereignFallback(reason string, snapshotID int64) map[string]any {
+	return map[string]any{
+		"ok": false, "idx": nil, "fallback_required": true,
+		"reason": reason, "recovery_instruction": SovereignRecovery,
+		"snapshot_id": snapshotID,
+	}
+}
+
+// ResolveTau por defecto (generic-dual-tier §7: TAU=0.70).
+const ResolveTau = normalizer.TAU
+
 // ResolveElement resuelve un elemento vía S1 (UNA Choice, sin goal global).
+// Fallback Soberano: si Jev falla (red, envelope vacío, distribución
+// inválida, conf<tau, NONE, sin key) devuelve payload estructurado
+// {ok:false, idx:nil, fallback_required:true, reason,
+// recovery_instruction} con error nil. NUNCA error fatal de Go.
 func ResolveElement(screenGoal string, serial []jev.SerialRow, snapshotID int64, currentApp string, firstResult any, ask AskFunc, tracker *cost.Tracker, runID string) (map[string]any, error) {
+	return ResolveElementWithTau(screenGoal, serial, snapshotID, currentApp, firstResult, ask, tracker, runID, ResolveTau)
+}
+
+// ResolveElementWithTau igual que ResolveElement con tau explícito
+// (tau<=0 → ResolveTau). 100% genérico, sin keys.
+func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID int64, currentApp string, firstResult any, ask AskFunc, tracker *cost.Tracker, runID string, tau float64) (map[string]any, error) {
+	if tau <= 0 {
+		tau = ResolveTau
+	}
 	// Sin key S1 el path director queda desactivado (spec ai-providers
-	// §1.1): error honesto, nunca un idx inventado. El stub {mock:true}
+	// §1.1): fallback honesto, nunca un idx inventado. El stub {mock:true}
 	// de jev.Ask NO es una resolución válida y ningún tap/type puede
 	// ejecutarse sobre él. S1 nunca lee JAV_AI_*: solo OPENROUTER_API_KEY.
 	if jev.IsMock() {
-		return nil, &S1Unavailable{Msg: "S1_UNAVAILABLE: resolve_element desactivado sin OPENROUTER_API_KEY; rellena OPENROUTER_API_KEY (S1 solo acepta esa key, nunca JAV_AI_API_KEY)"}
+		return SovereignFallback("S1_UNAVAILABLE: resolve_element desactivado sin OPENROUTER_API_KEY; rellena OPENROUTER_API_KEY (S1 solo acepta esa key, nunca JAV_AI_API_KEY)", snapshotID), nil
 	}
 	state, questions := BuildResolveState(screenGoal, serial, snapshotID, currentApp, firstResult)
 	fn := ask
@@ -115,34 +149,45 @@ func ResolveElement(screenGoal string, serial []jev.SerialRow, snapshotID int64,
 	}
 	answers, usage, err := fn(state, questions)
 	if err != nil {
-		return nil, err
+		return SovereignFallback("S1_NETWORK: "+err.Error(), snapshotID), nil
 	}
 	norm, ok := answers["target"]
 	if !ok {
-		return nil, &jev.JevError{Msg: "S1 no respondió target"}
+		return SovereignFallback("S1_EMPTY_ENVELOPE: S1 no respondió target", snapshotID), nil
 	}
 	criteria, _ := questions["target"]["criteria"].(map[string]any)
 	var idx any
 	var conf float64
 	if norm.Key != "" || norm.Raw != nil {
 		if _, ok := criteria[norm.Key]; !ok {
-			return nil, &jev.JevHallucination{Msg: "TypeSafe returned an invalid choice distribution. (choice fuera de criteria)"}
+			return SovereignFallback("S1_HALLUCINATION: TypeSafe returned an invalid choice distribution. (choice fuera de criteria)", snapshotID), nil
 		}
 		conf = norm.Confidence
 		if math.IsNaN(conf) || math.IsInf(conf, 0) || conf < 0.0 || conf > 1.0 {
-			return nil, &jev.JevHallucination{Msg: "TypeSafe returned an invalid choice distribution. (conf no finita o fuera de [0,1])"}
+			return SovereignFallback("S1_HALLUCINATION: TypeSafe returned an invalid choice distribution. (conf no finita o fuera de [0,1])", snapshotID), nil
 		}
 		if norm.Key == "NONE" {
-			idx = "NONE"
-		} else {
-			var n int
-			if _, err := fmt.Sscan(norm.Key, &n); err != nil {
-				return nil, &jev.JevHallucination{Msg: "target no numérico"}
-			}
-			idx = n
+			return SovereignFallback("NO_TARGET: S1 eligió NONE; ningún candidato útil en esta pantalla", snapshotID), nil
 		}
+		var n int
+		if _, err := fmt.Sscan(norm.Key, &n); err != nil {
+			return SovereignFallback("S1_HALLUCINATION: target no numérico", snapshotID), nil
+		}
+		idx = n
 	} else {
-		return nil, &jev.JevError{Msg: "S1 no respondió target"}
+		return SovereignFallback("S1_EMPTY_ENVELOPE: S1 no respondió target", snapshotID), nil
+	}
+	if conf < tau {
+		fb := SovereignFallback(fmt.Sprintf("LOW_CONF: conf %.3f < tau %.2f; no actuar", conf, tau), snapshotID)
+		fb["conf"] = conf
+		// Coste igual se registra abajo antes de devolver.
+		if tracker == nil {
+			tracker = cost.NewTracker(runID)
+		}
+		inTok, outTok, pcost := jev.UsageTokens(usage)
+		fb["cost_usd"] = tracker.Track(cost.JevModelID(), inTok, outTok, nil, "s1", pcost)
+		fb["usage"] = usage
+		return fb, nil
 	}
 	mock := false
 	if norm.Raw != nil {
@@ -156,8 +201,10 @@ func ResolveElement(screenGoal string, serial []jev.SerialRow, snapshotID int64,
 	inTok, outTok, pcost := jev.UsageTokens(usage)
 	stepCost := tracker.Track(cost.JevModelID(), inTok, outTok, nil, "s1", pcost)
 	out := map[string]any{
+		"ok": true,
 		"idx": idx, "conf": conf, "snapshot_id": snapshotID,
-		"usage": usage, "cost_usd": stepCost,
+		"fallback_required": false,
+		"usage":             usage, "cost_usd": stepCost,
 	}
 	if mock {
 		if um, _ := usage["mock"].(bool); um {
