@@ -1,4 +1,4 @@
-# Protocolo Multi-Agente — jev-android-mcp
+# Protocolo Multi-Agente — Jav
 
 > Complemento de `AGENTS.md`. En caso de conflicto, **`AGENTS.md` manda** y se
 > enmienda primero. Este documento solo describe cómo se reparten los roles

@@ -1,4 +1,4 @@
-# AGENTS.md — jev-android-mcp
+# AGENTS.md — Jav
 
 > Reglas vinculantes para cualquier agente o programador que toque este repo.
 > Si una regla bloquea el trabajo, se enmienda aquí primero, no se rodea.
@@ -52,7 +52,7 @@
 7. Denylist shell (irreversibles): `rm -rf /`, `pm uninstall` de sistema,
    `reboot recovery`, `dd`, `wipe`, `settings put secure` crítico →
    scope `admin` **y** `confirm: true`. Push/pull solo bajo
-   `/sdcard/Download/jev-mcp/`. Política de grant: `open_app` = `ui`
+   `/sdcard/Download/jav-mcp/`. Política de grant: `open_app` = `ui`
    sin grant; `force_stop` = `shell` sin grant; `grant_permission`
    y `shell` = `shell` **con grant**.
 8. Audit log en dispositivo (ring buffer, **500 entradas**): método, scope,
@@ -199,7 +199,9 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 
 **2026-10-01 — arranque Fase 1:**
 
-1. App = **Jam**, paquete `dev.jev.jam` (antes `dev.jev.android`).
+1. App (nombre de arranque) = `Jam`, paquete `dev.jev.jam` (antes
+   `dev.jev.android`); consolidado a **Jav** / `dev.k4wai1.jav` el
+   2026-10-16 (ver enmienda de consolidación de identidad).
 2. Banco principal = TECNO KJ5 (API 33, non-root); LG7n secundario.
 3. Aceptación Fase 1 relajada: match ≥95% en nodos con `text`/`resource_id`
    vs `uiautomator` + latencia < 100 ms (no identidad total de árboles).
@@ -301,7 +303,7 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    Soberano (`fallback_required`, `top_candidates`, `recovery_instruction`).
    El árbol pasa de 35 a **36 tools** (6 UI atómicas + 30 director/nativo).
    `cmd/audit-mcp` verifica `tools-count-36` (11/11 PASS).
-2. `type_text` en Jam: si el nodo está enfocado pero `ACTION_SET_TEXT` falla
+2. `type_text` en Jav: si el nodo está enfocado pero `ACTION_SET_TEXT` falla
    (típico de inputs en WebView), **fallback `ACTION_PASTE`** vía
    `ClipboardManager.setPrimaryClip` + `performPaste()`; si ambos fallan,
    `INTERNAL_ERROR` honesto. La respuesta ahora incluye `via`
@@ -325,10 +327,53 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    default 50, `since_seq` default 0) → `{total_buffered, returned,
    entries[]}`. El token bearer único habilita `admin` en `hello.scopes`.
 2. **Kill Switch** (`AGENTS §3.8`):
-   `ACTION_KILL_SWITCH="dev.jev.jam.action.KILL_SWITCH"`; rota token
+   `ACTION_KILL_SWITCH="dev.k4wai1.jav.action.KILL_SWITCH"`; rota token
    (`AuthStore.regenerateToken`), audita `kill_switch`, `revokeAll()` +
    `shutdown()` + `stopForeground(REMOVE)` + `stopSelf()`. Botón en la
    notificación (`PendingIntent.getService`, `FLAG_IMMUTABLE`) y
    `service/JamKillSwitchTile.kt` (`TileService`, `BIND_QUICK_SETTINGS_TILE`,
    `exported=true`). El árbol pasa de 36 a **37 tools**; `cmd/audit-mcp`
    verifica `tools-count-37` (11/11 PASS). Kotlin **64/64**.
+
+**2026-10-16 — Fase 6b: `shell` con denylist + grant + N2 + 38.ª tool `adb_shell`:**
+
+1. `shell/ShellPolicy.kt` (JVM puro): denylist de irreversibles
+   (`rm -rf /`, `pm uninstall`, `reboot recovery`, `dd`, `mkfs`, `wipe`,
+   `settings put secure/global` crítico) + self-harm (`SELF`), rate 5 req/s,
+   `sha256Hex`. `ShellGrantManager.kt`: notificación con botones
+   `1 cmd`/`5 min`/`30 min`/`Denegar`, bloqueo 60 s, evento WS `shell_grant`.
+   N2 vivo (`get_storage`/`get_cpu` fine, `settings_put`). 38.ª tool
+   `adb_shell` (`pkg/jam.Shell`, `pkg/tools/shell.go`). `cmd/audit-mcp`
+   `tools-count-38` (11/11). Kotlin **73/73**. `BUILD.md §20`.
+
+**2026-10-16 — Fase 2b: WSS tailnet + cert self-signed + token en Keystore + lockout:**
+
+1. `socket/AuthLockout.kt` (JVM puro): 5 fallos `UNAUTHORIZED` del mismo
+   `origin` en 60 s → bloqueo 300 s; `hello` bloqueado → `UNAUTHORIZED` +
+   audit. `socket/AuthStore.kt`: token **AES-GCM/256** en `AndroidKeyStore`
+   (`ws_token_enc`, migración suave del plano). `socket/TlsCertStore.kt`:
+   cert X.509v3 autofirmado `CN=jav.local` (BC **local**, sin registro JCA
+   global) con PKCS#12 cifrado en `filesDir`; 2.º listener WSS bindeado a la
+   IP tailnet (`100.64.0.0/10`) vía `net/TailnetDetector.kt` (`NetworkCallback`),
+   **nunca `0.0.0.0`**. Go: `wss://` + pinning TOFU
+   (`JAV_CERT_FINGERPRINT`/`JEV_CERT_FINGERPRINT`, tiempo constante,
+   `CERT_MISMATCH`). Kotlin **88/88**. `BUILD.md §21`; cierra el 100 % del
+   roadmap `ARCHITECTURE.md §9`.
+
+**2026-10-16 — Consolidación de identidad: `Jav` / `dev.k4wai1.jav` (vinculante):**
+
+1. **App = `Jav`**, paquete `dev.k4wai1.jav` (namespace + `applicationId`);
+   árbol `java/`+`aidl/` movido a `dev/k4wai1/jav`; `SELF_PACKAGE`/`SELF` y
+   `ACTION_*` = `dev.k4wai1.jav.*`; label/canal/notificaciones visibles `Jav`.
+   Repo = `github.com/k4wai1/jav`; `rootProject.name = "jav-android"`.
+2. **Identificadores internos que NO se renombran** (no son nombre de
+   proyecto): paquete Go `pkg/jam` (+ tipos `jam.Envelope`/`JamError`), modelo
+   `pkg/jev` (`JEV_MODEL`, S1) y clases Kotlin `Jev*`/`Jam*`-técnicas
+   (`JevForegroundService`, `JamWsServer`, `JamKillSwitchTile`, …). Solo
+   cambia el **texto visible** (`Jav`) y el **paquete** (`dev.k4wai1.jav`).
+3. **Migración de token en el dispositivo:** la app nueva no hereda el
+   Keystore; se conserva el token sembrando el `ws_token` plano del `.env`
+   antes del primer arranque → migración suave a `ws_token_enc` (evita
+   re-generar token y romper `.env`). `logs/run-*.jsonl`,
+   `pkg/normalizer/testdata/` y `mcp-server/` conservan el nombre viejo como
+   evidencia forense (no se reescriben).

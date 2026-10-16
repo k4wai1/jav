@@ -27,7 +27,7 @@
 > - `docs/specs/go-migration-plan.md` — identidad `jav`, stdio primero,
 >   `tools/list` idéntico Python ≡ Go, envolvente
 >   `{ok, verified, evidence, hint}` como único `TextContent` JSON con
->   `isError = !ok`, `initialize + tools/list` sin Jam alcanzable.
+>   `isError = !ok`, `initialize + tools/list` sin Jav alcanzable.
 > - Contratos vivos que este documento **no deroga**:
 >   `docs/specs/generic-dual-tier.md` (S1/S2, `TAU = 0.70`, compuertas,
 >   `planned:true` + `confirm:true`, forense JSONL) y `AGENTS.md §§1–9`
@@ -36,7 +36,7 @@
 
 ## 0. Principio rector
 
-Jav es un buen MCP cuando un agente que **no sabe qué es Jam,
+Jav es un buen MCP cuando un agente que **no sabe qué es Jav,
 `snapshot_id` o foco** actúa correctamente **al primer intento** sin
 haber leído ningún otro documento. Todo lo que ese agente necesita
 vive en exactly tres lugares, en este orden de lectura:
@@ -69,7 +69,7 @@ handshake MCP) el siguiente texto, verbatim salvo la versión:
 
 ```text
 You control an Android device through Jav, a bridge to the on-device
-accessibility service (Jam). You never see pixels unless you ask for a
+accessibility service (Jav). You never see pixels unless you ask for a
 screenshot, and you never invent coordinates: every tap or type targets
 a node id from a fresh screen snapshot.
 
@@ -249,7 +249,7 @@ evidence:{code, error}, hint}` donde `hint` **es** la
 otro documento. `code` es estable y programático (mayúsculas con
 `_`); `error` es el detalle humano libre. Origen del código:
 
-- **Jam** (dispatcher/extractora en dispositivo, vía `PROTOCOL.md §7`).
+- **Jav** (dispatcher/extractora en dispositivo, vía `PROTOCOL.md §7`).
 - **MCP** (validación client-side o transporte host antes de dial).
 - **Loop** (síntesis del cliente tras patrón, p.ej. `UI_UNSTABLE`;
   nunca inventada por el servidor).
@@ -266,9 +266,9 @@ error sin ordenar acción; reintento mudo del mismo payload ante
 | `NOT_FOCUSED` | el nodo no tiene foco para escribir | `haz tap sobre el campo antes de type_text (luego re-lee y escribe)` | sí, tras tap + re-lee |
 | `SELECTOR_NOT_FOUND` | ningún nodo matchea | `re-haz read_screen; el selector no matchea (no inventes ids ni coordenadas)` | sí, tras re-lee |
 | `TIMEOUT` | `wait_for_node` / grant / fix sin resultado | `reintenta o sube el timeout; si se repite ×3 sin cambio, para (fail-fast)` | sí, con backoff |
-| `ACCESSIBILITY_DISABLED` | servicio Jam no conectado | `habilita Jam en Ajustes → Accesibilidad y reintenta` | no (hasta grant) |
+| `ACCESSIBILITY_DISABLED` | servicio Jav no conectado | `habilita Jav en Ajustes → Accesibilidad y reintenta` | no (hasta grant) |
 | `SHIZUKU_UNAVAILABLE` | Shizuku no corre o sin permiso | `arranca Shizuku (lo hace el usuario) y reintenta; sin él solo vive el carril lectura/UI` | no (hasta Shizuku) |
-| `SHIZUKU_DENIED` | permiso runtime Shizuku denegado | `concede el permiso runtime de Shizuku a Jam y reintenta` | no (hasta grant) |
+| `SHIZUKU_DENIED` | permiso runtime Shizuku denegado | `concede el permiso runtime de Shizuku a Jav y reintenta` | no (hasta grant) |
 | `UNAUTHORIZED` | sin token o token inválido (cualquier bind, loopback incluido) | `revisa JAV_TOKEN en el entorno del servidor (nunca viaja en URL)` | no (config) |
 | `FORBIDDEN` | sin scope o clave sensible denegada | `pide scope/permiso correspondiente; no reintentes el mismo payload` | no |
 | `METHOD_NOT_ALLOWED` | método gateado a fase posterior (shell, N2 `secure`/`global`/`fine`) | `metodo no disponible en esta fase; no reintentes igual (usa el carril permitido)` | **nunca** |
@@ -291,7 +291,7 @@ Notas:
 1. Los hints ya implementados en `pkg/jam/jam.go:hintFor` son el núcleo
    canónico; `@coder` extiende el mapa con las filas restantes **sin
    cambiar** los existentes (compatibilidad forense).
-2. `UI_UNSTABLE` no la emite Jam ni el servidor: la sintetiza el cliente
+2. `UI_UNSTABLE` no la emite Jav ni el servidor: la sintetiza el cliente
    (loop/director) tras el patrón §3.2 y la registra en la firma de
    corrida (`run_signature`). El servidor nunca la inventa.
 3. `CLIPBOARD_EMPTY` distingue honestamente vacío vs 2.º plano solo si

@@ -100,22 +100,22 @@ func defTool(name, desc string, required []string, props map[string]any, h Handl
 
 // --- Descripciones ES 5 secciones (verbatim de server.py) ---
 
-const dDeviceStatus = `Estado de la conexion con Jam.
+const dDeviceStatus = `Estado de la conexion con Jav.
 
 Descripcion: Scopes del token, version de la app y app/activity en foreground.
 Parametros: Ninguno.
 Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, foreground{package, activity}}.
-Permisos/Grants: conexion Jam + accesibilidad para foreground; scope read.
+Permisos/Grants: conexion Jav + accesibilidad para foreground; scope read.
 Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false.
 Cuándo NO usar: NO usar para un dato concreto → usa la tool nativa (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO cachear el foreground → re-lee con get_foreground tras cada mutación.
 Ejemplo: device_status() → {scopes[], app_version, foreground{package, activity}}`
 
 const dListPackages = `Lista paquetes instalados (host adb shell pm list packages).
 
-Descripcion: Enumera paquetes visibles en el host adb; no pasa por el WS de Jam.
+Descripcion: Enumera paquetes visibles en el host adb; no pasa por el WS de Jav.
 Parametros: filter (str): subcadena case-insensitive; "" = todos.
 Retorno: {ok, verified, evidence, hint}; evidence = {count, packages[]}.
-Permisos/Grants: adb del host; sin scope Jam.
+Permisos/Grants: adb del host; sin scope Jav.
 Errores/gotchas: host sin adb o dispositivo desconectado -> fallo; por la visibilidad de paquetes la lista puede ser parcial.
 Cuándo NO usar: NO adivinar el paquete → el paquete lo aporta el operador y se verifica con list_packages; NO asumir lista total → puede ser parcial por visibilidad de paquetes.
 Ejemplo: list_packages(filter="a.b") → {count, packages[]}`
@@ -202,7 +202,7 @@ Ejemplo: get_audit(limit=50, since_seq=0) → {total_buffered, returned, entries
 
 const dAdbShell = `Ejecuta un comando de shell con UID shell via Shizuku (scope admin).
 
-Descripcion: Carril privilegiado de ultimo recurso. Gate triple en Jam: rate limit 5 req/s, denylist de irreversibles y grant interactivo del operador. Los comandos que matan o desinstalan la propia Jam se rechazan siempre. Shizuku lo arranca el operador: nunca su.
+Descripcion: Carril privilegiado de ultimo recurso. Gate triple en Jav: rate limit 5 req/s, denylist de irreversibles y grant interactivo del operador. Los comandos que matan o desinstalan la propia Jav se rechazan siempre. Shizuku lo arranca el operador: nunca su.
 Parametros: cmd (str): comando a ejecutar (obligatorio); timeout_ms (int): 500..60000 (default 15000); confirm (bool): aprueba un comando de la denylist irreversible.
 Retorno: {ok, verified, evidence, hint}; denylist sin confirm -> evidence={planned:true, preview{cmd_sha256, reason}, hint}; con exito -> evidence={exit_code, stdout, stderr}.
 Permisos/Grants: scope admin; Shizuku disponible; grant interactivo (1 comando con SHA-256 exacto, 5 min o 30 min) salvo denegacion.

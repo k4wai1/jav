@@ -13,13 +13,13 @@
 - Env: `.env` presente (`chmod 600`). Valores nunca impresos; solo
   presencia (`has_jev_key=yes`, `has_jam_token=yes`). `OPENROUTER_MODEL=typesafe/jev-1.13`.
 - Forward: `adb -s e03638e5 forward tcp:38472 tcp:38472` → `forward_ok`.
-- Hello Jam: `scopes=['read','ui']`, `app=0.1.0` → `hello_ok`.
+- Hello Jav: `scopes=['read','ui']`, `app=0.1.0` → `hello_ok`.
 - Pantalla: `mWakefulness=Awake`, `Display Power: state=ON` (sin wake necesario).
   Batería 99–100%.
 - Dispositivo: 5002E (Alcatel/TCL), Android 10 (SDK 29), `720×1440`,
   serial `e03638e5`, **SOLO USB**. Paquetes verificados por
   `pm list packages | grep fossify`: messages, clock, filemanager,
-  keyboard, musicplayer, home, math, gallery (los 8) + `dev.jev.jam`.
+  keyboard, musicplayer, home, math, gallery (los 8) + `dev.k4wai1.jav`.
 - Régimen: **SOLO no-destructivo, SIN `--confirm`**. Ninguna tarea pidió
   confirmación crítica (`needs_confirm` no disparó). Sin `shell` (Fase 6,
   `METHOD_NOT_ALLOWED` vigente). Sin commits, sin push.

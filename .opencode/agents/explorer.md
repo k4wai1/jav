@@ -16,7 +16,7 @@ permission:
     "git log *": allow
 ---
 
-Eres el Auditor/Explorador del repositorio (`jev-android-mcp`).
+Eres el Auditor/Explorador del repositorio (`Jav`).
 
 Misión:
 - Localizar archivos relevantes, identificar interfaces existentes, dependencias

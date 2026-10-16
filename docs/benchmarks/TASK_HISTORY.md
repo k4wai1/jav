@@ -144,7 +144,7 @@ humano en la notificación (no automatizado).
 | `get_cpu{detail:"fine"}` | `ok:true verified:true` | `processors=4 fine.via=shizuku exit=0 procs=10` |
 | `settings_put{global, airplane_mode_on, "0", confirm:false}` | `ok:true verified:false` | `planned:true`, `value_sha256` |
 | `adb_shell{cmd:"rm -rf /", confirm:false}` | `ok:true verified:true` | `planned:true`, `preview.reason=denylist_irreversible`, `cmd_sha256` |
-| `adb_shell{cmd:"pm uninstall dev.jev.jam"}` | `ok:false` `SHELL_DENYLIST` | sin tocar el dispositivo |
+| `adb_shell{cmd:"pm uninstall dev.k4wai1.jav"}` | `ok:false` `SHELL_DENYLIST` | sin tocar el dispositivo |
 | `adb_shell{cmd:""}` | `ok:false` `VALIDATION_ERROR` | `cmd vacío` |
 | `get_foreground` / `read_screen` | `ok:true` (tras re-enlazar a11y) | tool MCP |
 
@@ -157,3 +157,27 @@ Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
 `go test ./...` verde (`pkg/tools` 38) · `./gradlew :app:testDebugUnitTest`
 **73/73** · `go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **11/11**
 (`tools-count-38`).
+
+## 9. Fase 2b 2026-10-16 en A10 USB — WSS tailnet + cert self-signed + token en Keystore
+
+Cierre del backlog 2b. Token del operador cifrado en reposo (AES-GCM/256 en
+`AndroidKeyStore`, con migración suave desde el `ws_token` plano), lockout
+5 fallos/60 s → 5 min por `origin`, certificado X.509v3 autofirmado
+(`CN=jam.local`, RSA-2048, BouncyCastle local) servido en un 2.º listener
+**WSS** atado a la IP tailnet (`100.64.0.0/10`, `ConnectivityManager.NetworkCallback`),
+y pinning TOFU en el cliente Go (`JAV_CERT_FINGERPRINT`, tiempo constante,
+`CERT_MISMATCH` honesto).
+
+En vivo (`e03638e5`, WS vía `adb forward`): `shared_prefs/jam_auth.xml` pasó
+de `ws_token` a `ws_token_enc` (mismo token, `.env` intacto); `hello` →
+`ok` `scopes=[read ui admin]`; `get_audit(limit=5)` → `total=1 returned=1`.
+`logcat` de la ROM viene vacío (`logcat -d` → 0 líneas), así que la
+verificación se hizo por efecto observable. El banco no tiene IP tailnet, así
+que el listener WSS no se probó en vivo (se cubre por tests JVM + test Go del
+pinning); no se bindeó a la LAN por AGENTS §3.1.
+
+Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
+`go test ./...` verde (`pkg/jam` += `tls_test.go`, `live_test.go` gated) ·
+`./gradlew :app:testDebugUnitTest` **88/88** (antes 73; +7 `AuthLockoutTest`,
++5 `TlsCertStoreTest`, +3 `TailnetDetectorTest`) ·
+`go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **11/11** (`tools-count-38`).

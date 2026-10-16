@@ -319,7 +319,7 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 
 // --- TapIdx ---
 
-// TapFunc inyectable (nodeID, snapshotID) → envelope Jam.
+// TapFunc inyectable (nodeID, snapshotID) → envelope Jav.
 type TapFunc func(nodeID string, snapshotID int64) jam.Envelope
 
 // TapIdx tapea por índice de tabla vigente (by_idx → node_id + validate).
@@ -360,7 +360,7 @@ func TapIdx(idx int, snapshotID int64, cands []normalizer.Candidate, screenH int
 const ClipboardSlot = "clipboard"
 const ViaDumpsys = "dumpsys"
 const ViaPasteReadback = "paste-readback"
-const ViaJamAPI = "jam-api"
+const ViaJamAPI = "jav-api"
 
 var urlShapeRe = regexp.MustCompile(`https?://[^\s'"}\]]+`)
 var primaryClipRe = regexp.MustCompile(`(?i)primary clip`)
@@ -443,7 +443,7 @@ func ReadClipboard(run RunFunc, fallbackText string) jam.Envelope {
 // JamSetFunc hook inyectable para set_clipboard (tests).
 type JamSetFunc func(text string) (map[string]any, error)
 
-// SetClipboard escribe vía Jam ClipboardManager + read-back de forma.
+// SetClipboard escribe vía Jav ClipboardManager + read-back de forma.
 func SetClipboard(text string, jamSet JamSetFunc, run RunFunc) jam.Envelope {
 	if bad := ClipboardError(text); bad != nil {
 		return jam.Envelope{"ok": false, "verified": false,
@@ -479,7 +479,7 @@ func SetClipboard(text string, jamSet JamSetFunc, run RunFunc) jam.Envelope {
 		}
 		return jam.Envelope{"ok": false, "verified": false,
 			"evidence": map[string]any{"code": code, "error": msg, "via": ViaJamAPI},
-			"hint":     "Jam escribio pero el read-back no verifica forma"}
+			"hint":     "Jav escribio pero el read-back no verifica forma"}
 	}
 	slot := NewClipboardSlot(text)
 	_ = res
@@ -493,11 +493,11 @@ func clipboardUnsupported(msg string) jam.Envelope {
 	if strings.Contains(msg, "METHOD_NOT_ALLOWED") {
 		return jam.Envelope{"ok": false, "verified": false,
 			"evidence": map[string]any{"code": "CLIPBOARD_UNSUPPORTED",
-				"error": "jam-api-missing: " + msg, "via": ViaJamAPI},
-			"hint": "Jam sin metodo set_clipboard; usa type_text directo con el texto verificado en host"}
+				"error": "jav-api-missing: " + msg, "via": ViaJamAPI},
+			"hint": "Jav sin metodo set_clipboard; usa type_text directo con el texto verificado en host"}
 	}
 	return jam.Envelope{"ok": false, "verified": false,
 		"evidence": map[string]any{"code": "CLIPBOARD_UNSUPPORTED",
-			"error": "jam set_clipboard fallo: " + msg, "via": ViaJamAPI},
-		"hint": "revisa conexion con Jam"}
+			"error": "jav set_clipboard fallo: " + msg, "via": ViaJamAPI},
+		"hint": "revisa conexion con Jav"}
 }

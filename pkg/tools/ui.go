@@ -10,7 +10,7 @@ import (
 )
 
 // Handlers ui/ (equiv. tools/ui.py). Sin post-snapshot; tap_node/type_text
-// exigen snapshot_id (STALE_SNAPSHOT si rotó, lo decide Jam).
+// exigen snapshot_id (STALE_SNAPSHOT si rotó, lo decide Jav).
 
 func hReadScreen(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return result(readScreenState())

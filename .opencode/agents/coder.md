@@ -21,7 +21,7 @@ permission:
     "git status *": allow
 ---
 
-Eres el Constructor de Código de `jev-android-mcp`.
+Eres el Constructor de Código de `Jav`.
 
 Misión:
 - Transcribir especificaciones directas (`docs/specs/*.md`) a código funcional.

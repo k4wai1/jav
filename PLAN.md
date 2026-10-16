@@ -24,7 +24,7 @@
 ## Fases (por capacidades, ninguna menciona app concreta)
 
 ### Fase 0 — Scaffold app + Shizuku + FGS
-- [x] 0a/0b: app `dev.jev.jam`, Shizuku provider, FGS `specialUse`.
+- [x] 0a/0b: app `dev.k4wai1.jav`, Shizuku provider, FGS `specialUse`.
 - [ ] 0c: permiso `FOREGROUND_SERVICE_SPECIAL_USE` (verificar en build release).
 
 ### Fase 1 — Percepción por accesibilidad (`dump_ui`)
@@ -37,7 +37,9 @@
 ### Fase 2 — Transporte WS + single-client + handshake
 - [x] Listeners loopback (WS) + tailnet (WSS) con token bearer, scopes
   `read`/`ui`/`shell`/`admin`, rate limit, frame 4 MiB, `BUSY` al 2.º cliente.
-- [ ] 2b: WSS + certificado self-signed + token en Keystore (bind tailnet). **Pendiente.**
+- [x] 2b: WSS + certificado self-signed + token cifrado en `AndroidKeyStore`
+  (AES-GCM) + lockout 5/60 s→5 min + pinning TOFU en Go (bind tailnet,
+  `100.64.0.0/10`). Ver §Fase 2b abajo y `docs/BUILD.md §21`.
 
 ### Fase 3 — Ejecución (Shizuku + gestos + captura)
 - [x] 3a: `open_app` (`am start` por Shizuku, fallback `monkey`),
@@ -131,7 +133,7 @@
   Crudo `docs/TESTING.md §12`, síntesis `PERFORMANCE.md §5`, build `BUILD.md §16`.
 - [x] 36.ª tool MCP `resolve_element` (`pkg/tools/resolve.go`; `screen_goal_en`+`tau`,
   envuelve `director.ResolveElementWithTau` con `tried_node_ids`; fallback
-  Soberano honesto) + fallback `ACTION_PASTE` en Jam (`ui/TextEntry.kt`, JVM
+  Soberano honesto) + fallback `ACTION_PASTE` en Jav (`ui/TextEntry.kt`, JVM
   test). `cmd/audit-mcp` `tools-count-36` **11/11**; Kotlin **59/59**.
   Revancha en vivo (A10): `resolve_element` `conf 0.88` → `tap_node` `action_click`
   → display 0→7; memoria `tried` por fingerprint. `TASK_HISTORY §6`, `BUILD.md §17`.
@@ -140,7 +142,7 @@
 - [x] Contratos `@architect`: `docs/specs/paradigm-shift.md` (3 giros 2026-10-06),
   `docs/specs/director-client.md` v5, `README.es.md`/`README.en.md`.
 - [x] `@coder`: `resolve_element` ciego al goal (1 Choice + NONE, micro EN,
-  anti-poisoning) + `set_clipboard` Jam (`ClipboardManager.setPrimaryClip`,
+  anti-poisoning) + `set_clipboard` Jav (`ClipboardManager.setPrimaryClip`,
   scope `ui`, sin Shizuku, sin grant) + wrapper host con read-back
   (commits `3944e15` + `7ee4058`; `loop.py`/`ask_decision`/`s2_client`
   congelados, solo bugfix con test).
@@ -206,7 +208,7 @@
 ### Fase 6b — `shell` con denylist + grant + N2 + 38.ª tool `adb_shell` (2026-10-16, banco A10 `e03638e5`)
 - [x] `shell/ShellPolicy.kt` (JVM puro): denylist de irreversibles
   (`rm -rf /`, `pm uninstall`, `reboot recovery`/`bootloader`, `dd`, `mkfs`,
-  `wipe`, `settings put secure/global` crítico), self-harm (`dev.jev.jam`) →
+  `wipe`, `settings put secure/global` crítico), self-harm (`dev.k4wai1.jav`) →
   `SHELL_DENYLIST`, rate **5 req/s** propio, `sha256Hex`, `previewPrefix`.
   `ShellPolicyTest.kt` (+9 → Kotlin **73/73**).
 - [x] `shell/ShellGrantManager.kt`: notificación `jam_shell_grant`
@@ -222,11 +224,37 @@
 - [ ] Pendiente honesto: **tap del grant en vivo** lo ejecuta el operador
   (interacción humana en la notificación); cierre formal de Fase 6b por `@judge`.
 
+### Fase 2b — WSS tailnet + cert self-signed + token en Keystore (2026-10-16, banco A10 `e03638e5`)
+- [x] `socket/AuthLockout.kt` (JVM puro): 5 fallos `UNAUTHORIZED` del mismo
+  `origin` en 60 s → bloqueo 300 s; `hello` bloqueado responde `UNAUTHORIZED`
+  (+audita); éxito limpia. `AuthLockoutTest.kt` (7).
+- [x] `socket/AuthStore.kt`: token AES-GCM/256 en `AndroidKeyStore`
+  (alias `jam_token_key`), `ws_token_enc` (`iv||ct` Base64), **migración
+  suave** del plano `ws_token` (mismo valor; `.env` sigue válido).
+- [x] `socket/TlsCertStore.kt`: cert X.509v3 autofirmado `CN=jam.local`
+  (RSA-2048, 10 años) con BC **local** (sin registro JCA global); PKCS#12
+  cifrado en `filesDir`; `sslContext()`/`fingerprintSha256()`.
+  `TlsCertStoreTest.kt` (5).
+- [x] `net/TailnetDetector.kt`: `isTailnetIpv4` (`100.64.0.0/10`) +
+  `ConnectivityManager.NetworkCallback`; 2.º `JamWsServer` WSS bindeado a la
+  IP tailnet (nunca `0.0.0.0`), `CommandDispatcher` compartido; sin tailnet
+  solo loopback. `MainActivity` Tarjeta 1/3: estado tailnet + `cert_sha256`.
+- [x] Go `pkg/jam`: `wss://` con `tls.Config` + pinning TOFU
+  (`JAV_CERT_FINGERPRINT`/`JEV_CERT_FINGERPRINT`, `subtle.ConstantTimeCompare`),
+  `CERT_MISMATCH` honesto. `tls_test.go` (normalización + TOFU).
+- [x] Certificado en vivo: migración de token verificada en `e03638e5`
+  (`shared_prefs` pasó de `ws_token` a `ws_token_enc`), `hello` + `get_audit`
+  OK con el token del `.env`. Kotlin **88/88**, Go verde, `audit-mcp` 11/11.
+  `docs/BUILD.md §21`, `TASK_HISTORY §9`.
+- [ ] Pendiente honesto: **WSS live** requiere un tailnet real (el banco no
+  tiene IP `100.64/10`); la ruta cripto del cert queda cubierta por tests JVM
+  y la migración de token prueba el camino AES de `AndroidKeyStore`.
+
 ### Fase 6 — Shell con seguridad cerrada + hardening
 - [x] `shell` con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
   bloqueo 60 s) — **hecho en Fase 6b (2026-10-16)**.
   **`get_audit` (ring 500) y Kill Switch: hechos en Fase 6a (2026-10-16).**
-- [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jev-mcp/`,
+- [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jav-mcp/`,
   docs y hardening finales.
 
 ## Próxima tarea (director v5 vigente; loop congelado)
@@ -239,20 +267,24 @@
    `TAU`/`FAST_TAU`. **Firma anti-ticker: hecha** (2026-10-10, ver arriba).
    Sin features en `loop.py`.
 3. Orquestador: enmienda AGENTS.md §1 propuesta en `director-client.md`
-   §11.4 (director decide / Jev señala / Jam ejecuta).
+   §11.4 (director decide / Jev señala / Jav ejecuta).
 4. Explícito: **sin paquetes/contactos prefijados**; acción crítica/irreversible
    solo con preview + `confirm:true` del operador, auditada en forense.
 5. Release: evaluar tag `v1.0.6` para publicar la APK con `ClickAncestor` +
    anti-ticker (releases GitHub). Requiere antes la deuda P0 (token en logcat).
 
 ## Deuda / anotaciones (AGENTS.md §9)
-- Nombre asentado 2026-10-07: **Jav** = proyecto/runtime; **Jev** = backend táctico (`JEV_MODEL`); migración (`jev_mcp`→`jav`, `JAV_*`, `com.k4wai1.jam`) **diferida** (ver `docs/specs/ecosystem.md` §4; sin renombrar código aún).
+- Nombre asentado 2026-10-07 y **ejecutado 2026-10-16**: **Jav** = proyecto/runtime (`github.com/k4wai1/jav`); **Jev** = backend táctico (`JEV_MODEL`); app = `Jav`, paquete `dev.k4wai1.jav`; env `JAV_*` canónico con alias `JEV_*` (ver `docs/specs/ecosystem.md` §4). `mcp-server/` (Python), `logs/run-*.jsonl` y golden testdata conservan el nombre viejo como forense.
 - Seguridad P0: **resuelto** (36fc93a "token enmascarado", verificado
   2026-10-10): `JevForegroundService.kt:35` loguea
   `JamWs token_sha256=<8 hex> len=<n>` (nunca el token en claro). Antes de
   un release, rotar cualquier token históricamente expuesto.
-- Backlog 2b (no se finge cerrado): WSS + certificado self-signed +
-  token en Keystore (bind tailnet). Transporte actual = WS loopback
+- Backlog 2b: **cerrado 2026-10-16** (Fase 2b, `docs/BUILD.md §21`): WSS +
+  certificado self-signed (`CN=jam.local`, RSA-2048, PKCS#12 cifrado en
+  `AndroidKeyStore`) en la IP tailnet (`100.64.0.0/10`, nunca `0.0.0.0`),
+  token cifrado AES-GCM en `AndroidKeyStore` (migración suave desde el
+  plano), lockout 5 fallos/60 s→5 min y pinning TOFU en Go
+  (`JAV_CERT_FINGERPRINT`/`JEV_CERT_FINGERPRINT`). Transporte loopback = WS
   + `adb forward`; `hello` objeto `WsRequest{id,method,params}` con
   `protocol_version` + `client_version`, respuesta plana
   `{ok, protocol_version, app_version, scopes}` (PROTOCOL §2).

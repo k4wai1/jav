@@ -124,7 +124,7 @@ Ejemplo normativo (forma, no contenido):
   "state": {
     "goal": "Send a message to Rupa saying I am on my way",
     "screen_goal": "Message thread with Rupa open, message input focused",
-    "current_app": "dev.jev.jam",
+    "current_app": "dev.k4wai1.jav",
     "snapshot_id": 42,
     "table": [
       [0, "EditText", "edit|foc", "Message"],
@@ -169,7 +169,7 @@ Notas:
 
 ## 4. Tabla enriquecida (normativo v3)
 
-Cadena: **500 raw (extractor Jam) → candidatos (normalizer host,
+Cadena: **500 raw (extractor Jav) → candidatos (normalizer host,
 `ui_normalizer.py`) → tabla numerada 0..253 ⊂ 255 Choice
 (254 interactivos + 1 `NONE`)**. Orden estable BFS; prioridad
 editable > clickable-con-texto > resto. Exceso >254 → visibles

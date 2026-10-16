@@ -37,7 +37,7 @@ text`/`uiautomator` en `src/`; Shizuku + Accessibility + `ACTION_SET_TEXT`).
 | **droidpilot (a11y+WS)** | APK con AccessibilityService + WebSocket WiFi; servidor MCP Node; 18 tools (`get_ui_tree`, `find_element`, `click_element`, `wait_for_element`, `get_focused`, `set_text`…) | El más cercano a nosotros: árbol nativo, sin ADB/USB, bajo costo de tokens, `click_element` (click OS antes que gesto), foco real | Sin token/scopes/audit (confía en la LAN); sin snapshot-ids (stale silencioso); `type_text` = append sin replace ni read-back; 18 tools sin telemetría/settings nativos | **Top robables**: (a) `wait_for_node` (espera con timeout sobre criterio, no sleep fijo) → `tools/ui.py` (ya esbozado: consolidar con `snapshot_id` fresco + test); (b) **walk-up clickable** (si el nodo no es clickable, subir al ancestro clickable más cercano antes de gesticular) → `ui_normalizer.py` o `tools/ui.py` helper puro + test; (c) `colapso contenedor-texto` (contenedor + único hijo texto → una fila) → `ui_normalizer.py`; (d) `get_focused` → ya cubierto por `focused_field` (P0-1 aplicado). **NO**: transporte sin auth, ausencia de scopes/forense |
 | **uiautomator-mcp (FastMCP+snapshot)** | FastMCP Python + `uiautomator2`; snapshot cache con IDs `[e1]…` BFS; 3 modos de compresión XML (summary ~14×, compact ~10×, drill-down); multi-device por serial; acciones invalidan cache (read-act-read) | Compresión honesta para LLMs (14× medido); IDs estables **dentro** del snapshot; stateless por llamada; multi-device limpio | `uiautomator dump` = 4353 ms en nuestro banco (16× vs a11y in-process); XML 10–100 k chars sin comprimir; IDs mueren con el snapshot (stale si no se invalida); sin foco/tipo estructurado | **Top robables**: (a) **drift-check con `was`/`now`** (toda mutación declara contra qué snapshot iba; mismatch → `STALE_SNAPSHOT`, re-observar 1 vez, 2.º → `UI_UNSTABLE`) → `core/loop_helpers.py::assert_fresh` + `loop.py` (P1-6 aplicado: extender a `SCROLL/BACK` tolerante-1-stale); (b) **compresión por modos** (resumen solo-interactivos como default, árbol completo bajo demanda) → `ui_normalizer.py` (poda 60→254 pendiente + modo resumido); (c) **multi-device por serial**: NO ahora (single-client `BUSY` es decisión congelada §2.1; queda P3). **NO**: `uiautomator2` como vía (prohibido en `src/`) |
 | **mobile-use (VLM jerárquico)** | Multi-agente: planner/operator/answer/reflector/progressor/note-taker (12 subagentes); reflexión jerárquica + exploración proactiva; 75% AndroidWorld screenshot-only | Mejor tasa publicada en benchmark abierto; reflexión que corrige planes, no solo pasos; progreso explícito multi-app | 12 agentes = 12 llamadas/paso (costo y latencia brutales en nuestro Celeron y presupuesto <$0.003/corrida); ADB-dependiente; prompts con apps concretas; sin compuertas de irreversibles | **Top robables**: (a) **verificador DONE-S2** (el éxito lo certifica un rol distinto al que actuó) → ya aplicado (`verify_done`, `18fd704`; consolidar en `loop.py` + `s2_client`); (b) **detect_stall determinista** (misma decisión/acción ×3 sin cambio útil de fingerprint → abort, sin LLM) → `core/guards.py::check_stuck_same` (ya existe: extender a firma-por-contenido P1-5, ignorando tickers); (c) **memoria `recent` acotada** (últimos 8) → `loop_helpers.py` (P1-5). **NO**: jerarquía multi-agente (nuestro v5 la sustituye por director único + Jev-resolver ciego), exploración proactiva (cada mutación cuesta y puede ser irreversible) |
-| **NOSOTROS (dual-tier v3→v5 + N0/N1)** | Jam on-device (a11y + Shizuku + providers nativos) + WS/WSS con token+scopes + MCP 35 tools + S1 Jev Choice≤255 / S2-director o director humano + forense JSONL + CostTracker | Ver §2 (posición propia) | Ver §2 (posición propia) | — (somos la base; todo lo robado se reinterpreta a Shizuku+a11y+`ACTION_SET_TEXT`, nunca `adb`/`input text`/`clipboard-shell`) |
+| **NOSOTROS (dual-tier v3→v5 + N0/N1)** | Jav on-device (a11y + Shizuku + providers nativos) + WS/WSS con token+scopes + MCP 35 tools + S1 Jev Choice≤255 / S2-director o director humano + forense JSONL + CostTracker | Ver §2 (posición propia) | Ver §2 (posición propia) | — (somos la base; todo lo robado se reinterpreta a Shizuku+a11y+`ACTION_SET_TEXT`, nunca `adb`/`input text`/`clipboard-shell`) |
 
 ## 2. Top robables → destino (consolidado, con estado)
 
@@ -47,7 +47,7 @@ literales de app ni keys.
 
 | # | Patrón (origen) | Destino | Estado |
 |---|---|---|---|
-| 1 | **Clipboard con negativa tipada** (scrcpy-mcp `clipboard.ts`: `parcelException`/`CLIPBOARD_READ_REFUSED`) | `mcp-server/src/jev_mcp/tools/clipboard.py` (+ `director.py` fachada) | Parcial: `set_clipboard` Jam + `get_clipboard` host existen (v5); **pendiente** código máquina-legible `clipboard_read_refused` + `CLIPBOARD_UNSUPPORTED` con hint de degradación a `type_text` |
+| 1 | **Clipboard con negativa tipada** (scrcpy-mcp `clipboard.ts`: `parcelException`/`CLIPBOARD_READ_REFUSED`) | `mcp-server/src/jev_mcp/tools/clipboard.py` (+ `director.py` fachada) | Parcial: `set_clipboard` Jav + `get_clipboard` host existen (v5); **pendiente** código máquina-legible `clipboard_read_refused` + `CLIPBOARD_UNSUPPORTED` con hint de degradación a `type_text` |
 | 2 | **Walk-up clickable** (droidpilot `click_element`: ancestro clickable antes que gesto) | `mcp-server/src/jev_mcp/ui_normalizer.py` (helper puro `nearest_clickable`) + `tools/ui.py` | Pendiente (P1). Ya hacemos `ACTION_CLICK`-primero (AGENTS.md §6); falta subir al ancestro cuando el target no es clickable, con test |
 | 3 | **`wait_for_node`** (droidpilot `wait_for_element` con timeout) | `mcp-server/src/jev_mcp/tools/ui.py` | Parcial: existe `wait_for_text`; **pendiente** generalizar a criterio (`text`/`resource_id` sufijo/`content_desc`/`class` + `snapshot_id` fresco + `STALE` honesto) |
 | 4 | **Colapso contenedor-texto** (droidpilot/uiautomator-mcp: resumir nodos envoltorio) | `mcp-server/src/jev_mcp/ui_normalizer.py` | Pendiente (P1): contenedor no-clickable con único hijo texto → una fila; filtrar decoración del sistema ya existe (Fase 4) |
@@ -138,72 +138,44 @@ literales de app ni keys.
   desde cliente estándar; nosotros exigimos operador entrenado (grants N1,
   Shizuku por usuario, QR+TOFU, `confirm:true`). Potencia a cambio de fricción.
 
-## 4. Rename: el proyecto ya no es "agente Android con Jev"
+## 4. Identidad consolidada — **Jav** (decisión 2026-10-07, ejecutada 2026-10-16)
 
-El árbol real: MCP completo (35 tools) + app on-device non-root (a11y +
-Shizuku + providers N0/N1) + tres carriles (nativo / director-cliente v5 /
-dual-tier congelado) donde Jev es **un** resolver (ciego al goal en v5), no el
-proyecto. `jev-android-mcp` + `dev.jev.jam` + "Jam" nombran al proveedor de un
-componente, no al sistema; además fijan marca ajena en nuestro paquete.
+El árbol real: MCP completo (38 tools, Go) + app on-device non-root (a11y +
+Shizuku + providers N0/N1 + shell con grant) + tres carriles (nativo /
+director-cliente v5 / dual-tier congelado) donde Jev es **un** resolver
+(ciego al goal en v5), no el proyecto. Identidad única final:
 
-### Candidatos
+- **Proyecto/repo:** `Jav` — `github.com/k4wai1/jav` (`cmd/jav`, `pkg/...`).
+- **App Android:** **Jav**, paquete `dev.k4wai1.jav` (label `Jav`, canal y
+  notificaciones `Jav`).
+- **Backend táctico S1:** `Jev` se conserva como *modelo* (`JEV_MODEL`),
+  no como nombre del proyecto.
+- **Histórico (no se reescribe):** `mcp-server/` (harness Python congelado),
+  `logs/run-*.jsonl` y `pkg/normalizer/testdata/` conservan el nombre viejo
+  como evidencia forense; el corte queda anotado en `PLAN.md`.
 
-| # | Nombre (repo + app) | Justificación | Contras |
-|---|---|---|---|
-| A | **`droidmcp`** — repo `droidmcp`, app `DroidMCP` (`dev.droidmcp.agent`) | Dice exactamente qué es: MCP de uso de Android. Sin marca de proveedor; extensible a N dispositivos; nombre corto para `uvx`/docs | Genérico hasta lo anodino; colisión parcial con `droidpilot`/`droidrun` en búsquedas |
-| B | **`jamboree`→`jamlink`** — repo `jamlink`, app **Jam** conservada (`dev.jamlink.agent`) | Conserva el capital existente (Jam ya instalada en 2 bancos, docs/BUILD/TESTING la citan); "link" = puente host↔dispositivo, que es lo que el WS hace | "Jam" no significa nada para un tercero; mantiene sílaba opaca; el paquete cambia igual (migración inevitable) |
-| C | **`unroot`** — repo `unroot-mcp`, app `Unroot` (`dev.unroot.agent`) | Nombra la restricción que nos distingue (non-root como feature, no como carencia); memorable; dice seguridad sin decir "secure" | Puede leerse como herramienta de rooteo (lo contrario); limita si Fase 6+ añade `shell` con Shizuku (ya no "sin privilegios" puros) |
+### Por qué Jav (sobre `droidmcp` / `jamlink` / `unroot`)
 
-### Implicaciones de migrar (cualquiera de los tres)
+Corto, fonético, raíz jev+jam, sin marca ajena: "Jav, el runtime MCP de
+control integral para Android sin root". `droidmcp` describía bien el sistema
+pero colisionaba en búsquedas; `jamlink` conservaba una sílaba opaca;
+`unroot` limitaba si Fase 6 añade `shell` con Shizuku (ya implementado).
 
-1. **Repo/remote:** renombrar en forja + `git remote set-url`; redirección del
-   nombre viejo; `refs/` ignorados no se tocan.
-2. **Paquete Android:** `dev.jev.jam` → nuevo `applicationId`; exige
-   desinstalar/reinstalar en KJ5 + A10 + LG7n, re-habilitar accesibilidad y
-   re-generar token (el Keystore no migra); `ShizukuProvider` authority cambia.
-3. **Docs/specs:** `AGENTS.md` §9 (nombre y banco), `ARCHITECTURE.md` §2.9 +
-   diagrama §4, `PLAN.md` Fase 0, `PROTOCOL.md` (`hello` `app_version`),
-   `docs/BUILD.md`, `docs/TESTING.md`, `README.es/en.md`, los 8 specs que
-   citan Jam/Jev-mcp. Estimación: ~40 menciones, mecanizable con sustitución
-   + revisión.
-4. **Servidor:** `mcp-server/src/jev_mcp/` (paquete Python) + `server.json` +
-   `.env.example` (`JEV_*` → prefijo nuevo; mantener alias 1 versión) +
-   `opencode.json` + rutas `/sdcard/Download/jev-mcp/`.
-5. **Forense/logs:** `logs/run-*.jsonl` históricos quedan con el nombre viejo
-   (no se reescriben; se anota el corte en `PLAN.md`).
+### Migración ejecutada 2026-10-16 (antes "DIFERIDA")
 
-### Recomendación (histórica @architect — superada por decisión del operador)
-
-**`droidmcp` (opción A).** Es el único que describe el sistema completo a un
-tercero sin explicar nada ("MCP para usar Android"), no lleva marca de
-proveedor (Jev pasa a ser un backend declarado en `JEV_MODEL`, que es lo que
-ya es en v5), y sobrevive a que el S1/S2 cambien. Costo de migración medio
-(§4.2–4.4), pero cada mes que pasa el costo sube (más bancos, más forense con
-el nombre viejo). **El rename lo decide el operador; aquí no se ejecuta.**
-
-### Decisión del operador (2026-10-07) — **Jav**
-
-El operador elige **Jav** (corto, fonético, raíz jev+jam, sin marca ajena)
-sobre `droidmcp` / `jamlink` / `unroot`: "Jav, el runtime MCP de control
-integral para Android sin root". **Jev queda como backend del clasificador
-táctico** (referenciado en `JEV_MODEL`), no como nombre del proyecto.
-
-Migración **DIFERIDA** (no ejecutar ahora; solo hoja de ruta para `@coder`
-futuro con enmienda):
-
-1. **Paquete Python:** `jev_mcp` → `jav` / `jav_mcp` (`mcp-server/src/`
-   + `server.json` + imports + tests).
-2. **Env:** `JAV_*` como prefijo canónico, con alias temporales `JEV_*`
-   durante 1 versión (sin romper bancos en uso).
-3. **ApplicationId Android:** → `com.k4wai1.jam` (conserva nombre de
-   desarrollador; exige **reinstalación limpia en A10/KJ5 + re-token**;
-   el Keystore no migra; `ShizukuProvider` authority cambia con el paquete).
-4. **Docs a actualizar al migrar:** `ARCHITECTURE.md`, `README.*`,
-   `PLAN.md`, este `ecosystem.md` (+ `docs/BUILD.md`, `docs/TESTING.md`,
-   `PROTOCOL.md`, specs que citen el nombre viejo; forense histórico en
-   `logs/run-*.jsonl` no se reescribe, se anota el corte).
-5. **No-acción ahora:** no se renombra código, ni paquetes, ni
-   `applicationId` en este cambio (solo se asienta el nombre).
+1. **Android:** `namespace`/`applicationId` → `dev.k4wai1.jav`; árbol
+   `java/`+`aidl/` movido a `dev/k4wai1/jav`; `SELF_PACKAGE`/`SELF` y
+   `ACTION_*` a `dev.k4wai1.jav.*`; label visible `Jav`.
+2. **Go:** strings visibles (descripciones, hints, `instructions`) `Jav`;
+   sonda self-uninstall de `cmd/jav-e2e` → `dev.k4wai1.jav`; referer/`X-Title`
+   a `k4wai1/jav` / `jav-loop`. El paquete interno `pkg/jam` y el modelo
+   `pkg/jev` conservan su nombre (identificador, no marca).
+3. **Env:** `JAV_*` canónico con alias `JEV_*` (`pkg/jam`).
+4. **Token en el dispositivo:** la app nueva no hereda el Keystore, así que
+   el token se conserva **sembrando el `ws_token` plano** del `.env` antes
+   del primer arranque → migración suave a `ws_token_enc` (§Fase 2b).
+5. **Docs:** consolidados a `Jav`/`dev.k4wai1.jav`; Python/`jam` solo como
+   trazabilidad histórica puntual (`mcp-server/`, golden, logs).
 
 ## 5. Roadmap de adopción priorizado (costo / beneficio)
 

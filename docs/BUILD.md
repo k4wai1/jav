@@ -47,8 +47,8 @@ APK: `android-app/app/build/outputs/apk/debug/app-debug.apk` (16 MB).
 
 - `grep -rn 'su -c\|exec(.*su\|ProcessBuilder(.*su' app/src/` → **vacío** ✓
 - `strings classes{,2,3,4,5}.dex | grep -c 'su -c'` → **0** ✓
-- `apkanalyzer manifest print`: `package=dev.jev.jam`, 2 servicios,
-  `ShizukuProvider` (`dev.jev.jam.shizuku` + `INTERACT_ACROSS_USERS_FULL`),
+- `apkanalyzer manifest print`: `package=dev.k4wai1.jav`, 2 servicios,
+  `ShizukuProvider` (`dev.k4wai1.jav.shizuku` + `INTERACT_ACROSS_USERS_FULL`),
   permiso `moe.shizuku.manager.permission.API_V23` fusionado,
   `FOREGROUND_SERVICE_SPECIAL_USE`, property FGS ✓
 
@@ -60,9 +60,9 @@ Android 13 (API 33)**, sin root, con Shizuku y Tailscale instalados
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk   # Success
-adb shell am start -n dev.jev.jam/.MainActivity
+adb shell am start -n dev.k4wai1.jav/.MainActivity
 adb shell 'dumpsys activity activities | grep -m1 mFocusedApp'
-# mFocusedApp=ActivityRecord{… dev.jev.jam/.MainActivity} ✓
+# mFocusedApp=ActivityRecord{… dev.k4wai1.jav/.MainActivity} ✓
 ```
 
 `uiautomator dump` confirma el paquete en foreground con `android:id/content`
@@ -80,7 +80,7 @@ Causa: `getBoundsInScreen` en espacio lógico (override 360x720) vs
 (idem Y), clamp a físico-1; `bounds` de `dump_ui` queda en lógico.
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.ui.DisplayScaleTest" --tests "dev.jev.jam.ui.UiTreeExtractorTest"
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.ui.DisplayScaleTest" --tests "dev.k4wai1.jav.ui.UiTreeExtractorTest"
 ./gradlew :app:assembleDebug
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 ```
@@ -105,7 +105,7 @@ sin `su` (grep específico limpio; el match `exec(.*su` en
 `ShizukuBridge.kt:118` es falso positivo pre-existente: `ExecResult`).
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.*" :app:assembleDebug
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.nat.*" :app:assembleDebug
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 ```
 
@@ -129,7 +129,7 @@ real (21 KB b64); ubicación/Notificaciones honestas (ver §7).
   (rancio tras `install -r` + `force_stop`); reboot lo dejó OK
   (`netstat` → `127.0.0.1:38472` LISTEN). Sin cambios de código por esto.
 - Accesibilidad y Shizuku aparecen `false` en `hello.caps` tras el reboot:
-  hay que re-habilitar Jam en Ajustes → Accesibilidad y arrancar Shizuku.
+  hay que re-habilitar Jav en Ajustes → Accesibilidad y arrancar Shizuku.
 - `enabled_notification_listeners` acepta el componente por adb pero el
   sistema no lo enlaza; la pantalla de Ajustes dice "Esta característica
   no está disponible en este dispositivo": NL imposible en el 5002E
@@ -150,7 +150,7 @@ previo `hours`. El cálculo de `begin` se factoriza a `NatPolicies.usageBegin`
 `get_app_usage(hours=24, window=None)`.
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest" :app:assembleDebug
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.nat.NatPoliciesTest" :app:assembleDebug
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 ```
 
@@ -163,7 +163,7 @@ Verificación hello + uso real en el equipo (token sin cambios; scopes
 por `settings put secure`; `shizuku_server` ya corría): `get_battery`,
 `get_memory`, `get_storage` y `get_app_usage(window=today|week)` con
 valores reales (batería 100%, RAM disp. ~1.13 GB, libre ~12.8 GB;
-top hoy `org.fossify.math` 647.2 min / `dev.jev.jam` 144.1 min;
+top hoy `org.fossify.math` 647.2 min / `dev.k4wai1.jav` 144.1 min;
 top semana `com.termux` 1214.1 min / `org.fossify.math` 647.2 min).
 Suite MCP: **147 passed**.
 
@@ -190,7 +190,7 @@ Errores-gotchas). JVM: 2 asserts nuevos en `NatPoliciesTest`
 (paquete forzado con forma válida). MCP: test de forwarding de `package`.
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest" --console=plain
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.nat.NatPoliciesTest" --console=plain
 ./gradlew :app:assembleDebug --console=plain
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 ```
@@ -225,7 +225,7 @@ felix' mcp-server/src/` → **vacío** (el único `forward` es
 ## 10. P0 `send_intent`: canonicalización estricta + replay Go/Python (2026-10-09, 5002E/API 29, USB e03638e5, SOLO USB)
 
 Deuda documentada en `cf66b7d`: `hSendIntent` (Go) pasaba `action`
-verbatim y `NatPolicies.isCritical` (Jam) solo cubría formas plenas
+verbatim y `NatPolicies.isCritical` (Jav) solo cubría formas plenas
 `android.intent.action.*`; `SEND`/`CALL` cortos sin `confirm` daban `ok`
 en vez de `planned` (bypass determinista del confirm).
 
@@ -238,7 +238,7 @@ Cambios:
   usan la forma canónica; vacía → `VALIDATION_ERROR`).
 - Go `pkg/tools/sendintent.go` (nuevo): espejo exacto
   (`CanonicalizeIntentAction` + `IsCriticalIntent`); `hSendIntent`
-  canonicaliza antes del frame WS (el gate `planned` lo pone Jam).
+  canonicaliza antes del frame WS (el gate `planned` lo pone Jav).
 - Tests: JVM `NatPoliciesTest` 2 nuevos (canónica SEND/CALL/VIEW +
   cortas críticas); Go `sendintent_test.go` (misma matriz);
   Go `pkg/normalizer/replay_test.go`: paridad conductual Go vs Python.
@@ -246,7 +246,7 @@ Cambios:
   (`mcp-server/logs/` + `logs/`) con **0 árboles crudos** (solo
   forense/conteos); replay sobre 2 dumps reales con árbol:
   `mcp-server/tests/fixtures/wa_home.json` (WhatsApp, 174→65) y
-  `pkg/normalizer/testdata/jam_live_18.json` (Jam onboarding en e03638e5
+  `pkg/normalizer/testdata/jam_live_18.json` (Jav onboarding en e03638e5
   vía `dump_ui`, 18→10; token saneado a `TOKEN-REDACTED`). Esperado
   generado por Python (`normalize` + `build_table` + `serialize_table` +
   `zone_of`, 720x1440); Go da poda/índices/zonas 3×3 idénticos.
@@ -255,7 +255,7 @@ Cambios:
   (reubicación documentada, sin código que actualizar).
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest"  # 14/14 verdes
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.nat.NatPoliciesTest"  # 14/14 verdes
 ./gradlew :app:assembleDebug
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 go build ./... && go vet ./... && go test ./...                          # 6 pkgs OK
@@ -299,7 +299,7 @@ Fix:
   action.send, ACTION.SEND, CALL y familia, VIEW libre con https).
 
 ```bash
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.nat.NatPoliciesTest"  # 14/14 verdes
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.nat.NatPoliciesTest"  # 14/14 verdes
 ./gradlew :app:assembleDebug
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk   # Success
 go test ./pkg/tools/ -run 'TestCanonicalize|TestIsCritical' -v
@@ -396,11 +396,11 @@ Notas de banco (para el operador, sin cambios de código):
    re-renderizar hay que pasar por HOME.
 2. Tras `install -r`/`force_stop` el puerto puede quedar LISTEN en
    proceso rancio (ya visto en §7); `force-stop` + arranque en frío
-   lo deja OK. Procesos `dev.jev.jam:shell` antiguos (Shizuku) sobreviven
+   lo deja OK. Procesos `dev.k4wai1.jav:shell` antiguos (Shizuku) sobreviven
    al force-stop; no afectan (no escuchan WS).
 3. Accesibilidad: hizo falta ciclo limpio (`settings delete` +
    `put` con `ComponentName` **plano**
-   `dev.jev.jam/dev.jev.jam.service.JevAccessibilityService` — la forma
+   `dev.k4wai1.jav/dev.k4wai1.jav.service.JevAccessibilityService` — la forma
    corta `.service.…` no matchea el `== flat` de `isAccessibilityOn()`)
    para que el sistema re-enlazara en el proceso nuevo
    (`caps.accessibility: false→true`).
@@ -443,7 +443,7 @@ Alcance `@coder` (Go + Kotlin + adb; nada de `su`; 100% genérico, sin keys):
 
 ```bash
 go build ./... && go vet ./... && go test ./...
-./gradlew :app:testDebugUnitTest --tests "dev.jev.jam.ui.SelectorResolverTest"
+./gradlew :app:testDebugUnitTest --tests "dev.k4wai1.jav.ui.SelectorResolverTest"
 ./gradlew :app:assembleDebug
 adb -s e03638e5 install -r app/build/outputs/apk/debug/app-debug.apk
 ```
@@ -535,7 +535,7 @@ sustituye el `text` en `evidence.candidates` (`pkg/tools/helpers.go`). Gate
 
 Accesibilidad re-habilitada por `settings put secure` con `ComponentName`
 plano (misma nota que §12.3); tras `install -r`/`force-stop` el ciclo
-`delete`+`put`+`enabled=1` vuelve a enlazar (`Bound services: Jam`).
+`delete`+`put`+`enabled=1` vuelve a enlazar (`Bound services: Jav`).
 Sin commits (cierra @judge), sin push. Sin keys/tokens expuestos.
 
 ## 16. Benchmark sintético de tools en A10 (2026-10-15, API 29, USB e03638e5)
@@ -551,7 +551,7 @@ Comando y tablas crudas en `docs/TESTING.md §12`; síntesis en
 | Captura | webp q80 1037 ms (20 KB) · png q80 1101 ms (60 KB) |
 | Native N0 | 7–12 ms (`get_cpu` 131 ms) |
 | Cross-app `dump_ui` | `~15 ms + ~1.4 ms/nodo` (14–117 n) |
-| Ruta ADB `uiautomator dump` | ~2280 ms (≈30× más lento que Jam) |
+| Ruta ADB `uiautomator dump` | ~2280 ms (≈30× más lento que Jav) |
 
 `caps` observado: `accessibility:true, shizuku:true, shell_grant:false`. API 29
 usa `screencap` (via WS/Shizuku) para `screenshot`; `WEBP_LOSSY` corregido
@@ -573,7 +573,7 @@ Sin commits (cierra @judge), sin push. Sin keys/tokens expuestos.
 
 Cierre del bloque de 3 pasos: (1) higiene `gofmt` + commit del hito
 `a6aaba8`/`a76ba65`; (2) `resolve_element` como **36.ª tool MCP** y fallback
-`ACTION_PASTE` en Jam; (3) revancha en vivo. Banco `e03638e5` (Android 10 /
+`ACTION_PASTE` en Jav; (3) revancha en vivo. Banco `e03638e5` (Android 10 /
 API 29, USB), sin commits ni push.
 
 **Qué cambió**
@@ -655,14 +655,14 @@ dispositivo consultable y parada dura del servidor. Banco `e03638e5`
   `hello.scopes`.
 - **`JamWsServer`**: `originOf(conn)` sanitiza a `loopback` o IP (sin puerto).
 - **Kill Switch** (`service/JevForegroundService.kt`):
-  `ACTION_KILL_SWITCH="dev.jev.jam.action.KILL_SWITCH"` en `onStartCommand`;
+  `ACTION_KILL_SWITCH="dev.k4wai1.jav.action.KILL_SWITCH"` en `onStartCommand`;
   `triggerKillSwitch(ctx)` rota el token (`AuthStore.regenerateToken`),
   registra `kill_switch` (scope admin) y `revokeAll()` + `shutdown()` +
   `stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()`. Botón "Kill
   Switch" en la notificación (`PendingIntent.getService`,
   `FLAG_IMMUTABLE`).
 - **`service/JamKillSwitchTile.kt`** (`TileService`, API 24+): refleja
-  `serverOn` (`STATE_ACTIVE`/`LABEL "Jam ON|OFF"`) y dispara el kill en
+  `serverOn` (`STATE_ACTIVE`/`LABEL "Jav ON|OFF"`) y dispara el kill en
   `onClick`. Manifest: `BIND_QUICK_SETTINGS_TILE` + `exported="true"` +
   `QS_TILE`; icono propio `res/drawable/ic_jam_kill.xml` (sin depender de
   recursos de sistema ocultos).
@@ -714,7 +714,7 @@ queda vivo. Banco `e03638e5` (Android 10 / API 29, USB).
   irreversibles (`rm -rf /`|`*`, `pm uninstall`, `cmd package uninstall`,
   `reboot recovery|bootloader|fastboot`, `dd … of=`, `mkfs`, `wipe`,
   `settings put secure|global <clave crítica>`); `isSelfHarm` (matar/
-  desinstalar `dev.jev.jam`) → `FORBIDDEN_SELF`; `sha256Hex`,
+  desinstalar `dev.k4wai1.jav`) → `FORBIDDEN_SELF`; `sha256Hex`,
   `previewPrefix` (≤80), `SlidingWindowRateLimiter(5, 1000)` → `RATE`
   para el rate **5 req/s** de shell (independiente del 50 req/s general).
 - **Kotlin `shell/ShellGrantManager.kt`** (`object`, en memoria): ventanas
@@ -758,7 +758,7 @@ get_storage detail=fine → ok verified via=shizuku exit=0 entries=2
 get_cpu     detail=fine → ok verified processors=4 via=shizuku exit=0 procs=10
 settings_put global airplane_mode_on confirm=false → planned:true (value_sha256)
 adb_shell   "rm -rf /" confirm=false   → planned:true preview reason=denylist_irreversible
-adb_shell   "pm uninstall dev.jev.jam" → SHELL_DENYLIST (no se toca el dispositivo)
+adb_shell   "pm uninstall dev.k4wai1.jav" → SHELL_DENYLIST (no se toca el dispositivo)
 adb_shell   ""                         → VALIDATION_ERROR
 get_foreground / read_screen           → ok tras re-enlazar accesibilidad
 ```
@@ -766,3 +766,70 @@ El grant interactivo se aprueba en el dispositivo (notificación) y emite
 `shell_grant` por WS; no se automatizó el tap del operador (rotaría la
 sesión / requiere interacción humana). `rm -rf /` **nunca** tocó el
 dispositivo (se detuvo en la compuerta `planned`).
+
+## 21. Fase 2b — WSS tailnet + cert self-signed + token en Keystore (2026-10-16)
+
+Cierre del backlog 2b (`ARCHITECTURE.md §9`): el transporte sale del
+loopback+`adb forward` y añade un segundo listener **WSS** atado a la IP del
+tailnet, con token cifrado en reposo y pinning TOFU en el cliente Go.
+
+**Android (Kotlin)**
+- `socket/AuthLockout.kt`: lockout por `origin` — 5 fallos `UNAUTHORIZED` en
+  60 s → bloqueo 300 s (`isLocked`/`retryAfterMs`/`recordFailure`/
+  `recordSuccess`). `hello` bloqueado → `UNAUTHORIZED` + audit.
+  `AuthLockoutTest.kt` (7 tests).
+- `socket/AuthStore.kt`: token **AES-GCM/256** en `AndroidKeyStore`
+  (alias `jam_token_key`), almacenado como `ws_token_enc` (`iv(12)||ct`
+  Base64). **Migración suave**: si existe el plano `ws_token` se cifra el
+  mismo valor y se borra el plano → el `.env` del operador sigue válido.
+  `regenerateToken` guarda cifrado.
+- `socket/TlsCertStore.kt`: `TlsCertStore` (AndroidKeyStore) + `TlsCertFactory`
+  (JVM puro). Cert **X.509v3 autofirmado** `CN=jam.local`, RSA-2048, 10 años,
+  con BouncyCastle **local** (nunca registro JCA global, AGENTS §5.3);
+  PKCS#12 cifrado en `filesDir` (`jam_tls.p12.enc`); expone `sslContext()`
+  y `fingerprintSha256()`. `TlsCertStoreTest.kt` (5 tests).
+- `net/TailnetDetector.kt`: `isTailnetIpv4` (CGNAT `100.64.0.0/10`) +
+  `ConnectivityManager.NetworkCallback` para re-detección.
+- `socket/JamWsServer.kt`: `ClientRegistry` compartida (single-client global),
+  bind/SSL/label configurables; `setWebSocketFactory(DefaultSSLWebSocketServerFactory)`
+  cuando hay `sslContext`.
+- `service/JevForegroundService.kt`: loopback WS + 2.º listener **WSS** en la
+  IP tailnet (nunca `0.0.0.0`), `tailnetUrl()`/`certFingerprint()`; `onDestroy`
+  cierra ambos y desregistra el callback.
+- `MainActivity` Tarjeta 1/3: estado tailnet (`wss://<ip>:38472/` o
+  `tailnet: no detectada`) + primeros 16 hex del `cert_sha256` (TOFU).
+
+**Go (`pkg/jam`)**
+- `dialOnce`: si la URL es `wss://`, `tls.Config` con **pinning TOFU** —
+  `policy: JAV_CERT_FINGERPRINT` (fallback `JEV_CERT_FINGERPRINT`), comparación
+  SHA-256 en tiempo constante; mismatch → `CERT_MISMATCH` (hint honesto).
+  `tls_test.go`: normalización del pin + TOFU (sin pin / pin ok / pin mal /
+  sin certificado).
+
+**Verificación**
+```
+gofmt -l cmd/ pkg/                                   # vacío
+go test ./...                                        # verde (pkg/jam += tls_test)
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug  # 88/88
+make build                                           # dist/jav-linux-amd64
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 11/11 PASS (tools-count-38)
+```
+Gate `su` (AGENTS §2.2): sigue en **1 hit** preexistente
+(`shell/ShizukuBridge.kt:118`, falso positivo `Re**su**lt`); sin hits nuevos.
+
+**En vivo (`e03638e5`, WS vía `adb forward`)**:
+```
+shared_prefs/jam_auth.xml   → ws_token_enc (antes ws_token plano); migración suave OK
+hello                       → ok app=0.1.0 scopes=[read ui admin] (token del .env intacto)
+get_audit limit=5           → ok total=1 returned=1
+```
+`logcat` está deshabilitado en esta ROM (`logcat -d` → 0 líneas), así que la
+traza `JamWs` no es legible; la verificación se hizo por efecto observable
+(`hello`/`get_audit` + `shared_prefs`).
+
+**Límite honesto:** el banco no tiene IP `100.64.0.0/10` (solo
+`192.168.100.11`), por lo que el **listener WSS y el pinning end-to-end no se
+probaron en vivo**; se cubren por tests JVM del `TlsCertFactory`, por el test
+Go del pinning y por la prueba de que el camino AES de `AndroidKeyStore`
+funciona (migración del token). Bindear el WSS a la LAN violaría AGENTS §3.1
+(nunca fuera del tailnet), así que no se forzó.

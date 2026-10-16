@@ -106,8 +106,8 @@ Fuente: `docs/TESTING.md §12` (crudo) + `docs/BUILD.md §16`. Sin LLM,
 Escalado medido cross-app (8 apps, 14–117 nodos): **`~15 ms + ~1.4 ms/nodo`**
 (117 n → 183 ms; ≤150 n ≤300 ms ✔), mejor que el `~2 ms/nodo` de §1.
 Comparativa de ruta: `dump_ui` accesibilidad **74 ms** vs `uiautomator dump`
-vía ADB **~2280 ms** (**~30×**); `screenshot` Jam **1037 ms/20 KB webp** vs
-`adb screencap` **683 ms/93 KB png** (Jam paga serialización+base64 a cambio de
+vía ADB **~2280 ms** (**~30×**); `screenshot` Jav **1037 ms/20 KB webp** vs
+`adb screencap` **683 ms/93 KB png** (Jav paga serialización+base64 a cambio de
 menos bytes y una sola conexión).
 
 **Mejoras cerradas en la ronda:** `screenshot{format:webp}` dejó de devolver
@@ -129,7 +129,7 @@ fuera de `candidates` (P5). Detalle de causa/efecto en `docs/BUILD.md §15` y `�
 make build          # binario dist/jav-linux-amd64 (cmd/jav, stdio)
 go test ./...       # suite Go (sin dispositivo)
 adb forward tcp:38472 tcp:38472
-# e2e Go 35 tools contra Jam: ver logs/jav-e2e-*.md (cabecera del informe)
+# e2e Go 35 tools contra Jav: ver logs/jav-e2e-*.md (cabecera del informe)
 ```
 
 Historial Python (`mcp-server/`, `uv run pytest`, 148 en verde) congelado como

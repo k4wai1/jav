@@ -22,7 +22,7 @@
 //     escrituras a stdout en cmd/jav y pkg/ (todo log va a stderr).
 //     cmd/jav-e2e se excluye a propósito: es un harness CLI cuya salida
 //     a stdout (tabla markdown) ES su contrato, no framing MCP.
-//  3. initialize trae instructions; errores de validación (sin Jam)
+//  3. initialize trae instructions; errores de validación (sin Jav)
 //     devuelven isError:true + {ok:false, evidence.code, hint} (la hint
 //     ES la recovery_instruction); escritura sensible exige confirm:true
 //     (schema + handler reenvía confirm + descripción planned/preview).
@@ -465,7 +465,7 @@ func main() {
 		}
 	}
 	emit("protocol-cobertura", protoOK && len(missProto) == 0,
-		fmt.Sprintf("proto=%s faltan=%v (mapeo MCP↔Jam: open_app↔open_app, close_app↔force_stop, read_screen↔dump_ui+normalizar, tap_text/tap_node↔tap, type_text↔type, get_foreground↔get_foreground, list_packages↔list_packages, shell/N2→METHOD_NOT_ALLOWED)", proto, missProto))
+		fmt.Sprintf("proto=%s faltan=%v (mapeo MCP↔Jav: open_app↔open_app, close_app↔force_stop, read_screen↔dump_ui+normalizar, tap_text/tap_node↔tap, type_text↔type, get_foreground↔get_foreground, list_packages↔list_packages, shell/N2→METHOD_NOT_ALLOWED)", proto, missProto))
 
 	// --- CHECK 2b: scan estático stdout ---
 	forbidden := []*regexp.Regexp{
@@ -582,7 +582,7 @@ func main() {
 	} else {
 		sensFails = append(sensFails, "register.go ilegible")
 	}
-	// handlers reenvían confirm a Jam (settings_put, send_intent, add_contact,
+	// handlers reenvían confirm a Jav (settings_put, send_intent, add_contact,
 	// create_event, reply_notification, media_control, take_photo).
 	nativeRaw, _ := os.ReadFile(filepath.Join(root, "pkg", "tools", "native.go"))
 	fwdNeed := []string{`"confirm": confirm`, `"confirm":confirm`, "confirm"}
@@ -593,7 +593,7 @@ func main() {
 		}
 	}
 	if !fwdOK {
-		sensFails = append(sensFails, "native.go no reenvía confirm a Jam")
+		sensFails = append(sensFails, "native.go no reenvía confirm a Jav")
 	}
 	// SEND/CALL críticos detectados en Go (sendintent.go espejo de NatPolicies).
 	siRaw, _ := os.ReadFile(filepath.Join(root, "pkg", "tools", "sendintent.go"))

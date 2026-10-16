@@ -86,7 +86,7 @@ Invariantes que este documento NO rompe (verificables):
    `com.android.systemui` no reproducía/arreglaba el fallo.
 4. **Sin keys.**
 5. **`AGENTS.md §§1–3` y `PROTOCOL.md` siguen vigentes.** El `STALE` lo
-   sintetiza el cliente/director; Jam y el servidor no inventan códigos.
+   sintetiza el cliente/director; Jav y el servidor no inventan códigos.
 
 No-objetivos: sin runtime toggle para el anti-ticker; sin tools nuevas; sin
 tocar el extractor de nodos ni la poda de decoración.
@@ -181,7 +181,7 @@ enfocado) sobre el cliente `pkg/jam`. `NOT_FOCUSED` = snapshot fresco;
 
 | Build | Pantalla | Muestras | Fresco | STALE |
 |---|---|---|---|---|
-| sin fix (ticker SystemUI) | Jam MainActivity (estática) | 3 | 3 | 0 |
+| sin fix (ticker SystemUI) | Jav MainActivity (estática) | 3 | 3 | 0 |
 | sin fix | Fossify Clock (viva) | 3 | 0 | **3** |
 | fix SystemUI-only | Fossify Clock (viva) | 3 | 0 | **3** |
 | **fix content-changed** | Fossify Clock (viva) | 3 | **3** | 0 |
@@ -549,8 +549,8 @@ func postJSON(payload map[string]any) (map[string]any, error) {
 		}
 		req.Header.Set("Authorization", "Bearer "+key)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("HTTP-Referer", "https://github.com/jev-android-mcp")
-		req.Header.Set("X-Title", "jam-loop")
+		req.Header.Set("HTTP-Referer", "https://github.com/k4wai1/jav")
+		req.Header.Set("X-Title", "jav-loop")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			cancel()
@@ -969,7 +969,7 @@ Archivo nuevo: `android-app/app/src/main/java/dev/jev/jam/ui/LiveNodeReanchor.kt
 **Tres símbolos de primer nivel**, API exacta y cerrada:
 
 ```kotlin
-package dev.jev.jam.ui
+package dev.k4wai1.jav.ui
 
 /**
  * Resultado de [LiveNodeReanchor.reanchor]. Invariante: `node != null`

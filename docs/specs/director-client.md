@@ -4,7 +4,7 @@
 > Implementa `@coder`, certifica `@judge`. En conflicto, **AGENTS.md manda**.
 >
 > v5 **entierra la "Inception de Agentes"** (OpenCode → `loop.py` → S2/DeepSeek →
-> Jev → Jam) y la sustituye por **director-cliente**: el director
+> Jev → Jav) y la sustituye por **director-cliente**: el director
 > (OpenCode/operador) es el único planificador; Jev es resolver de elementos;
 > el SO (intents/APIs/clipboard) está por encima de los dedos.
 >
@@ -16,7 +16,7 @@
 > runtime aportados por el operador/S2, nunca defaults del repo).
 >
 > **Nota de trazabilidad AGENTS.md:** v5 invierte la máxima "Jev decide, no
-> ejecuta" (AGENTS.md §1) en **"el director decide, Jev señala, Jam ejecuta"**
+> ejecuta" (AGENTS.md §1) en **"el director decide, Jev señala, Jav ejecuta"**
 > para metas complejas. Esto **requerirá enmienda de AGENTS.md §1 en la
 > próxima revisión** (propuesta en §11.4). Hasta entonces: el loop congelado
 > (§6) sigue bajo la regla vieja; todo lo nuevo bajo v5 cita esta sección
@@ -44,7 +44,7 @@ Leído antes de redactar (working tree 2026-10-07):
   `S2EmptyResponse/S2BadCommand` honestos.
 - `mcp-server/src/jev_mcp/tools/ui.py` — primitivas reales: `read_screen`
   (`dump_ui` + normalizer + `candidates/snapshot_id/first_result/zone/
-  focused_field`), `tap_node` (`tap_node` Jam, hint "verifica con
+  focused_field`), `tap_node` (`tap_node` Jav, hint "verifica con
   read_screen"), `type_text` (REPLACE vía `ACTION_SET_TEXT`, sin re-observe
   dentro), `tap_text` (legado, preferir `tap_node`), `scroll/press_back/
   press_home/wait_for_text/screenshot`. `screen_height/width` vía
@@ -63,7 +63,7 @@ Leído antes de redactar (working tree 2026-10-07):
 
 ## 1. Autopsia: por qué se entierra la Inception
 
-La cadena OpenCode → `loop.py` → S2 (OpenRouter) → Jev → Jam apila **tres
+La cadena OpenCode → `loop.py` → S2 (OpenRouter) → Jev → Jav apila **tres
 planificadores** (operador + S2-compilador/director + S1-decisor) sobre el
 mismo goal global. Fallos medidos que la condenan:
 
@@ -189,7 +189,7 @@ de preferencia ante "llevar un enlace de la app-origen a la app-destino":
 Distinción que v5 hace explícita (AGENTS.md §3 + §5):
 
 - **`shell` on-device = OFF hasta Fase 6.** El método `shell` del dispatcher
-  Jam sigue respondiendo `METHOD_NOT_ALLOWED` explícito. Nada en v5 lo toca,
+  Jav sigue respondiendo `METHOD_NOT_ALLOWED` explícito. Nada en v5 lo toca,
   lo rodea ni lo pide. Amenaza: cualquier cliente WS con scope `shell`
   ejecutaría comandos privilegiados **en el teléfono, remoto, sin presencia
   física**.
@@ -206,10 +206,10 @@ Contrato:
 | Herramienta | Vía primaria | Fallback | Prohibido |
 |---|---|---|---|
 | `get_clipboard` | host `adb shell dumpsys clipboard` parseado en host (`VIA_DUMPSYS`, existe en `tools/clipboard.py:read_clipboard`); verificación por forma `https?://`, sin literales de dominio; vacío/sin-forma → `CLIPBOARD_EMPTY` honesto | pegado-en-campo-efímero + read-back del `text` del nodo enfocado (`VIA_PASTE_READBACK`, hook inyectable existente; nunca `ACTION_SET_TEXT` para leer) | método `shell` on-device; inventar contenido; avanzar al destino sin forma verificada |
-| `set_clipboard` (nueva, la implementa `@coder`) | **API del SO sin shell**: método Jam `set_clipboard` vía `ClipboardManager.setPrimaryClip` ejecutado **por la propia app Jam** (foreground service, sin Shizuku, sin grant de shell; es la misma clase de API que `takeScreenshot`/`ACTION_SET_TEXT`, no un exec) | mientras el método Jam no exista: el director **no emula** clipboard con taps ni con `adb input text`; usa `type_text` directo con el texto ya verificado en host (el texto viaja host→Jam como parámetro `type`, igual que hoy) | `adb shell input text`, `service call clipboard` frágil, `shell` on-device, escribir sin verificación previa |
+| `set_clipboard` (nueva, la implementa `@coder`) | **API del SO sin shell**: método Jav `set_clipboard` vía `ClipboardManager.setPrimaryClip` ejecutado **por la propia app Jav** (foreground service, sin Shizuku, sin grant de shell; es la misma clase de API que `takeScreenshot`/`ACTION_SET_TEXT`, no un exec) | mientras el método Jav no exista: el director **no emula** clipboard con taps ni con `adb input text`; usa `type_text` directo con el texto ya verificado en host (el texto viaja host→Jav como parámetro `type`, igual que hoy) | `adb shell input text`, `service call clipboard` frágil, `shell` on-device, escribir sin verificación previa |
 
 Forense de clipboard (ambas): `clipboard_len + clipboard_sha256 + via`
-(`dumpsys | paste-readback | jam-api`); texto crudo solo si el goal no es
+(`dumpsys | paste-readback | jav-api`); texto crudo solo si el goal no es
 sensible, y nunca en log si `is_sensitive` (§7). El contenido verificado
 entra como slot opaco `clipboard {len,sha256,consumed}` a `pending_payloads`
 / parámetro `type_text`, con read-back `confirm_input` en destino.
@@ -219,7 +219,7 @@ entra como slot opaco `clipboard {len,sha256,consumed}` a `pending_payloads`
 Lectura de clipboard en Android 10+ está restringida a app en foreground /
 IME por defecto. Por eso la primaria de **lectura** es el host `dumpsys`
 (fuera del sandbox de la app) y la primaria de **escritura** es la propia
-Jam (`setPrimaryClip` permitido a la app que lo invoca). Si en el banco
+Jav (`setPrimaryClip` permitido a la app que lo invoca). Si en el banco
 (TECNO KJ5, API 33) alguna vía falla por política OEM, `@coder` lo reporta
 como `CLIPBOARD_UNSUPPORTED(via, api=33, oem)` honesto con evidencia, no lo
 rodea con shell ni con servicios frágiles.
@@ -237,7 +237,7 @@ verificación real posterior, nunca por "comando enviado".
 | 4 | `type_text(node_id, snapshot_id, text)` (existe: `tools/ui.py:type_text`) | REPLACE vía `ACTION_SET_TEXT` (clear semántico, sin append); **exige foco explícito**: sin `focused` → no escribe; read-back `confirm_input` a cargo del director | `NOT_FOCUSED` (el director hace `tap` previo explícito, nada implícito); `STALE_SNAPSHOT`; `input_unverified` (enviado pero no confirmado: inspeccionar, nunca retype ciego) |
 | 5 | `read_screen_state()` (existe: `tools/ui.py:read_screen`) | `dump_ui` fresco + normalizer (filtra decoración; tope 500 raw) + tabla 0..253 + NONE + `snapshot_id` monotónico + `current_app` + `zone/first_result/focused_field/screen_w/h` | `ACCESSIBILITY_DISABLED`; `SECURE_SURFACE` solo vía `screenshot`, nunca en `dump_ui` (AGENTS.md enmienda 2026-10-02: `root == null` = sin ventana activa, transitorio); `TIMEOUT` |
 | 6 | `get_clipboard()` (existe: `tools/clipboard.py:read_clipboard`) | vía §4.1; verificación por forma; slot opaco | `CLIPBOARD_EMPTY` (copiar primero, no inventar); `CLIPBOARD_UNSUPPORTED` (vía + API + OEM) |
-| 7 | `set_clipboard(text)` (nueva, §4.1) | vía Jam `ClipboardManager` (sin shell); verifica con `get_clipboard` read-back de forma | `CLIPBOARD_UNSUPPORTED`; `METHOD_NOT_ALLOWED` si alguien la pide vía `shell` on-device (ese camino no existe) |
+| 7 | `set_clipboard(text)` (nueva, §4.1) | vía Jav `ClipboardManager` (sin shell); verifica con `get_clipboard` read-back de forma | `CLIPBOARD_UNSUPPORTED`; `METHOD_NOT_ALLOWED` si alguien la pide vía `shell` on-device (ese camino no existe) |
 | — | `scroll(direction, node_id?)`, `press_back()`, `wait_for_text`, `screenshot` (existen) | sin cambio; `screenshot` > 4 MiB → `PAYLOAD_TOO_LARGE` (hint WebP q80); `FLAG_SECURE` → `SECURE_SURFACE` | los vigentes en `_base.jam_fail` |
 
 ## 6. Decisión sobre `loop.py`: CONGELADO (no stepper, no borrado)
@@ -373,11 +373,11 @@ Desde `mcp-server/`:
   devuelve `{idx, conf, usage}` + `CostTracker`; forense §8. Tests
   `test_director_resolve_*` (resuelve, NONE, hallucination, anti-poisoning
   §9.3).
-- **Nuevo `set_clipboard`** (host + Jam): método Jam `set_clipboard` vía
+- **Nuevo `set_clipboard`** (host + Jav): método Jav `set_clipboard` vía
   `ClipboardManager.setPrimaryClip` (app, sin shell — ver §4.1) + wrapper
   host en `tools/clipboard.py` con read-back de forma + `CLIPBOARD_EMPTY /
   CLIPBOARD_UNSUPPORTED` honestos. Mientras la app no lo exponga: wrapper
-  host que falla honesto `CLIPBOARD_UNSUPPORTED(jam-api-missing)` y el
+  host que falla honesto `CLIPBOARD_UNSUPPORTED(jav-api-missing)` y el
   director usa `type_text` directo (degradación documentada, no emulación
   con taps/`input text`). Tests con stubs (vacío / con forma / sin forma /
   unsupported).
@@ -388,13 +388,13 @@ Desde `mcp-server/`:
   regresión §6.2; `su`; `shell` on-device; nuevas dependencias fuera de
   AGENTS.md §4; `0.0.0.0`; token en URL; coordenadas inventadas.
 - **Docs que sí puede tocar `@coder`**: `README.md` en `android-app/` si
-  añade el método Jam + `docs/PROTOCOL.md` + `docs/TESTING.md` con comandos
+  añade el método Jav + `docs/PROTOCOL.md` + `docs/TESTING.md` con comandos
   manuales (AGENTS.md §8: sin Android Studio). Este spec no lo edita.
 
 ## 11. Divergencias documentadas (operador → v5)
 
 1. **Inception enterrada.** El operador pide director-cliente y enterrar
-   OpenCode→loop→S2→Jev→Jam. v5 lo adopta para metas complejas y congela el
+   OpenCode→loop→S2→Jev→Jav. v5 lo adopta para metas complejas y congela el
    loop (§6) en vez de borrarlo: borrar rompería el SENT simple verificado.
 2. **Jev pierde la acción.** El operador pide "pregunta única Choice sobre
    índices". v5 elimina `action/needs_system_2` del resolver: la acción vive
@@ -402,13 +402,13 @@ Desde `mcp-server/`:
    mueren con `ask_decision`; el cierre bajo v5 lo decide el director con
    `verify_final` determinista (re-lee pantalla, nunca solo-Jev).
 3. **`set_clipboard` sin shell.** El operador pide `get/set_clipboard` con
-   shell on-device OFF. v5 fija la vía §4.1 (host-`dumpsys` para leer, Jam
+   shell on-device OFF. v5 fija la vía §4.1 (host-`dumpsys` para leer, Jav
    `ClipboardManager` para escribir) y declara la distinción adb-host vs
    shell on-device como norma, no como truco: el primero es harness con
    presencia física, el segundo superficie remota.
 4. **Enmienda AGENTS.md §1 propuesta (no aplicada aquí).** Texto candidato:
    *"El director (cliente) decide el plan; Jev resuelve elementos de la
-   pantalla actual con micro-intención ciega al goal global; Jam ejecuta
+   pantalla actual con micro-intención ciega al goal global; Jav ejecuta
    primitivas. `loop.run_goal` queda congelado como modo legacy para el
    SENT simple."* `@architect` no enmienda AGENTS.md (fuera de su alcance
    en esta tarea); lo deja anotado para el orquestador.
@@ -423,7 +423,7 @@ Desde `mcp-server/`:
 2. Por pantalla: `resolve_element("<micro EN de ESTA pantalla>")` citado
    verbatim (p.ej. `"Click the search icon"`, `"Tap the Share button"`,
    `"Tap the Copy link row"`) → `{idx, conf}` → `tap_idx` → `read` de
-   verificación. Jamás el goal global en el resolver.
+   verificación. Javás el goal global en el resolver.
 3. Tras copiar: `get_clipboard` → forma `https?://` verificada
    (`clipboard_len/sha256/via` en forense). Vacío → `CLIPBOARD_EMPTY`: el
    director informa y reintenta el tap de copiar, no inventa URL.

@@ -8,7 +8,7 @@
 
 ## 1. Principio: core genérico, plugins-ejemplo fuera
 
-1. El MCP expone **solo primitivas agnósticas** (nombres MCP ↔ método Jam):
+1. El MCP expone **solo primitivas agnósticas** (nombres MCP ↔ método Jav):
    `open_app(package)`↔`open_app`, `close_app`↔`force_stop`,
    `read_screen`↔`dump_ui`+normalizar (`get_app_state`),
    `get_foreground`↔`get_foreground`, `tap_node`↔`tap_node`,
@@ -28,7 +28,7 @@
    arquitectura o gestión de Jev (preguntas/criterios/compuertas),
    nunca se hardcodea el dominio en core.** El fix vive en el plugin
    o en un helper genérico parametrizado.
-4. Split S1/S2: S1 (Jev + core determinista + Jam) = filtros, poda §6.3,
+4. Split S1/S2: S1 (Jev + core determinista + Jav) = filtros, poda §6.3,
    guards, verificación. S2 (orquestador/LLM frontera) = planifica hitos,
    diagnostica anomalías, redacta texto semántico. Las compuertas (§4)
    son **obligatorias** y viven mitad en core (mecanismo) mitad en plugin

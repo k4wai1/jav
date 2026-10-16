@@ -17,7 +17,7 @@ import (
 // - Este test usa 2 dumps reales con árbol crudo (vendorizados en testdata/
 //   tras la purga del servidor Python; Go autocontenido, sin dependencia Python):
 //   (1) testdata/wa_home.json (174 nodos reales)
-//   (2) testdata/jam_live_18.json (Jam onboarding real en 5002E e03638e5,
+//   (2) testdata/jam_live_18.json (Jav onboarding real en 5002E e03638e5,
 //       capturado vía dump_ui, 18 nodos).
 // - El esperado (testdata/replay_expected.json) lo generó Python
 //   (normalize + build_table + serialize_table + zone_of, 720x1440).

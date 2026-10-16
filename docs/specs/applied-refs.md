@@ -60,8 +60,8 @@
 | # | Patrón robado | Origen en la ref | Qué NO se roba |
 |---|---|---|---|
 | A1 | `completion-noul + auto-finish`: pregunta `noul` "¿goal ya logrado en pantalla?" por paso; `DONE` solo si el propio S1 dice logrado | `goal.py: Choice/completion`, `decisions.py: RecordingDecider` (el bug "finish aceptado mientras completion decía lo contrario") | Su endpoint Jev, su `adb.py`, su `uiautomator`/`screen.py` |
-| A2 | `focused_field{label,holds}` en el state: el campo que recibiría typing **y lo que contiene** distingue escrito-no-enviado de enviado | `state.py: FocusedField{label,kind,holds,is_password} + the_focused_field()` (leído del foco real, password → `"a password, not read"`) | Su `adb`/`xml` dump; aquí la fuente es `dump_ui` Jam + Accessibility |
-| A3 | `type-replace` con clear: reemplazar legible = valor exacto esperado; appends con cursor desconocido conservan otro modo | `text_entry.py` (clear + `input text` ASCII), `actions.mjs`-análogo en mobile | `input text`/`clipboard`/`keyevent`: aquí `ACTION_SET_TEXT` vía Shizuku/Jam + `type` con `clear:true` semántico |
+| A2 | `focused_field{label,holds}` en el state: el campo que recibiría typing **y lo que contiene** distingue escrito-no-enviado de enviado | `state.py: FocusedField{label,kind,holds,is_password} + the_focused_field()` (leído del foco real, password → `"a password, not read"`) | Su `adb`/`xml` dump; aquí la fuente es `dump_ui` Jav + Accessibility |
+| A3 | `type-replace` con clear: reemplazar legible = valor exacto esperado; appends con cursor desconocido conservan otro modo | `text_entry.py` (clear + `input text` ASCII), `actions.mjs`-análogo en mobile | `input text`/`clipboard`/`keyevent`: aquí `ACTION_SET_TEXT` vía Shizuku/Jav + `type` con `clear:true` semántico |
 | A4 | Anti-giro por **firma de pantalla por contenido** (no por `snapshot_id`/tiempo): `already_tried_here` scoped a pantalla, historial acotado `RECENT_ACTIONS_KEPT=8` | `state.py: already_tried_here`, `decisions.py: signature/repeated` | Su conteo de screenshots; aquí hash de tabla normalizada |
 | A5 | Forense **wire íntegro + timings por fase**: `state` exacto enviado + respuesta exacta recibida, una línea por step apendeada al ocurrir, `Timings{reading,deciding,acting,settling,watching}` por step | `decisions.py: Exchange{state,options,choice,probabilities}`, `runs.py: Timings + decisions.jsonl + run.json` | Su carpeta `PHONE_CONTROL_RUNS`/JPGs; aquí `logs/run-<ts>.jsonl` existente + campos nuevos |
 
@@ -70,8 +70,8 @@
 | # | Patrón robado | Origen en la ref | Qué NO se roba |
 |---|---|---|---|
 | M1 | `validateChoice` estricta + **consumir solo la rama elegida**: `choice∈criteria`, `probs` completas (`len==ids`, toda id presente), finitas `0..1`, `sum≈1 ±0.025`, `argmax`, `conf` finita; el loop jamás lee ramas no elegidas como fallback | `policy.mjs: validateChoice()` + `policy.decide` una sola operación/target por request | Su `http.mjs`/`pooledRequest`, su catálogo `OPEN_APP/TAP/TYPE/SCROLL/BACK/HOME/ENTER/WAIT` |
-| M2 | Texto **exact-span + read-back sin retype ciego**: `prepareInputVerification` (target por `resourceId` o `id+hint+bounds`, excluye password) + `confirmInput` (poll hasta `inputMatches`, timeout); fallo → `input_unverified` **sin reintentar a ciegas** | `input-verification.mjs: prepare/confirm/inputMatches` | Su `device.act({type:'type',clear:true})` vía adb; aquí `type_text` vía Jam `ACTION_SET_TEXT` |
-| M3 | `assertFresh` por acción + `fingerprint before/after`: mutación solo contra `expected` observation; `StaleObservationError` nunca reintenta mutación incierta; `before/after fingerprint` + `screenChanged` en historial | `agent.mjs: device.act(action,{expected})`, `device.mjs: StaleObservationError`, `entry{before,screenChanged}` | Su transporte `device.mjs`; aquí `snapshot_id` monotónico Jam + `by_idx` |
+| M2 | Texto **exact-span + read-back sin retype ciego**: `prepareInputVerification` (target por `resourceId` o `id+hint+bounds`, excluye password) + `confirmInput` (poll hasta `inputMatches`, timeout); fallo → `input_unverified` **sin reintentar a ciegas** | `input-verification.mjs: prepare/confirm/inputMatches` | Su `device.act({type:'type',clear:true})` vía adb; aquí `type_text` vía Jav `ACTION_SET_TEXT` |
+| M3 | `assertFresh` por acción + `fingerprint before/after`: mutación solo contra `expected` observation; `StaleObservationError` nunca reintenta mutación incierta; `before/after fingerprint` + `screenChanged` en historial | `agent.mjs: device.act(action,{expected})`, `device.mjs: StaleObservationError`, `entry{before,screenChanged}` | Su transporte `device.mjs`; aquí `snapshot_id` monotónico Jav + `by_idx` |
 | M4 | Candidatos mínimos + `open_app` contra inventario (apps ≠ foreground, top 200, como rama `OPEN_APP`, no paseo por launcher) | `actions.mjs: candidatesFor()` + `policy.mjs: buildQuestions(observation,texts,apps)` | Su inventario `listApps`/launcher; aquí **ya cubierto por bootstrap v3 §5.3** (S2 resuelve package por conocimiento general, sin inventario local) → **sin acción nueva**, solo se cita como convergencia |
 | M5 | JSONL por evento + **log-antes-de-observar**: `onAction` (mutación ejecutada) se loguea **antes** de `observe()`; un read fallido jamás borra la acción ejecutada; `timings{model,action,observation,wait,modelCalls,wallMs}` | `agent.mjs: onStep/onAction/onObservation + timings` | Su `harness/cli`; aquí formato `logs/run-<ts>.jsonl` existente |
 
@@ -88,7 +88,7 @@
   vs 0.51 inseparables sin `holds`).
 - **Archivo(s) a tocar:**
   `mcp-server/src/jev_mcp/state.py` (+ `ui_normalizer.py`, `tools/ui.py`,
-  `core/loop_helpers.py`, `jev_client.py`) — solo host, sin app Jam en P0.
+  `core/loop_helpers.py`, `jev_client.py`) — solo host, sin app Jav en P0.
 - **Cambio exacto:**
   1. `state.py`: nuevo `@dataclass FocusedField{label,kind,holds,is_password}` +
      `as_view() -> {label,kind,holds}` donde password → `holds="a password, not read"`
@@ -124,7 +124,7 @@
   (helpers puros `prepare_input_verification/input_matches`).
 - **Cambio exacto:**
   1. `tools/ui.py:type_text(node_id,snapshot_id,text)`: semántica **replace**
-     (clear-antes-de-escribir vía `ACTION_SET_TEXT` Jam; sin `adb input text`).
+     (clear-antes-de-escribir vía `ACTION_SET_TEXT` Jav; sin `adb input text`).
      Devuelve `{ok, chars, snapshot_id_post}` sin re-observar dentro (el
      loop verifica; respeta "acciones no devuelven snapshot").
   2. `core/loop_helpers.py`: `prepare_input_verification(row, text)` → `None`
@@ -241,7 +241,7 @@
 
 - **Archivos:** `core/loop_helpers.py` (`assert_fresh(action_kind, snapshot, current_snapshot)`),
   `loop.py` (`_execute`/`device.act` con `{expected}`), `tools/ui.py` (propagar
-  `STALE_SNAPSHOT` Jam sin reintentar mutación).
+  `STALE_SNAPSHOT` Jav sin reintentar mutación).
 - **Cambio exacto:** `TAP/TYPE` exigen `snapshot==current` (si no →
   `STALE_SNAPSHOT`, re-observe, `stale_streak++`, ×3 → `UI_UNSTABLE`);
   `SCROLL/BACK` toleran 1-stale (re-observe silencioso, no cuentan como
@@ -320,7 +320,7 @@
 - Corrida `run_goal` con stubs reproduce `focused_field`, `input_unverified`
   sin doble-type, `validateChoice` rechazos, `s2_empty→degraded×1→abort`,
   `fingerprint before/after`, `wire+timings`, `[COST]` por paso.
-- E2E desbloqueador (con keys + Jam + `confirm:true`): "hola mundo" visible
+- E2E desbloqueador (con keys + Jav + `confirm:true`): "hola mundo" visible
   en campo (read-back `verified`) y `preview` de envío auditado, ≤2 min.
 
 ## 7. Trazabilidad ref → plan (para revisión)

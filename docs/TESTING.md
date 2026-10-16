@@ -1,6 +1,6 @@
 # TESTING.md — verificación manual sin Android Studio (Fase 1)
 
-Banco: TECNO KJ5, Android 13 (API 33), sin root. App: `dev.jev.jam` (Jam).
+Banco: TECNO KJ5, Android 13 (API 33), sin root. App: `dev.k4wai1.jav` (Jav).
 
 ## 1. Tests JVM (sin dispositivo)
 
@@ -22,9 +22,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 # Orden importa: primero el master switch, luego la lista
 adb shell settings put secure accessibility_enabled 1
 adb shell settings put secure enabled_accessibility_services \
-  dev.jev.jam/dev.jev.jam.service.JevAccessibilityService
+  dev.k4wai1.jav/dev.k4wai1.jav.service.JevAccessibilityService
 adb shell 'dumpsys accessibility | grep -m1 "Enabled services"'
-adb shell am start -n dev.jev.jam/.MainActivity
+adb shell am start -n dev.k4wai1.jav/.MainActivity
 # Localizar el botón y pulsarlo (banco visual temporal hasta Fase 2)
 adb shell uiautomator dump /sdcard/jam_ui.xml
 adb shell cat /sdcard/jam_ui.xml | grep -oiE '<node[^>]*volcar[^>]*>'
@@ -98,7 +98,7 @@ Fixes que salieron del propio test: `hello` debe responder **plano**
 
 ## 4. Fase 3a — Shizuku + screenshot (LG7n, Shizuku oficial)
 
-Pre-requisito (lo hace el usuario): Shizuku arrancado + permiso a Jam.
+Pre-requisito (lo hace el usuario): Shizuku arrancado + permiso a Jav.
 Pre-check del script: `pidof moe.shizuku.privileged.api` non-vacío;
 si vacío → mensaje claro y exit 1 (eso también prueba `SHIZUKU_UNAVAILABLE`).
 
@@ -112,7 +112,7 @@ cd mcp-server && uv run python scripts/fase3_check.py
 3. `screenshot` → `img_base64` > 1000 chars, `w`/`h` > 0; comparar
    visualmente con `adb exec-out screencap -p`.
 4. Superficie segura → `SECURE_SURFACE` (app bancaria si hay; si no,
-   FLAG_SECURE temporal en Jam como en §2b).
+   FLAG_SECURE temporal en Jav como en §2b).
 5. `shell {command: "id"}` → `METHOD_NOT_ALLOWED` (no `INTERNAL_ERROR`).
 6. Sin permiso Shizuku (denegar en pantalla) → `SHIZUKU_DENIED`.
 7. Sin Shizuku corriendo (parar binder) → `SHIZUKU_UNAVAILABLE` + hint.
@@ -151,7 +151,7 @@ Hallazgos (todos con fix aplicado y verificado):
   responden. **No verificado con `newProcess` real** — queda para Fase 3,
   que instalará el oficial `moe.shizuku.privileged.api`.
 - Tras renombrar el paquete hay que desinstalar el viejo
-  (`adb uninstall dev.jev.jam` puede fallar si ya no está; inocuo).
+  (`adb uninstall dev.k4wai1.jav` puede fallar si ya no está; inocuo).
 
 ## 6. ADB por Wi-Fi (canal estable, 2026-10-02)
 
@@ -189,13 +189,13 @@ Fixes: `mcp>=1.8,<2` (v2 renombra FastMCP→MCPServer); `pytest.ini`
 
 ## 8. v5 director-client — resolver ciego + clipboard (sin Android Studio)
 
-Vía elegida para `set_clipboard` (§4.1): método Jam `set_clipboard`
+Vía elegida para `set_clipboard` (§4.1): método Jav `set_clipboard`
 (`ClipboardManager.setPrimaryClip` por la propia app, sin Shizuku, sin
 grant, scope `ui`); lectura por host `adb shell dumpsys clipboard`.
 Prohibido: `adb shell input text`, `service call clipboard` frágil,
 `shell` on-device (sigue `METHOD_NOT_ALLOWED` hasta Fase 6). Mientras la
 app no exponga el método, el wrapper host falla honesto
-`CLIPBOARD_UNSUPPORTED(jam-api-missing)` y el director usa `type_text`.
+`CLIPBOARD_UNSUPPORTED(jav-api-missing)` y el director usa `type_text`.
 
 ```bash
 cd mcp-server && uv run pytest -q
@@ -207,12 +207,12 @@ grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat' src/ || true
 grep -rn 'ask_decision' src/jev_mcp/tools/ src/jev_mcp/director.py || true
 ```
 
-# Manual contra Jam (requiere forward + token; sin Android Studio):
+# Manual contra Jav (requiere forward + token; sin Android Studio):
 
 ```bash
 adb forward tcp:38472 tcp:38472
 JEV_TOKEN=... python3 -c "import json,websocket"  # o wscat
-# hello -> {"id":"<uuid>","method":"hello","params":{"protocol_version":1,"client_version":"0.1.0","token":"<bearer>","client":"jev-mcp/0.1.0"}}
+# hello -> {"id":"<uuid>","method":"hello","params":{"protocol_version":1,"client_version":"0.1.0","token":"<bearer>","client":"jav-go/0.1.0"}}
 # set_clipboard -> {"id":"<uuid>","method":"set_clipboard","params":{"text":"https://example.com/n/abc"}}
 # espera {"ok":true,"result":{"chars":N}}
 # verifica: adb shell dumpsys clipboard | grep -m1 https
@@ -271,7 +271,7 @@ Notas: `open_url(url, package="")` = resolución del sistema (chooser si
 componente explícito y el fallback Shizuku usa `am start -n
 pkg/activity` (`via: shizuku-am`). Docstrings MCP 35/35 al estándar
 5-secciones tras `bd1f5a4` (payloads ejemplo en inglés). App bajo
-prueba: `dev.jev.jam` (Jam); `dump_ui` sin campo `secure` (contrato
+prueba: `dev.k4wai1.jav` (Jav); `dump_ui` sin campo `secure` (contrato
 vigente: superficie protegida solo como `SECURE_SURFACE` en
 `screenshot`).
 
@@ -289,7 +289,7 @@ activa; forward `tcp:38472`; token vía `run-as`
 
 | Build | Pantalla | Fresco | STALE |
 |---|---|---|---|
-| sin fix (filtro SystemUI) | Jam MainActivity (estática) | 3/3 | 0/3 |
+| sin fix (filtro SystemUI) | Jav MainActivity (estática) | 3/3 | 0/3 |
 | sin fix | Fossify Clock (viva) | 0/3 | 3/3 |
 | fix SystemUI-only | Fossify Clock (viva) | 0/3 | 3/3 |
 | **fix content-changed** | Fossify Clock (viva) | **3/3** | 0/3 |
@@ -336,7 +336,7 @@ for i in $(seq 1 8); do
   t1=$(date +%s%N); echo "screencap $(( (t1-t0)/1000000 )) ms"; done
 ```
 
-### 12.1 Grupo lectura (Jam WS, AccessibilityService in-process)
+### 12.1 Grupo lectura (Jav WS, AccessibilityService in-process)
 
 | Método | n | min | p50 | p90 | max | media |
 |---|---|---|---|---|---|---|
@@ -387,8 +387,8 @@ nativa). `brave` p90 alto = repintado durante el dump.
 |---|---|---|---|
 | `adb shell uiautomator dump` + pull | **~2280 ms** | XML ~117 nodos (incluye contenedores) | ruta `android_ui_dump` |
 | `adb exec-out screencap -p` | **~683 ms** | PNG 93 KB | ruta `android_screenshot` |
-| Jam `dump_ui` (accesibilidad) | **~74 ms** (30 n) | JSON filtrado | in-process, ~30× más rápido |
+| Jav `dump_ui` (accesibilidad) | **~74 ms** (30 n) | JSON filtrado | in-process, ~30× más rápido |
 
-Jam entrega menos nodos (sin decoración/contenedores no accionables), por eso
+Jav entrega menos nodos (sin decoración/contenedores no accionables), por eso
 los conteos no son 1:1; a igual criterio de nodos la ventaja de latencia se
 mantiene (>10×).

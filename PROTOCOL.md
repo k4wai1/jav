@@ -7,7 +7,8 @@
 ## 1. Transporte
 
 - RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback, WS claro).
-  Listener B (opt-in, Fase 2b): `wss://<ip-tailnet>:38472` (WSS obligatorio).
+  Listener B (opt-in, Fase 2b): `wss://<ip-tailnet>:38472` (WSS obligatorio;
+  cert self-signed `CN=jam.local`, pinning TOFU por SHA-256).
 - Mensajes de texto, **una línea JSON por frame**. Frame máximo **4 MiB**
   (un PNG 720×1640 en base64 supera 1 MiB).
 - Rate limit: 50 req/s global, 5/s para `shell`.
@@ -25,7 +26,7 @@ decodifica como `WsRequest{id, method, params}` y exige `params` con
  "params": {"protocol_version": 1,
   "client_version": "0.1.0",
   "token": "<bearer obligatorio, ver §3>",
-  "client": "jev-mcp/0.1.0"}}
+  "client": "jav-go/0.1.0"}}
 ```
 
 Respuesta (excepción plana, sin envoltura `id`/`result`):
@@ -89,13 +90,13 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `press_back` / `press_home` | `{}` | `{}` | ui |
 | `wait_for_node` | `{selector, timeout_ms}` | `{node_id, snapshot_id}` o `TIMEOUT` | ui |
 | `screenshot` | `{format?: png\|webp, quality?}` | `{img_base64, w, h, via}`; superficie segura → `SECURE_SURFACE`; > 4 MiB → `PAYLOAD_TOO_LARGE` (hint: WebP q80). Fallback `screencap` en API 29 = Fase 3 | read |
-| `set_clipboard` | `{text}` | `{chars}` (v5 §4.1: la propia Jam ejecuta `ClipboardManager.setPrimaryClip`; sin Shizuku, sin grant; `text` vacío → `VALIDATION_ERROR`; la lectura sigue por host `dumpsys`) | ui, sin grant |
+| `set_clipboard` | `{text}` | `{chars}` (v5 §4.1: la propia Jav ejecuta `ClipboardManager.setPrimaryClip`; sin Shizuku, sin grant; `text` vacío → `VALIDATION_ERROR`; la lectura sigue por host `dumpsys`) | ui, sin grant |
 | `open_app` | `{package}` | `{package, activity}` (`monkey -p <pkg> -c android.intent.category.LAUNCHER 1` por Shizuku; verificar con `get_foreground`) | ui, sin grant |
 | `force_stop` | `{package}` | `{}` | shell, sin grant |
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |
 | `get_foreground` | `{}` | `{package, activity}` | read |
 | `list_packages` | `{filter?}` | `{packages[]}` (package visibility) | read |
-| `shell` | `{cmd, timeout_ms? 500..60000 default 15000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jam → `SHELL_DENYLIST`; sin grant → `SHELL_DENIED`; > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
+| `shell` | `{cmd, timeout_ms? 500..60000 default 15000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jav → `SHELL_DENYLIST`; sin grant → `SHELL_DENIED`; > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
 | `get_audit` | `{limit?: int=50 (1..200), since_seq?: int=0}` | `{total_buffered, returned, entries[]}` con cada entry `{seq, ts, method, scope, args_sha256 (16 hex SHA-256), result, origin}` (ring buffer, 500 entradas; nunca args en claro) | admin |
 
 **Flujo de grant de `shell`:** la request **bloquea hasta 60 s**.
@@ -103,7 +104,7 @@ Aprobación "1 comando" → ejecuta solo si `SHA-256(cmd)` coincide
 exacto; aprobación "5/30 min" → cubre cualquier `shell` en la ventana.
 Denegación o timeout 60 s → `SHELL_DENIED`.
 Denylist (§8) irreversible sin `confirm: true` → `{planned: true, preview}`;
-comando que mata/desinstala Jam → `SHELL_DENYLIST` (nunca ejecutado).
+comando que mata/desinstala Jav → `SHELL_DENYLIST` (nunca ejecutado).
 El desenlace se emite como evento `shell_grant` (§6).
 
 **Frescura y `via` (contrato):**
@@ -126,7 +127,7 @@ Diseño en `docs/specs/native-apis.md §§1–13`. N2 (`settings_put`
 `secure`/`global`, `get_storage`/`get_cpu` con `detail=fine`) se ejecuta
 vía Shizuku-shell (UID shell; imposible non-root) y exige Shizuku vivo
 (`SHIZUKU_UNAVAILABLE` sin él). `settings_put` sobre una clave crítica de
-accesibilidad → `FORBIDDEN` (nunca auto-desconecta a Jam). PII (contactos,
+accesibilidad → `FORBIDDEN` (nunca auto-desconecta a Jav). PII (contactos,
 calendario, notificaciones, ubicación, clipboard): proyección mínima; el
 forense MCP guarda solo conteos/hashes.
 
@@ -231,13 +232,13 @@ accesibilidad → `FORBIDDEN`; `shell` irreversible sin `confirm` →
 - Shell denylist (irreversibles): `rm -rf /`, `pm uninstall` de sistema,
   `reboot recovery`/`bootloader`, `dd`, `mkfs`, `wipe`, `settings put secure`
   crítico → exige `confirm: true` (preview `cmd_sha256`); matar/desinstalar
-  Jam → `SHELL_DENYLIST` (nunca).
+  Jav → `SHELL_DENYLIST` (nunca).
 - Política de grant por método: `open_app` = scope `ui` sin grant;
   `force_stop` = scope `shell` sin grant (bajo riesgo);
   `grant_permission` y `shell` = scope `shell` **con grant**. El grant de
   `shell` lo aprueba el operador en la notificación (1 comando por SHA-256
   exacto / 5 min / 30 min / denegar), bloquea hasta 60 s y expira solo.
-- Push/pull solo bajo `/sdcard/Download/jev-mcp/`.
+- Push/pull solo bajo `/sdcard/Download/jav-mcp/`.
 - Rotación de token desde la app (QR nuevo); kill switch en
   Quick Settings tile + notificación (revoca tokens, detiene servidor).
 - QR de onboarding: `{url, token, fingerprint}` (SHA-256 del cert, TOFU).

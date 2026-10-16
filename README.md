@@ -15,7 +15,7 @@
 ## What is Jav
 
 **Jav is a full-control Android MCP runtime without root.** An on-device app
-(**Jam**, `dev.jev.jam`) exposes the screen via `AccessibilityService` and
+(**Jav**, `dev.k4wai1.jav`) exposes the screen via `AccessibilityService` and
 privileged actions via **Shizuku** (started by the user) to a Go MCP runtime
 on the PC (`jav` binary, `cmd/jav`, stdio). The **Director is the external
 client** (OpenCode/operator, never part of Jav): it sees each screen and
@@ -30,27 +30,27 @@ resolve_element(screen_goal_en: str)   # e.g. resolve_element("Tap the Copy link
 - **Generic core, zero hardcoded apps.** No package names, contacts, texts or
   flows in the core. Specifics travel at runtime (external Director or S2).
 - **Three lanes:** native APIs (OS before fingers) · director-client v5
-  (complex goals: the external Director directs, Jev resolves, Jam executes) ·
+  (complex goals: the external Director directs, Jev resolves, Jav executes) ·
   historical autonomous `run_goal` (frozen, not the active path).
-- **Secure by design.** Non-root app, `su` forbidden, `shell` OFF until
-  Phase 6, bearer token + scopes on every bind, explicit confirm on critical
-  actions, JSONL forensics per run.
+- **Secure by design.** Non-root app, `su` forbidden, `shell` gated by
+  irreversible denylist + interactive grant, bearer token + scopes on every
+  bind, explicit confirm on critical actions, JSONL forensics per run.
 
 ## Architecture in 10 lines
 
-1. Jam serves 2 WS listeners: loopback `ws://127.0.0.1:38472` + tailnet-IP WSS.
+1. Jav serves 2 WS listeners: loopback `ws://127.0.0.1:38472` + tailnet-IP WSS.
 2. `hello` with bearer token + scopes (`read` / `ui` / `shell` / `admin`).
 3. Perception = accessibility tree (`dump_ui`, ≤500 nodes, ~2 ms/node).
 4. Jav normalizes and prunes (system decor filtered) → table `0..253` + `NONE`.
 5. S1 Jev resolves 1 element (`resolve_element`, blind to the global goal) + `conf`.
 6. The external Director (OpenCode/operator) decides one atomic primitive per step; Jav never loops nor plans internally.
 7. Atomic mutation (`tap_node` / `type_text` / `open_app`) + post verification.
-8. OS clipboard before fingers (`get` via host `dumpsys`, `set` via Jam API).
+8. OS clipboard before fingers (`get` via host `dumpsys`, `set` via Jav API).
 9. Audited costs (`[COST]` + `CostTracker`) and forensics `logs/run-<ts>.jsonl`.
 10. No key → honest `{mock: true}` stub; options are never invented.
 
 ```
-PC (Debian, Go, MCP stdio)                 Phone (Jam, non-root)
+PC (Debian, Go, MCP stdio)                 Phone (Jav, non-root)
 ┌─ jav (cmd/jav): device/app/ui/native ─┐  ┌─ ForegroundService: 2×WS ─┐
 │ atomic tools + resolve_element + cost  │─WS──▶│ Accessibility: tree+gest. │
 │ normalizer, guards, logs (no loops)    │◀─WS──│ Shizuku: am/monkey/screen│
@@ -83,7 +83,7 @@ with real post-verification, never on "command sent".
 | device / diag (8) | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, prefer `tap_node`) |
 | telemetry N0 (5) | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
 | settings / intents N0 (4) | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
-| clipboard (1) | `get_clipboard_device` (Jam foreground; host prefers `dumpsys`) |
+| clipboard (1) | `get_clipboard_device` (Jav foreground; host prefers `dumpsys`) |
 | usage N1 (1) | `get_app_usage` |
 | PII N1 (4) | `list_contacts`, `add_contact`, `list_events`, `create_event` |
 | notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
@@ -101,8 +101,8 @@ Example payloads (English):
 ```
 
 Native lanes: **N0** needs no new grants · **N1** needs user grants
-(advertised in `hello.caps`) · **N2** (Shizuku/`shell` on-device) answers
-`METHOD_NOT_ALLOWED` until Phase 6.
+(advertised in `hello.caps`) · **N2** (Shizuku/`shell` on-device) live, gated
+by irreversible denylist + interactive grant.
 
 ## Real runs with numbers (summary)
 
@@ -140,29 +140,23 @@ harness is frozen history, not an active component.
   38/38 docstrings at the 5-section standard.
 - **Roadmap:** formal A10 suite close (battery + calculator + clipboard
   round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
-  forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals) →
-  Phase 6 done (`shell` denylist + grant + 500-audit + kill switch + N2) →
-  tailnet WSS 2b. Live tracker: `PLAN.md`. Name: **Jav** = project/runtime,
-  **Jev** = tactical backend (`JEV_MODEL`); rename migration deferred
-  (`docs/specs/ecosystem.md` §4). Historical Python harness (`mcp-server`,
-  148 pytest green at freeze) kept only as forensics reference.
-- **Roadmap:** formal A10 suite close (battery + calculator + clipboard
-  round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
-  forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals) →
-  Phase 6 (`shell` with denylist + grant + 500-audit + kill switch) → tailnet
-  WSS 2b. Live tracker: `PLAN.md`. Name: **Jav** = project/runtime,
-  **Jev** = tactical backend (`JEV_MODEL`); rename migration deferred
-  (`docs/specs/ecosystem.md` §4).
+  forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals).
+  Done: Phase 6 (`shell` denylist + interactive grant + 500-audit + kill
+  switch + N2 live) and tailnet WSS 2b (Keystore token + lockout + TOFU
+  pinning). Live tracker: `PLAN.md`. Name: **Jav** = project/runtime +
+  `dev.k4wai1.jav`; **Jev** = tactical backend (`JEV_MODEL`); identity
+  consolidated (`docs/specs/ecosystem.md` §4). Historical Python harness
+  (`mcp-server`, 148 pytest green at freeze) kept only as forensics reference.
 
 ## Quickstart
 
 ```bash
 # 1. Install the APK and enable accessibility (once, on the phone)
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-# Settings → Accessibility → enable Jam; generate the token in the app (QR).
+adb install -r android-app/app/build/outputs/apk/debug/app-debug.apk
+# Settings → Accessibility → enable Jav; generate the token in the app (QR).
 
 # 2. The USER starts Shizuku (the app only requests the API_V23 runtime permission)
-# Install the official moe.shizuku.privileged.api, start it, authorize Jam.
+# Install the official moe.shizuku.privileged.api, start it, authorize Jav.
 
 # 3. Forward + environment (on the PC)
 adb forward tcp:38472 tcp:38472
@@ -184,8 +178,8 @@ cd android-app && ./gradlew :app:testDebugUnitTest
 ## Security
 
 - **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back,
-  grantless `open_app`) · `shell` (grant-gated, OFF until Phase 6 →
-  `METHOD_NOT_ALLOWED`) · `admin` (token/audit). Token mandatory even on
+  grantless `open_app`) · `shell` (grant-gated, irreversible denylist +
+  `confirm`) · `admin` (token/audit). Token mandatory even on
   loopback; lockout 5 fails/60 s → 5 min; 4 MiB frame; 50 req/s (shell 5/s).
 - **Confirm:** sending/communicating, buying/paying, deleting,
   account/permission changes, `shell`/adb are critical: without
@@ -196,7 +190,7 @@ cd android-app && ./gradlew :app:testDebugUnitTest
   `tau`, `wire`, `cost`, `via`, hashes; never raw text when sensitive) plus
   fail-fast `run_signature` (2 equal deaths → do not relaunch).
 - **Kill switch:** quick-settings tile + notification action (revoke tokens,
-  stop server). Push/pull only under `/sdcard/Download/jev-mcp/`.
+  stop server). Push/pull only under `/sdcard/Download/jav-mcp/`.
 
 ## 👨‍💻 Developer
 
@@ -215,7 +209,7 @@ see the [LICENSE](LICENSE) file for details.
 ## Qué es Jav
 
 **Jav es un runtime MCP de control integral de Android sin root.** Una app
-en el dispositivo (**Jam**, `dev.jev.jam`) expone la pantalla por
+en el dispositivo (**Jav**, `dev.k4wai1.jav`) expone la pantalla por
 `AccessibilityService` y las acciones privilegiadas por **Shizuku**
 (lo arranca el usuario) a un runtime MCP Go en el PC (binario `jav`,
 `cmd/jav`, stdio). El **Director es el cliente externo**
@@ -233,26 +227,26 @@ resolve_element(screen_goal_en: str)   # p. ej. resolve_element("Tap the Copy li
   flujos en el core. Lo específico viaja en runtime (Director externo o S2).
 - **Tres carriles:** APIs nativas (el SO antes que los dedos) ·
   director-cliente v5 (metas complejas: el Director externo dirige, Jev resuelve,
-  Jam ejecuta) · `run_goal` autónomo histórico (congelado, no la vía activa).
-- **Seguro por diseño.** App sin root, `su` prohibido, `shell` OFF hasta
-  Fase 6, token bearer + scopes en cada bind, confirmación explícita en
-  críticas, forense JSONL por corrida.
+  Jav ejecuta) · `run_goal` autónomo histórico (congelado, no la vía activa).
+- **Seguro por diseño.** App sin root, `su` prohibido, `shell` con denylist
+  de irreversibles + grant interactivo, token bearer + scopes en cada bind,
+  confirmación explícita en críticas, forense JSONL por corrida.
 
 ## Arquitectura en 10 líneas
 
-1. Jam sirve 2 listeners WS: loopback `ws://127.0.0.1:38472` + WSS a IP tailnet.
+1. Jav sirve 2 listeners WS: loopback `ws://127.0.0.1:38472` + WSS a IP tailnet.
 2. `hello` con token bearer + scopes (`read` / `ui` / `shell` / `admin`).
 3. Percepción = árbol de accesibilidad (`dump_ui`, ≤500 nodos, ~2 ms/nodo).
 4. Jav normaliza y poda (decoración fuera) → tabla `0..253` + `NONE`.
 5. S1 Jev resuelve 1 elemento (`resolve_element`, ciego al goal global) + `conf`.
 6. El Director externo (OpenCode/operador) decide una primitiva atómica por paso; Jav no loopea ni planifica dentro.
 7. Mutación atómica (`tap_node` / `type_text` / `open_app`) + verificación posterior.
-8. Clipboard del SO antes que dedos (`get` por `dumpsys` host, `set` por API Jam).
+8. Clipboard del SO antes que dedos (`get` por `dumpsys` host, `set` por API Jav).
 9. Costos auditados (`[COST]` + `CostTracker`) y forense `logs/run-<ts>.jsonl`.
 10. Sin key → stub honesto `{mock: true}`; nunca se inventan opciones.
 
 ```
-PC (Debian, Go, MCP stdio)                 Teléfono (Jam, sin root)
+PC (Debian, Go, MCP stdio)                 Teléfono (Jav, sin root)
 ┌─ jav (cmd/jav): device/app/ui/nativo ─┐  ┌─ ForegroundService: 2×WS ─┐
 │ tools atómicas + resolve_element+costo │─WS──▶│ Accesibilidad: árbol+gest│
 │ normalizer, guards, logs (sin bucles)  │◀─WS──│ Shizuku: am/monkey/pant. │
@@ -285,7 +279,7 @@ verificación real posterior, nunca por "comando enviado".
 | device / diag (8) | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, preferir `tap_node`) |
 | telemetría N0 (5) | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
 | settings / intents N0 (4) | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
-| clipboard (1) | `get_clipboard_device` (Jam en foreground; el host prefiere `dumpsys`) |
+| clipboard (1) | `get_clipboard_device` (Jav en foreground; el host prefiere `dumpsys`) |
 | usage N1 (1) | `get_app_usage` |
 | PII N1 (4) | `list_contacts`, `add_contact`, `list_events`, `create_event` |
 | notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
@@ -303,8 +297,8 @@ Payloads ejemplo (en inglés):
 ```
 
 Carriles nativos: **N0** sin permisos nuevos · **N1** con grants del usuario
-(anunciados en `hello.caps`) · **N2** (Shizuku/`shell` on-device) responde
-`METHOD_NOT_ALLOWED` hasta Fase 6.
+(anunciados en `hello.caps`) · **N2** (Shizuku/`shell` on-device) vivo, con
+denylist de irreversibles + grant interactivo.
 
 ## Pruebas reales con números (resumen)
 
@@ -338,25 +332,26 @@ Runtime 100% Go (`go test ./...`, `make build`); el harness Python
   `go test ./...` verde); Fases 0–4 verdes; v5 director-cliente vigente
   (**Director = OpenCode/operador externo**, Jav = servidor delgado sin bucles
   ni S2 interno: `resolve_element` ciego + `set_clipboard` + `loop.py`
-  histórico congelado); carril nativo N0/N1 vivo, N2 gateado;
+  histórico congelado); carril nativo N0/N1 vivo, N2 vivo;
   38/38 docstrings al estándar de 5 secciones.
 - **Roadmap:** cierre formal suite A10 (batería + calculadora + clipboard
   round-trip) → P1 (firma anti-ticker, `assertFresh`, forense wire+timings) →
-  P2 (ranking por relevancia + recalibrar `TAU` con ≥20 goals) → Fase 6
-  (`shell` con denylist + grant + audit 500 + kill switch) → WSS tailnet 2b.
-  Tracker vivo: `PLAN.md`. Nombre: **Jav** = proyecto/runtime,
-  **Jev** = backend táctico (`JEV_MODEL`); migración de rename diferida
-  (`docs/specs/ecosystem.md` §4).
+  P2 (ranking por relevancia + recalibrar `TAU` con ≥20 goals). Hecho: Fase 6
+  (`shell` con denylist + grant interactivo + audit 500 + kill switch + N2
+  vivo) y WSS tailnet 2b (token en Keystore + lockout + pinning TOFU).
+  Tracker vivo: `PLAN.md`. Nombre: **Jav** = proyecto/runtime +
+  `dev.k4wai1.jav`; **Jev** = backend táctico (`JEV_MODEL`); identidad
+  consolidada (`docs/specs/ecosystem.md` §4).
 
 ## Quickstart
 
 ```bash
 # 1. Instala el APK y habilita accesibilidad (una vez, en el teléfono)
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-# Ajustes → Accesibilidad → activa Jam; genera el token en la app (QR).
+adb install -r android-app/app/build/outputs/apk/debug/app-debug.apk
+# Ajustes → Accesibilidad → activa Jav; genera el token en la app (QR).
 
 # 2. Shizuku lo arranca el USUARIO (la app solo pide el permiso runtime API_V23)
-# Instala moe.shizuku.privileged.api oficial, arráncalo, autoriza a Jam.
+# Instala moe.shizuku.privileged.api oficial, arráncalo, autoriza a Jav.
 
 # 3. Forward + entorno (en el PC)
 adb forward tcp:38472 tcp:38472
@@ -378,8 +373,8 @@ cd android-app && ./gradlew :app:testDebugUnitTest
 ## Seguridad
 
 - **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back,
-  `open_app` sin grant) · `shell` (con grant, OFF hasta Fase 6 →
-  `METHOD_NOT_ALLOWED`) · `admin` (token/audit). Token obligatorio incluso en
+  `open_app` sin grant) · `shell` (con grant, denylist de irreversibles +
+  `confirm`) · `admin` (token/audit). Token obligatorio incluso en
   loopback; lockout 5 fallos/60 s → 5 min; frame 4 MiB; 50 req/s (shell 5/s).
 - **Confirm:** enviar/comunicar, comprar/pagar, borrar, cuenta/permisos,
   `shell`/adb son críticas: sin `confirm: true` se planean sin ejecutar
@@ -389,7 +384,7 @@ cd android-app && ./gradlew :app:testDebugUnitTest
   `wire`, `cost`, `via`, hashes; texto crudo jamás si sensible) + firma
   `run_signature` fail-fast (2 muertes iguales → no relanzar).
 - **Kill switch:** tile de ajustes rápidos + acción en notificación (revoca
-  tokens, detiene servidor). Push/pull solo bajo `/sdcard/Download/jev-mcp/`.
+  tokens, detiene servidor). Push/pull solo bajo `/sdcard/Download/jav-mcp/`.
 
 ## 👨‍💻 Desarrollador
 

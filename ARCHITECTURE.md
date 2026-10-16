@@ -1,4 +1,4 @@
-# jev-android-mcp — ARCHITECTURE
+# Jav — ARCHITECTURE
 
 > Documento vinculante. Toda decisión de implementación que contradiga este
 > archivo requiere una enmienda explícita aquí antes de codear. Las reglas de
@@ -25,7 +25,7 @@ parte de Jav): es el único planificador; **Jav es un servidor MCP Go delgado
 tools atómicas (incl. `resolve_element` ciego, `get_audit` y `adb_shell`). Tres carriles conviven, del más
 determinista al más semántico:
 
-1. **Carril nativo (APIs directas, sin Jev, sin UI).** Jam responde por
+1. **Carril nativo (APIs directas, sin Jev, sin UI).** Jav responde por
    framework Android / Shizuku: telemetría, settings, intents, clipboard,
    usage, contactos, calendario, notificaciones/media, ubicación, cámara.
    N0 (sin permisos nuevos) y N1 (con grant del usuario) implementados; N2
@@ -37,7 +37,7 @@ determinista al más semántico:
    que ve cada pantalla, decide el plan paso
    a paso y usa Jev solo como **resolver de elementos** (una `Choice` de
    micro-intención, ciega al goal global). "El director decide, Jev señala,
-   Jam ejecuta". Jav no loopea ni planifica dentro. Detalle en `docs/specs/director-client.md`.
+   Jav ejecuta". Jav no loopea ni planifica dentro. Detalle en `docs/specs/director-client.md`.
 3. **Dual-tier `run_goal` (histórico, congelado, no la vía activa).** El bucle
    autónomo S1 Jev + S2 LLM queda como referencia congelada
    (`docs/specs/generic-dual-tier.md` + `plan-ahead.md` v4): sin features nuevas,
@@ -65,7 +65,7 @@ Arquitectura **Dual-Tier** histórica del carril 3 (congelada; detalle en §6):
 | 6 | Jev | OpenRouter `typesafe/jev-1.13` por defecto; `jev_client` abstraído para swap a TypeSafe oficial |
 | 7 | Shell | OFF por defecto. `shell` **bloquea hasta 60 s** esperando grant (1 comando = SHA-256 exacto / 5 min / 30 min). Expira sola. **Hasta Fase 6 el dispatcher lo rechaza con `METHOD_NOT_ALLOWED`** |
 | 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay API 31/33) |
-| 9 | Nombre y banco (2026-10-01) | App = **Jam** (`dev.jev.jam`). Bancos: TECNO KJ5 (API 33, sin root, loop Wi-Fi) + **A10 USB** (Android 10, 720×1440, director v5) + LG7n (API 31, Magisk) secundario |
+| 9 | Nombre y banco (2026-10-01) | App = **Jav** (`dev.k4wai1.jav`). Bancos: TECNO KJ5 (API 33, sin root, loop Wi-Fi) + **A10 USB** (Android 10, 720×1440, director v5) + LG7n (API 31, Magisk) secundario |
 | 10 | Latencia y `secure` (2026-10-02) | **≤300 ms para ≤150 nodos; ~2 ms/nodo; peor caso ~1 s a 500**. Bucle Jev ≈ 500–800 ms/paso. **`secure` fuera de `dump_ui`** (FLAG_SECURE no oculta el árbol); solo `screenshot` → `SECURE_SURFACE`. Acciones sin post-snapshot; `type` exige foco (`NOT_FOCUSED`) |
 | 11 | Fase 3a (2026-10-02) | **`open_app`/`force_stop` vía Shizuku; `screenshot` vía `takeScreenshot()` (API 30+) sin Shizuku; `shell` diferido a Fase 6.** Shizuku lo arranca el usuario; sin él → `SHIZUKU_UNAVAILABLE` + hint |
 | 12 | **plan-ahead v4 (2026-10-05)** | S2-compilador paso 0 `EXECUTE_GOAL` + `preloaded_inputs` (sin reconsulta en el camino feliz) · `FAST_TAU = 0.85` (TAU 0.70 intacto) · post-read **coalescido** (un dump/paso) · columna **`zone` 3×3** en la tabla · `MAX_TABLE = 254` (+`NONE`) · todo-a-Jev 100% inglés. Detalle en `docs/specs/plan-ahead.md` |
@@ -104,7 +104,7 @@ camino primario de percepción (árbol in-process).
 ## 4. Arquitectura
 
 ```
-HOST Debian 13 (Director externo + Jav Go + Jam en teléfono)
+HOST Debian 13 (Director externo + Jav Go + Jav en teléfono)
 ┌───────────────────────────────────────────────────────────────┐
 │ DIRECTOR EXTERNO (OpenCode/operador) — único planificador (v5) │
 │  cliente de Jav, fuera de Jav; decide una primitiva por paso   │
@@ -116,7 +116,7 @@ HOST Debian 13 (Director externo + Jav Go + Jam en teléfono)
   WS 127.0.0.1:38472 (adb forward) │ WSS <ip-tailnet>:38472 (opt-in)
                  ▼ USB / red                    ▼ tailnet
 ┌───────────────────────────────────────────────────────────────┐
-│ Jam (dev.jev.jam, app non-root)                                │
+│ Jav (dev.k4wai1.jav, app non-root)                                │
 │  ForegroundService ── 2 listeners WS (loopback + tailnet)      │
 │  JevAccessibilityService ── UI tree + tap/type/scroll + gestos │
 │  ShizukuBridge ── newProcess/UserService (UID shell):          │
@@ -139,7 +139,7 @@ lifecycle/shell/settings → Shizuku (UID shell) ·
 background ·
 screenshot → `takeScreenshot()` (30+) → `screencap` vía Shizuku (API 29);
 `FLAG_SECURE` → `SECURE_SURFACE` (solo screenshot; el árbol no se oculta).
-**Carril nativo:** sin accesibilidad y sin gestos; Jam responde por API
+**Carril nativo:** sin accesibilidad y sin gestos; Jav responde por API
 directa (§7). Sin Shizuku, N0 sigue vivo.
 
 ## 5. Modelo de privilegios (app non-root)
@@ -223,7 +223,7 @@ poda **500 raw → candidatos normalizer → 0..253 ⊂ 255 Choice** (254 + `NON
 > El Director es **cliente externo** (OpenCode/operador). Jav expone tools
 > atómicas y el resolver ciego; no decide planes, no loopea, no hospeda S2.
 
-La cadena histórica OpenCode → `loop.py` → S2 → Jev → Jam apilaba tres planificadores
+La cadena histórica OpenCode → `loop.py` → S2 → Jev → Jav apilaba tres planificadores
 sobre el mismo goal (poisoning por goal global, parálisis por indecisión,
 dedos antes que APIs). v5 la sustituye para metas complejas:
 
@@ -239,8 +239,8 @@ dedos antes que APIs). v5 la sustituye para metas complejas:
    decide el director.
 3. **SO antes que dedos:** clipboard por API (leer host `dumpsys` +
    verificación por forma; escribir con `ClipboardManager.setPrimaryClip` en
-   la propia Jam), `open_app` directo, `ACTION_SET_TEXT` + read-back. Sin
-   método Jam → `CLIPBOARD_UNSUPPORTED` y degradación honesta a `type_text`.
+   la propia Jav), `open_app` directo, `ACTION_SET_TEXT` + read-back. Sin
+   método Jav → `CLIPBOARD_UNSUPPORTED` y degradación honesta a `type_text`.
 4. **Loop histórico CONGELADO** (`mcp-server/loop.py`: `run_goal`, `ask_decision`, `s2_client`):
    sin features nuevas; referencia congelada, no runtime. **El runtime Go
    (`cmd/jav` + `pkg/`) no contiene loops ni S2 interno**: solo adaptadores
@@ -314,7 +314,7 @@ normalizer + tabla + `snapshot_id` + `first_result`/`zone`/`focused_field`),
 | device/diag | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, preferir `tap_node`) |
 | telemetría N0 | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
 | settings/intents N0 | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
-| clipboard | `get_clipboard_device` (Jam foreground; host prefiere `dumpsys`) |
+| clipboard | `get_clipboard_device` (Jav foreground; host prefiere `dumpsys`) |
 | usage N1 | `get_app_usage` |
 | PII N1 | `list_contacts`, `add_contact`, `list_events`, `create_event` |
 | notif/media N1 | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
@@ -342,7 +342,7 @@ verificación real posterior, nunca por "comando enviado".
   (`adb_shell`). **Vivo vía Shizuku (Fase 6)**; sin Shizuku →
   `SHIZUKU_UNAVAILABLE`. `settings_put` sobre clave crítica de accesibilidad →
   `FORBIDDEN`; `shell` irreversible sin `confirm` → `{planned:true}`, y
-  matar/desinstalar Jam → `SHELL_DENYLIST`.
+  matar/desinstalar Jav → `SHELL_DENYLIST`.
 - **Honestidad (no se promete lo imposible):** escritura `Secure`/`Global`
   directa sin Shizuku, `MEDIA_CONTENT_CONTROL` directo, clipboard en segundo
   plano (Android 10+), cámara silenciosa y "envío directo" headless a apps de
@@ -350,12 +350,12 @@ verificación real posterior, nunca por "comando enviado".
   (`*_UNAVAILABLE` / `METHOD_NOT_ALLOWED`) + hint.
 
 Tools nueva incorporación v5 (§2.13): `resolve_element` (resolver ciego,
-**registrada como tool MCP en 2026-10-15**, 36.ª), `get_audit` (ring de auditoría de 500 entradas + Kill Switch, **37.ª**, 2026-10-16), `adb_shell` (shell UID shell con denylist + grant interactivo, **38.ª**, 2026-10-16), `set_clipboard` (Jam
+**registrada como tool MCP en 2026-10-15**, 36.ª), `get_audit` (ring de auditoría de 500 entradas + Kill Switch, **37.ª**, 2026-10-16), `adb_shell` (shell UID shell con denylist + grant interactivo, **38.ª**, 2026-10-16), `set_clipboard` (Jav
 `ClipboardManager`, sin Shizuku/garant), `get_clipboard`
 (host `dumpsys`). `shell`/`adb_shell`: denylist de irreversibles
 (`rm -rf /`, `pm uninstall` de sistema, `reboot recovery`, `dd`, `wipe`) →
 scope `admin` **y** `confirm: true`; grant del operador (1 cmd/5 min/30 min),
-bloquea hasta 60 s. Push/pull solo bajo `/sdcard/Download/jev-mcp/`.
+bloquea hasta 60 s. Push/pull solo bajo `/sdcard/Download/jav-mcp/`.
 
 ## 8. Pins de versiones (verificados contra repos)
 
@@ -391,7 +391,7 @@ Sin Compose/Hilt/Room/Retrofit/Ktor/Tink/SDK Tailscale.
 | 0d | APK vacío instalado | app visible + grep `su` vacío + `docs/BUILD.md` |
 | 1 | AccessibilityService + `dump_ui` + onboarding | anclas ≥95% vs `uiautomator`; latencia §3 |
 | 2 | WS loopback + `hello`/token/scopes + tap/type/scroll/back | cliente genérico controla app genérica; sin token → rechazado |
-| 2b | WSS tailnet + cert self-signed + token en Keystore | **pendiente** |
+| 2b | WSS tailnet + cert self-signed + token en Keystore | OK; lockout 5/60 s→5 min; pinning TOFU en Go |
 | 3a | Shizuku `open_app`/`force_stop` + `screenshot` | OK; sin Shizuku → degradación honesta |
 | 3b | `shell` + audit log + kill switch *(Fase 6)* | denylist operativa; auditoría consultable |
 | 4 | MCP Go + normalizer + tools device/app/ui | director externo lee pantalla (`go test ./...`) |

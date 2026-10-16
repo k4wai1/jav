@@ -17,7 +17,7 @@ import (
 	"github.com/k4wai1/jav/pkg/uitrack"
 )
 
-// Helpers de args, validación, envolvente y Jam (equiv. tools/_base.py
+// Helpers de args, validación, envolvente y Jav (equiv. tools/_base.py
 // más validación client-side de enums/rangos/formas, spec §6.3).
 
 // Handler es un handler MCP de tool.
@@ -194,7 +194,7 @@ func checkWindow(w string) *jam.Envelope {
 	return &e
 }
 
-// --- Llamadas Jam con latencia ---
+// --- Llamadas Jav con latencia ---
 
 // jamCall abre conexión, ejecuta y cierra (dial + hello + método + close).
 func jamCall(fn func(c *jam.Client) (map[string]any, *jam.JamError)) jam.Envelope {

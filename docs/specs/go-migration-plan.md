@@ -4,7 +4,7 @@
 > implementa `@coder`, certifica `@judge`. En conflicto, **AGENTS.md manda**.
 >
 > Alcance: solo el **servidor MCP host** (`mcp-server/` → módulo Go).
-> La app Android (`android-app/`, paquete `dev.jev.jam`), `PROTOCOL.md`,
+> La app Android (`android-app/`, paquete `dev.k4wai1.jav`), `PROTOCOL.md`,
 > y el loop Python congelado **no se tocan** en esta migración.
 > 100% genérico: cero paquetes concretos, cero literales de dominio,
 > cero keys en este documento.
@@ -51,13 +51,13 @@
 
 - Identidad: binario **`jav`**, módulo **`github.com/k4wai1/jav`**.
 - Libs permitidas: **`github.com/mark3labs/mcp-go`** (marco MCP stdio)
-  + **`gorilla/websocket`** (transporte Jam WS). Stdlib para el resto
+  + **`gorilla/websocket`** (transporte Jav WS). Stdlib para el resto
   (`net/http` para OpenRouter, `encoding/json`, `log/slog` a stderr,
   `os/exec` para `adb`).
 - Prohibido en Go igual que en Python: nada app-específico en core,
   nada de `run_sequence`, nada de teclado simulado (solo `ACTION_SET_TEXT`
-  vía Jam), nada de `shell` en dispositivo antes de Fase 6
-  (`METHOD_NOT_ALLOWED` explícito del dispatcher Jam, no del MCP).
+  vía Jav), nada de `shell` en dispositivo antes de Fase 6
+  (`METHOD_NOT_ALLOWED` explícito del dispatcher Jav, no del MCP).
 - Versión: `client_version` del `hello` = versión del binario Go
   (inyectada por `-ldflags -X main.version=…`, default `0.1.0`).
 
@@ -85,7 +85,7 @@ Reglas:
 
 1. `cmd/jav` es delgado: lee env, configura logger a **stderr**, arranca
    servidor stdio, nada más. Cero lógica de dominio.
-2. `pkg/jam` es el ÚNICO que habla WS con Jam. Nadie más abre sockets.
+2. `pkg/jam` es el ÚNICO que habla WS con Jav. Nadie más abre sockets.
 3. `pkg/normalizer` es puro (sin I/O, sin red, sin env): entra dump crudo,
    sale tabla. Testeable sin dispositivo.
 4. `pkg/tools` son handlers finos: validan args JSON → llaman `pkg/jam` /
@@ -108,7 +108,7 @@ Reglas:
    JSON-RPC en stdout invalida la aceptación (§11).
 4. `JAV_WS_URL` / `JAV_TOKEN` se leen del env del proceso stdio
    (heredado del cliente MCP). Sin `JAV_TOKEN` → las tools que exigen
-   Jam fallan honesto `UNAUTHORIZED-hint`, nunca cuelgan.
+   Jav fallan honesto `UNAUTHORIZED-hint`, nunca cuelgan.
 5. Frame WS máximo **4 MiB** (`gorilla/websocket` read-limit); `screenshot`
    que exceda → `PAYLOAD_TOO_LARGE` con hint WebP q80 (igual que Python).
 
@@ -122,13 +122,13 @@ Reglas:
   envolvente `{ok, verified, evidence, hint}` serializada como **un
   único `TextContent` JSON** en `content[0]`; `isError = !ok`.
   (`mcp-go`: `NewToolResultText(json) + IsError` según `ok`.)
-- `initialize` + `tools/list` por stdio deben funcionar **sin Jam
+- `initialize` + `tools/list` por stdio deben funcionar **sin Jav
   alcanzable** (sin `JAV_TOKEN`, sin `adb`): listan, no conectan.
-  La conexión Jam es por llamada (dial + `hello` + método + close),
+  La conexión Jav es por llamada (dial + `hello` + método + close),
   con reintento único tras `adb forward` igual que `_base.py`.
-- `hello` Jam: `{protocol_version:1, client_version:<jav>, token, client}`.
+- `hello` Jav: `{protocol_version:1, client_version:<jav>, token, client}`.
   Mismatch de protocolo → error claro con hint, nunca reintento mudo.
-- Códigos de error Jam pasan intactos en `evidence.code`
+- Códigos de error Jav pasan intactos en `evidence.code`
   (`STALE_SNAPSHOT`, `NOT_FOCUSED`, `SELECTOR_NOT_FOUND`,
   `ACCESSIBILITY_DISABLED`, `SHIZUKU_UNAVAILABLE`, `TIMEOUT`,
   `SECURE_SURFACE`, `PAYLOAD_TOO_LARGE`, `METHOD_NOT_ALLOWED`, …)
@@ -195,7 +195,7 @@ obligatorio para ejecutar; el spec de cada tool (§5 filas 21/23/27/29/
   ante `connection refused` (solo si la URL es loopback).
 - Mapeo `JamError{code} → hint` idéntico a `jam_fail`.
 - Sin `su`, sin shell al dispositivo; `shell` ni siquiera existe como
-  método (el dispatcher Jam lo rechaza; el MCP no lo expone).
+  método (el dispatcher Jav lo rechaza; el MCP no lo expone).
 
 ### 6.2 `pkg/normalizer` (equiv. `ui_normalizer.py` + `loop_helpers.py` puro)
 
@@ -232,7 +232,7 @@ obligatorio para ejecutar; el spec de cada tool (§5 filas 21/23/27/29/
 - `Ask(state, questions) → (answers, usage)`: `POST
   https://openrouter.ai/api/alpha/decisions`, modelo por env `JEV_MODEL`
   (default `typesafe/jev-1.13`), timeout ~3 s + 1 retry, headers
-  `Authorization: Bearer` + `HTTP-Referer` + `X-Title: jam-loop`.
+  `Authorization: Bearer` + `HTTP-Referer` + `X-Title: jav-loop`.
 - `AskDecision(goal, table, snapshotID, …)` single-pass EN con las 3
   preguntas cerradas (`action` 7 valores, `target` 0..253+NONE, `noul`
   `needs_system_2`); tabla serializada `[idx,class_short,zone,flags,
@@ -253,7 +253,7 @@ obligatorio para ejecutar; el spec de cada tool (§5 filas 21/23/27/29/
   `validate_target` + `tap_node`; sin candidates re-observa UNA vez y
   exige snapshot igual o `STALE_SNAPSHOT`.
 - `ReadScreenState / GetClipboard(host dumpsys + forma https?://) /
-  SetClipboard(Jam ClipboardManager + read-back de forma)`.
+  SetClipboard(Jav ClipboardManager + read-back de forma)`.
 - `Advise/CompileGoal/VerifyDone` (forma S2 §5.1 + plan + verify) viven
   aquí o en `pkg/jev` —el spec fija que compartan `OPENROUTER_API_KEY`
   y `S2_MODEL`/`GLM_MODEL`; la ubicación interna la elige `@coder`
@@ -288,7 +288,7 @@ obligatorio para ejecutar; el spec de cada tool (§5 filas 21/23/27/29/
 ## 8. `.env.example` (sin secretos, solo forma)
 
 ```text
-# Transporte MCP → Jam
+# Transporte MCP → Jav
 JAV_WS_URL=ws://127.0.0.1:38472/
 # Remoto opt-in (WSS obligatorio fuera de loopback):
 # JAV_WS_URL=wss://100.64.x.x:38472/
@@ -322,7 +322,7 @@ manda sobre `GLM_MODEL`.
   "mcp": {
     "jav": {
       "type": "local",
-      "command": ["$HOME/jev-android-mcp/dist/jav-linux-amd64"],
+      "command": ["$HOME/jav/dist/jav-linux-amd64"],
       "enabled": true,
       "environment": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
@@ -343,7 +343,7 @@ manda sobre `GLM_MODEL`.
 {
   "mcpServers": {
     "jav": {
-      "command": "/home/user/jev-android-mcp/dist/jav-linux-amd64",
+      "command": "/home/user/jav/dist/jav-linux-amd64",
       "env": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
         "JAV_TOKEN": "",
@@ -361,7 +361,7 @@ Cursor (`~/.cursor/mcp.json` o `.cursor/mcp.json`):
 {
   "mcpServers": {
     "jav": {
-      "command": "/home/user/jev-android-mcp/dist/jav-linux-amd64",
+      "command": "/home/user/jav/dist/jav-linux-amd64",
       "env": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
         "JAV_TOKEN": "",
@@ -404,7 +404,7 @@ Desde la raíz del repo (+ referencia `mcp-server/`):
 3. `tools/list` Go ≡ Python: mismo set de 35 nombres + mismos
    `required` y tipos por tool (script `tools-list-diff`, diff vacío).
 4. `uv run pytest` en `mcp-server/` sigue **verde** (Go no rompió Python).
-5. Smoke `device_status` sin Jam → `{ok:false,…}` honesto con hint
+5. Smoke `device_status` sin Jav → `{ok:false,…}` honesto con hint
    (no cuelgue, no pánico, exit del servidor limpio).
 6. Greps en `cmd/` + `pkg/`: nada app-específico, nada de keys, nada de `su`
    (`grep -rniE 'whatsapp|contact_name|verify_chat|wrong_chat|api[_-]?key|sk-|su -c|exec(.*su' --include='*.go' .` → vacío salvo la línea

@@ -126,7 +126,7 @@ func hGetClipboardDevice(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		ev := env["evidence"].(map[string]any)
 		length, _ := ev["len"].(float64)
 		sha, _ := ev["sha256"].(string)
-		ev["forense"] = map[string]any{"via": "jam-foreground", "len": length, "sha256": sha}
+		ev["forense"] = map[string]any{"via": "jav-foreground", "len": length, "sha256": sha}
 	}
 	return result(env)
 }

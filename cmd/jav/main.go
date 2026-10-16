@@ -20,7 +20,7 @@ var version = "0.1.0"
 // instructions es el bloque §1 de docs/MCP_SPEC_GUIDELINES.md, verbatim EN
 // (salvo versión). Modelo mental mínimo: carriles, frescura, foco,
 // verificación, confirmación, privacidad, errores.
-const instructions = `You control an Android device through Jav, a bridge to the on-device accessibility service (Jam). You never see pixels unless you ask for a screenshot, and you never invent coordinates: every tap or type targets a node id from a fresh screen snapshot.
+const instructions = `You control an Android device through Jav, a bridge to the on-device accessibility service (Jav). You never see pixels unless you ask for a screenshot, and you never invent coordinates: every tap or type targets a node id from a fresh screen snapshot.
 
 LANE HIERARCHY — always prefer the cheapest lane that answers the need:
 1. NATIVE first (direct device APIs: battery, memory, storage, cpu, device_info, settings_get, clipboard metadata, usage aggregates, contacts/calendar/notifications/media/location/photo). No UI, nolane switch, no focus needed.

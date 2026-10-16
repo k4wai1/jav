@@ -60,7 +60,7 @@ func TestHintCoreUnchanged(t *testing.T) {
 		"STALE_SNAPSHOT":         "re-haz read_screen y usa el snapshot nuevo",
 		"NOT_FOCUSED":            "haz tap sobre el campo antes de type_text",
 		"SELECTOR_NOT_FOUND":     "re-haz read_screen; el selector no matchea",
-		"ACCESSIBILITY_DISABLED": "habilita Jam en Ajustes → Accesibilidad",
+		"ACCESSIBILITY_DISABLED": "habilita Jav en Ajustes → Accesibilidad",
 		"SHIZUKU_UNAVAILABLE":    "arranca Shizuku y reintenta",
 		"TIMEOUT":                "reintenta o sube el timeout",
 		"SECURE_SURFACE":         "la ventana tiene FLAG_SECURE; usa dump_ui, no screenshot",

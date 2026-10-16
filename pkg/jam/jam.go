@@ -2,6 +2,9 @@ package jam
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,7 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Protocolo Jam: PROTOCOL.md. Sin Jev: hello + dump_ui + tap.
+// Protocolo Jav: PROTOCOL.md. Sin Jev: hello + dump_ui + tap.
 // Equivale a socket_client.py + tools/_base.py.
 
 const ProtocolVersion = 1
@@ -24,7 +27,7 @@ const MaxFrameBytes = 4 * 1024 * 1024
 // ClientVersion se inyecta por -ldflags -X main.version=… (spec §1).
 var ClientVersion = "0.1.0"
 
-// JamError es un fallo honesto del dispatcher Jam (código + mensaje).
+// JamError es un fallo honesto del dispatcher Jav (código + mensaje).
 type JamError struct {
 	Code    string
 	Message string
@@ -32,7 +35,7 @@ type JamError struct {
 
 func (e *JamError) Error() string { return e.Code + ": " + e.Message }
 
-// hintFor mapea código Jam → hint accionable (recovery_instruction,
+// hintFor mapea código Jav → hint accionable (recovery_instruction,
 // guía §3.2). Las filas originales son el núcleo canónico y no se tocan
 // (compatibilidad forense); aquí solo se extienden las restantes.
 func hintFor(code string) string {
@@ -44,7 +47,7 @@ func hintFor(code string) string {
 	case "SELECTOR_NOT_FOUND":
 		return "re-haz read_screen; el selector no matchea"
 	case "ACCESSIBILITY_DISABLED":
-		return "habilita Jam en Ajustes → Accesibilidad"
+		return "habilita Jav en Ajustes → Accesibilidad"
 	case "SHIZUKU_UNAVAILABLE":
 		return "arranca Shizuku y reintenta"
 	case "TIMEOUT":
@@ -59,7 +62,7 @@ func hintFor(code string) string {
 		return "revisa JAV_TOKEN en el entorno del servidor"
 	// --- Extensión guía §3.2 (v1): sin cambiar las anteriores ---
 	case "SHIZUKU_DENIED":
-		return "concede el permiso runtime de Shizuku a Jam y reintenta"
+		return "concede el permiso runtime de Shizuku a Jav y reintenta"
 	case "FORBIDDEN":
 		return "pide scope/permiso correspondiente; no reintentes el mismo payload"
 	case "VALIDATION_ERROR":
@@ -76,6 +79,8 @@ func hintFor(code string) string {
 		return "confirma con get_foreground/read_screen; si no llegó, un reintento y luego informe"
 	case "CONNECTION_FAILED":
 		return "revisa adb forward + dispositivo conectado; reintenta una vez tras forward"
+	case "CERT_MISMATCH":
+		return "el cert del tailnet cambió: re-verifica el fingerprint en la app (cert_sha256) y actualiza el pin; no continues a ciegas"
 	case "RATE_LIMITED", "BUSY":
 		return "espera y reintenta con backoff; segundo cliente recibe BUSY"
 	case "SHELL_DENIED", "SHELL_DENYLIST":
@@ -137,6 +142,21 @@ func Token() (string, *JamError) {
 	return "", &JamError{Code: "UNAUTHORIZED", Message: "sin token (JAV_TOKEN ausente en el entorno)"}
 }
 
+// certFingerprint lee el pin SHA-256 del cert del tailnet
+// (JAV_CERT_FINGERPRINT con fallback JEV_CERT_FINGERPRINT); normaliza
+// mayúsculas y separadores `:`. Vacío = TOFU sin pin.
+func certFingerprint() string {
+	for _, k := range []string{"JAV_CERT_FINGERPRINT", "JEV_CERT_FINGERPRINT"} {
+		if v := os.Getenv(k); v != "" {
+			v = strings.ToLower(strings.TrimSpace(v))
+			v = strings.ReplaceAll(v, ":", "")
+			v = strings.ReplaceAll(v, " ", "")
+			return v
+		}
+	}
+	return ""
+}
+
 // isLoopback dice si la URL apunta a loopback (solo ahí vale auto-forward).
 func isLoopback(url string) bool {
 	u := strings.ToLower(url)
@@ -148,7 +168,7 @@ func EnsureForward() {
 	_ = exec.Command("adb", "forward", "tcp:38472", "tcp:38472").Run()
 }
 
-// Client es el ÚNICO que habla WS con Jam (spec §2 regla 2).
+// Client es el ÚNICO que habla WS con Jav (spec §2 regla 2).
 type Client struct {
 	URL        string
 	Token      string
@@ -180,11 +200,44 @@ func isRefused(e *JamError) bool {
 		strings.Contains(m, "no route to host")
 }
 
+// pinnedTLSConfig arma el tls.Config de un bind `wss://`: TOFU con
+// verificación por pin SHA-256 cuando `fp` no está vacío (comparación
+// en tiempo constante).
+func pinnedTLSConfig(fp string) *tls.Config {
+	return &tls.Config{
+		// TOFU: certificado autofirmado; si hay fingerprint, se pinnea abajo.
+		InsecureSkipVerify: true,
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if fp == "" {
+				return nil
+			}
+			if len(cs.PeerCertificates) == 0 {
+				return fmt.Errorf("servidor sin certificado")
+			}
+			sum := sha256.Sum256(cs.PeerCertificates[0].Raw)
+			got := hex.EncodeToString(sum[:])
+			if subtle.ConstantTimeCompare([]byte(got), []byte(fp)) != 1 {
+				return fmt.Errorf("fingerprint TLS no coincide (TOFU)")
+			}
+			return nil
+		},
+	}
+}
+
 func dialOnce(url, token string, timeout, readTimeout time.Duration) (*Client, *JamError) {
 	d := websocket.Dialer{HandshakeTimeout: timeout}
+	// Fase 2b: WSS en el tailnet con pinning TOFU opcional.
+	fp := certFingerprint()
+	if strings.HasPrefix(strings.ToLower(url), "wss://") {
+		d.TLSClientConfig = pinnedTLSConfig(fp)
+	}
 	conn, _, err := d.Dial(url, nil)
 	if err != nil {
-		return nil, &JamError{Code: "CONNECTION_FAILED", Message: err.Error()}
+		code := "CONNECTION_FAILED"
+		if fp != "" && strings.Contains(err.Error(), "fingerprint TLS") {
+			code = "CERT_MISMATCH"
+		}
+		return nil, &JamError{Code: code, Message: err.Error()}
 	}
 	conn.SetReadLimit(MaxFrameBytes)
 	c := &Client{URL: url, Token: token, conn: conn}

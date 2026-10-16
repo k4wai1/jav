@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.jev.jam"
+    namespace = "dev.k4wai1.jav"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "dev.jev.jam"
+        applicationId = "dev.k4wai1.jav"
         minSdk = 29
         targetSdk = 34
         versionCode = 1

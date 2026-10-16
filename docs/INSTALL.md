@@ -1,4 +1,4 @@
-# INSTALL — servidor `jav` (MCP stdio → Jam en Android)
+# INSTALL — servidor `jav` (MCP stdio → Jav en Android)
 
 > Binario **`jav`**, módulo **`github.com/k4wai1/jav`**.
 > Un solo entrypoint stdio (`cmd/jav`), sin daemon, sin flags mutantes.
@@ -13,10 +13,10 @@
 - Toolchain Go según `go.mod` + `go.sum` commiteado.
 - `adb` en el `PATH` (para `list_packages`, clipboard-host, `wm size`,
   auto-`adb forward tcp:38472`).
-- App Jam instalada en el dispositivo + servidor Jam corriendo
+- App Jav instalada en el dispositivo + servidor Jav corriendo
   (ella muestra el token y el QR de onboarding).
-- Sin Jam alcanzable, `initialize` + `tools/list` funcionan igual
-  (listan, no conectan); las tools que exigen Jam fallan honesto,
+- Sin Jav alcanzable, `initialize` + `tools/list` funcionan igual
+  (listan, no conectan); las tools que exigen Jav fallan honesto,
   nunca cuelgan.
 
 ## 1. One-liner (release)
@@ -33,7 +33,7 @@ linux/darwin/windows × amd64/arm64 y deja el binario en el destino.
 ## 2. Desde fuente
 
 ```sh
-git clone https://github.com/k4wai1/jav.git ~/jev-android-mcp
+git clone https://github.com/k4wai1/jav.git ~/jav
 make build        # host → dist/jav-linux-amd64
 make build-all    # linux/amd64 + linux/arm64 + darwin/arm64 + windows/amd64 → dist/
 go run ./cmd/jav  # sin instalar: arranca el servidor MCP por stdio
@@ -51,7 +51,7 @@ chmod 600 .env
 ```
 
 ```text
-# Transporte MCP → Jam (JAV_* manda; JEV_WS_URL/JEV_TOKEN valen como fallback):
+# Transporte MCP → Jav (JAV_* manda; JEV_WS_URL/JEV_TOKEN valen como fallback):
 JAV_WS_URL=ws://127.0.0.1:38472/
 # Remoto opt-in (WSS obligatorio fuera de loopback):
 # JAV_WS_URL=wss://100.64.x.x:38472/
@@ -77,7 +77,7 @@ JAV_LOG_DIR=logs/
 
 Notas:
 
-- `JAV_TOKEN` sale del QR/onboarding de Jam. Sin él, las tools Jam
+- `JAV_TOKEN` sale del QR/onboarding de Jav. Sin él, las tools Jav
   fallan `UNAUTHORIZED`-honesto.
 - Sin `OPENROUTER_API_KEY`, S1 queda desactivado (error honesto, nunca
   resolución inventada) y S2 responde stub `{mock:true}`.
@@ -96,7 +96,7 @@ Notas:
   "mcp": {
     "jav": {
       "type": "local",
-      "command": ["$HOME/jev-android-mcp/dist/jav-linux-amd64"],
+      "command": ["$HOME/jav/dist/jav-linux-amd64"],
       "enabled": true,
       "environment": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
@@ -120,7 +120,7 @@ Variante local-S2 (misma key ausente = sin auth en loopback):
   "mcp": {
     "jav": {
       "type": "local",
-      "command": ["$HOME/jev-android-mcp/dist/jav-linux-amd64"],
+      "command": ["$HOME/jav/dist/jav-linux-amd64"],
       "enabled": true,
       "environment": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
@@ -142,7 +142,7 @@ Variante local-S2 (misma key ausente = sin auth en loopback):
 {
   "mcpServers": {
     "jav": {
-      "command": "/home/user/jev-android-mcp/dist/jav-linux-amd64",
+      "command": "/home/user/jav/dist/jav-linux-amd64",
       "env": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
         "JAV_TOKEN": "",
@@ -163,7 +163,7 @@ Variante local-S2 (misma key ausente = sin auth en loopback):
 {
   "mcpServers": {
     "jav": {
-      "command": "/home/user/jev-android-mcp/dist/jav-linux-amd64",
+      "command": "/home/user/jav/dist/jav-linux-amd64",
       "env": {
         "JAV_WS_URL": "ws://127.0.0.1:38472/",
         "JAV_TOKEN": "",
@@ -187,7 +187,7 @@ curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
 # o copia dist/jav-linux-arm64 al teléfono y renómbralo a jav.
 
 export JAV_WS_URL="ws://127.0.0.1:38472/"
-export JAV_TOKEN=""            # del QR de Jam
+export JAV_TOKEN=""            # del QR de Jav
 export OPENROUTER_API_KEY=""   # S1 (requerida para resolver)
 export JEV_MODEL="typesafe/jev-1.13"
 export JAV_AI_BASE_URL="http://127.0.0.1:11434/v1"  # S2 local sin auth…
@@ -207,8 +207,8 @@ go build ./... && go vet ./...   # limpio, sin warnings
 go test ./...                     # verde
 ```
 
-Smoke sin Jam: `device_status` → `{ok:false,…}` honesto con hint
-(no cuelgue, no pánico). Con Jam: `adb forward tcp:38472 tcp:38472`
+Smoke sin Jav: `device_status` → `{ok:false,…}` honesto con hint
+(no cuelgue, no pánico). Con Jav: `adb forward tcp:38472 tcp:38472`
 (es automático ante `connection refused` en loopback) + `device_status`
 → scopes + `app_version` + foreground.
 

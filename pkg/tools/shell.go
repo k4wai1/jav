@@ -10,7 +10,7 @@ import (
 )
 
 // adb_shell (Fase 6b): comando arbitrario con UID shell vía Shizuku.
-// Scope admin; gate triple en Jam: rate limit 5/s → denylist → grant
+// Scope admin; gate triple en Jav: rate limit 5/s → denylist → grant
 // interactivo. Nunca `su` (AGENTS.md §2). El mapeo tool↔método es
 // adb_shell ↔ shell (AGENTS.md §6).
 

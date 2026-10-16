@@ -20,7 +20,7 @@
 //     con settings_get y se escribe EL MISMO valor con confirm:true
 //     (no-op); verificación posterior con settings_get. Sin cambio neto.
 //   - PII: la tabla solo publica herramienta, resultado, code y
-//     latencia_ms. Jamás contenido (nombres, teléfonos, textos, hashes
+//     latencia_ms. Javás contenido (nombres, teléfonos, textos, hashes
 //     crudos van solo como conteos/códigos).
 //
 // Salida: tabla markdown a stdout (+ copia en logs/ si existe).
@@ -378,7 +378,7 @@ func main() {
 	// ejecuta un comando real (requeriría grant del operador).
 	env, ms, cerr = call("adb_shell", map[string]any{"cmd": "rm -rf /", "confirm": false}, T)
 	add("adb_shell", "denylist sin confirm", env, ms, cerr, "planned: no ejecuta el comando")
-	env, ms, cerr = call("adb_shell", map[string]any{"cmd": "pm uninstall dev.jev.jam"}, T)
+	env, ms, cerr = call("adb_shell", map[string]any{"cmd": "pm uninstall dev.k4wai1.jav"}, T)
 	add("adb_shell", "self uninstall", env, ms, cerr, "SHELL_DENYLIST sin tocar el dispositivo")
 
 	// 11. open_app / close_app: validación por defecto; real opt-in.
@@ -486,8 +486,8 @@ func printTable(rows []row, banner string) {
 		"tap_node/type_text = dry-run bogus (SELECTOR_NOT_FOUND o STALE_SNAPSHOT; " +
 		"en ambos sin mutación: el snapshot se valida antes de actuar); " +
 		"settings_put confirm:true = no-op mismo valor (cambio neto cero); " +
-		"críticas Jam (add/create/reply/media-stop/photo/settings) sin confirm = planned sin ejecutar; " +
-		"send_intent SEND/CALL sin confirm → ok del servidor (gate en Jam, ver informe).\n")
+		"críticas Jav (add/create/reply/media-stop/photo/settings) sin confirm = planned sin ejecutar; " +
+		"send_intent SEND/CALL sin confirm → ok del servidor (gate en Jav, ver informe).\n")
 	fmt.Print(b.String())
 	if _, err := os.Stat("logs"); err == nil {
 		name := "logs/jav-e2e-" + time.Now().UTC().Format("20060102-150405") + ".md"

@@ -69,7 +69,7 @@ Forma del payload S1 v3 (solo forma, contenido ilustrativo en inglés):
   "state": {
     "goal": "Send a short message to a contact",
     "screen_goal": "Message thread open, message input focused",
-    "current_app": "dev.jev.jam",
+    "current_app": "dev.k4wai1.jav",
     "snapshot_id": 42,
     "table": [[0, "EditText", "edit|foc", "Message"], [1, "Button", "click", "Send"]],
     "history": "tap_node:n_7; tap_node:n_3",
@@ -126,7 +126,7 @@ devolvía `HINT` decorativo → S1 redudaba → giro sin mutación hasta
 `STUCK`/`TIMEOUT`. Más el poisoning por goal global (el nombre propio y la
 app destino sesgaban al resolver dentro de la app-origen) y "dedos antes que
 APIs". Veredicto: **enterrar la Inception**
-`OpenCode → loop.py → S2 → Jev → Jam` (tres planificadores sobre el mismo
+`OpenCode → loop.py → S2 → Jev → Jav` (tres planificadores sobre el mismo
 goal) para metas complejas.
 
 - **Muerte de la Inception, `loop.py` congelado** (v5 §6). `run_goal` queda
@@ -149,10 +149,10 @@ goal) para metas complejas.
   `shell` on-device = OFF hasta Fase 6 (`METHOD_NOT_ALLOWED`); adb-host =
   harness permitido. `get_clipboard` = host `adb shell dumpsys clipboard` +
   verificación por forma `https?://` → `CLIPBOARD_EMPTY` honesto;
-  `set_clipboard` = método Jam `ClipboardManager.setPrimaryClip` (scope
+  `set_clipboard` = método Jav `ClipboardManager.setPrimaryClip` (scope
   `ui`, sin Shizuku, sin grant) + read-back de forma. Prohibido `adb shell
   input text`, `service call clipboard` frágil, `shell` on-device. Sin método
-  Jam → `CLIPBOARD_UNSUPPORTED(jam-api-missing)` y el director usa
+  Jav → `CLIPBOARD_UNSUPPORTED(jav-api-missing)` y el director usa
   `type_text` directo (degradación, no emulación).
 - **Yo-dirijo paso a paso estilo curl.** El director (operador) ve cada
   pantalla (`read_screen_state` + screenshot evidencial), resuelve
@@ -238,10 +238,10 @@ Lo posterior a la nota `@architect` 2026-10-07, medido (sin proyección):
   decorativo); el host expone `first_result` como prior sin podar-a-1.
   `run_signature` + fail-fast entre corridas (§12.3): 2 muertes con igual
   firma → no relanzar.
-- **Clipboard por API** (`6fc3a9a` wrapper + `7ee4058` método Jam).
-  `set_clipboard` = la propia Jam ejecuta `ClipboardManager.setPrimaryClip`
+- **Clipboard por API** (`6fc3a9a` wrapper + `7ee4058` método Jav).
+  `set_clipboard` = la propia Jav ejecuta `ClipboardManager.setPrimaryClip`
   (scope `ui`, sin Shizuku, sin grant); lectura por host `dumpsys` +
-  read-back de forma. Sin método Jam → `CLIPBOARD_UNSUPPORTED` honesto y
+  read-back de forma. Sin método Jav → `CLIPBOARD_UNSUPPORTED` honesto y
   el director usa `type_text`. Prohibido `shell` on-device (Fase 6),
   `adb shell input text` y `service call clipboard`. Tests
   `test_director_clipboard.py` + `test_director_resolve.py` en verde.
@@ -289,7 +289,7 @@ commiteado; este apéndice lo fija:
 - **Contratos ratificados (sin cambio):** `hello` request = objeto
   `WsRequest{id, method, params}` con `protocol_version` +
   `client_version`, respuesta plana `{ok, protocol_version,
-  app_version, scopes}`; app = `dev.jev.jam` (Jam); `dump_ui` sin
+  app_version, scopes}`; app = `dev.k4wai1.jav` (Jav); `dump_ui` sin
   campo `secure` (`SECURE_SURFACE` solo en `screenshot`).
 - **Deuda honesta nueva:** token bearer en claro en logcat
   (`JevForegroundService.kt:33` `JamWs token=$token`); enmascarar
@@ -311,9 +311,9 @@ commiteado; este apéndice lo fija:
    constantes hasta medir P10-step-1 vs tasa de éxito; si procede,
    `tau_step1` menor o `HINT`-sin-mutación en step 1, con enmienda e
    intervalos.
-5. **Suite A10 formal.** Método Jam + wrapper host con read-back
+5. **Suite A10 formal.** Método Jav + wrapper host con read-back
   comprometidos (`7ee4058`); certificar con suite A10 formal
   (batería + calculadora + clipboard round-trip) en banco USB antes de
   dar v5 por cerrada. Enmienda AGENTS.md §1 propuesta en
-  `director-client.md` §11.4 (director decide / Jev señala / Jam ejecuta)
+  `director-client.md` §11.4 (director decide / Jev señala / Jav ejecuta)
   pendiente del orquestador.

@@ -4,7 +4,7 @@
 > No toca código. En conflicto, **AGENTS.md manda** (scopes, shell OFF
 > hasta Fase 6, sin `su`, token obligatorio, audit 500).
 >
-> Alcance: carril **APIs directas** — lo que Jam puede responder por
+> Alcance: carril **APIs directas** — lo que Jav puede responder por
 > llamada a framework Android / Shizuku sin que Jev interprete UI ni
 > mueva dedos. El carril Jev (dual-tier `run_goal`, `generic-dual-tier.md`)
 > sigue siendo el único que toca UI por accesibilidad.
@@ -17,7 +17,7 @@
 ## 0. Base ya expuesta (verificada en código)
 
 Fuente: `android-app/app/src/main/java/dev/jev/jam/socket/CommandDispatcher.kt`
-+ `PROTOCOL.md §4`. Lo que Jam ya sirve hoy:
++ `PROTOCOL.md §4`. Lo que Jav ya sirve hoy:
 
 | Método | Scope | Grant | Notas |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Fuente: `android-app/app/src/main/java/dev/jev/jam/socket/CommandDispatcher.kt`
 | `open_app` | `ui` | **sin grant** | Shizuku `am start`; fallback `monkey`; verificar con `get_foreground` |
 | `force_stop` | `shell` | **sin grant** | no necesita accesibilidad |
 | `screenshot` | `read` | no | `takeScreenshot` API 30+; `SECURE_SURFACE`; >4 MiB → `PAYLOAD_TOO_LARGE` |
-| `set_clipboard` | `ui` | **sin grant** | la propia Jam hace `setPrimaryClip`; sin Shizuku |
+| `set_clipboard` | `ui` | **sin grant** | la propia Jav hace `setPrimaryClip`; sin Shizuku |
 | `shell` | `shell` | con grant | **hasta Fase 6: `METHOD_NOT_ALLOWED` explícito** (AGENTS.md §2.8) |
 | `list_packages`, `grant_permission`, `get_audit` | según `PROTOCOL.md` | `grant_permission` = `shell` **con grant** | `get_audit` = `admin`, ring 500 |
 
@@ -265,7 +265,7 @@ máx. 4 MiB, rate 50 req/s (shell 5/s), y entra al **audit ring 500**
   nunca lat/lon cruda salvo `confirm: true` del operador. Background:
   **honesto** — posible non-root con el permiso, pero con fricción de
   plataforma (indicador persistente, throttling en segundo plano,
-  política Play); Jam lo expone solo en foreground/FGS y documenta la
+  política Play); Jav lo expone solo en foreground/FGS y documenta la
   degradación.
 - **Fase: P1** (foreground). **Background: P1-restringido** (mismo
   permiso + justificación + FGS; medir throttling, no prometer fixes
@@ -330,10 +330,10 @@ máx. 4 MiB, rate 50 req/s (shell 5/s), y entra al **audit ring 500**
   `ACTION_INSERT` (calendario/contactos), URIs `https`/`tel`/`mailto`/
   `geo`/`sms`.
 - **Permiso:** ninguno nuevo para intents explícitos/view (P0); el
-  contenido sensible lo pone el permiso de la app destino, no Jam.
+  contenido sensible lo pone el permiso de la app destino, no Jav.
   Ejemplo no-normativo: un deep-link con esquema de mensajería que
   pre-rellena texto — el **envío** sigue ocurriendo en la UI destino
-  (carril Jev), no en Jam.
+  (carril Jev), no en Jav.
 - **Cómo se obtiene:** validación estructural del intent
   (`action`, `uri` con forma, `package` con forma `a.b.c`) en código.
 - **Scope MCP:** `open_url` / `send_intent` de solo-apertura = `ui`
@@ -344,7 +344,7 @@ máx. 4 MiB, rate 50 req/s (shell 5/s), y entra al **audit ring 500**
   sin UI" (mensaje que sale sin pasar por pantalla) es **IMPOSIBLE por
   API pública** para apps de terceros: no hay API de envío headless;
   el deep-link como máximo abre el editor pre-rellenado y el envío lo
-  hace el usuario (o el carril Jev con compuertas + `confirm`). Jam
+  hace el usuario (o el carril Jev con compuertas + `confirm`). Jav
   **no** finge un `send_message` nativo; expone `send_intent`
   (abre+pre-rellena, verificado con `get_foreground`) y el envío, si
   el goal lo pide, va por UI automation con `confirm`.
@@ -359,11 +359,11 @@ máx. 4 MiB, rate 50 req/s (shell 5/s), y entra al **audit ring 500**
   P0, `ui` sin grant) / `getPrimaryClip`; en host: `dumpsys clipboard`
   (adb, fuera del dispositivo).
 - **Permiso:** escribir: ninguno → P0 (hecho). Leer en Android 10+:
-  **solo foreground/IME por defecto** → lectura desde Jam en segundo
+  **solo foreground/IME por defecto** → lectura desde Jav en segundo
   plano = **IMPOSIBLE honesto** sin ser app en foco; vías reales:
   (a) host `dumpsys` (harness adb, no Shizuku-`shell`; ya previsto en
   `generic-dual-tier §12.4`), (b) pegado-en-campo-efímero + read-back
-  del `text` del nodo (carril Jev), (c) Jam en foreground con foco
+  del `text` del nodo (carril Jev), (c) Jav en foreground con foco
   (caso narrow, no general).
 - **Scope MCP:** `set_clipboard` = `ui` (existe); `get_clipboard`
   (si se expone en foreground) = `read` sensible.

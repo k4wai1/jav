@@ -16,7 +16,7 @@
 3. **Ligera de verdad:** build Gradle debug <2 min en máquina pequeña
    (`gradle.properties` actual: `-Xmx1024m`, sin daemon, `workers.max=1`,
    cache on — no tocar), APK ~16 MB, sin minify en debug / R8 solo release.
-4. **Jam sigue servicio de fondo de bajo consumo.** La UI no observa en
+4. **Jav sigue servicio de fondo de bajo consumo.** La UI no observa en
    continuo: refresca en `onResume` + callbacks puntuales (listener Shizuku,
    resultado de permiso). Nada de polling, handlers periódicos, ni observers
    que mantengan el proceso despierto. El FGS (`JevForegroundService`,
@@ -62,7 +62,7 @@ Estructura (una sola `Activity`, sin fragments ni navigation):
 ```
 ScrollView
 └─ LinearLayout
-   ├─ Header: "Jam" + versión (BuildConfig.VERSION_NAME) + subtítulo proceso
+   ├─ Header: "Jav" + versión (BuildConfig.VERSION_NAME) + subtítulo proceso
    ├─ Tarjeta 1: Servidor
    ├─ Tarjeta 2: Permisos
    ├─ Tarjeta 3: Token

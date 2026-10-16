@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Tarjeta Jam: borde 1dp + esquinas 12dp, fondo transparente
+<!-- Tarjeta Jav: borde 1dp + esquinas 12dp, fondo transparente
      (respeta modo claro/oscuro sin trabajo extra). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">

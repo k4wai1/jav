@@ -13,11 +13,11 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Cabecera: Jam + versión + subtítulo proceso -->
+        <!-- Cabecera: Jav + versión + subtítulo proceso -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Jam"
+            android:text="Jav"
             android:textSize="24sp"
             android:textStyle="bold" />
 
@@ -66,6 +66,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="ws://127.0.0.1:38472/"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/tvServerTailnet"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="tailnet: no detectada"
                 android:textSize="13sp"
                 android:typeface="monospace" />
 
@@ -263,6 +271,15 @@
                 android:textColor="?android:attr/textColorSecondary"
                 android:textSize="13sp"
                 android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvCertFp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="cert_sha256: …"
+                android:textSize="13sp"
+                android:typeface="monospace" />
         </LinearLayout>
 
         <!-- Tarjeta 4: Monitor liviano + diagnóstico -->
