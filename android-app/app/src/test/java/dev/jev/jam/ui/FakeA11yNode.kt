@@ -18,7 +18,8 @@ class FakeA11yNode(
     private val parentNode: FakeA11yNode? = null,
     private val clickResult: Boolean = false,
     private val focusResult: Boolean = true,
-    private val setTextResult: Boolean = true
+    private val setTextResult: Boolean = true,
+    private val pasteResult: Boolean = true
 ) : A11yNode {
     var recycled = false
         private set
@@ -30,6 +31,9 @@ class FakeA11yNode(
         private set
 
     var setTextAttempts = 0
+        private set
+
+    var pasteAttempts = 0
         private set
 
     var lastSetText: CharSequence? = null
@@ -52,6 +56,11 @@ class FakeA11yNode(
         setTextAttempts++
         lastSetText = text
         return setTextResult
+    }
+
+    override fun performPaste(): Boolean {
+        pasteAttempts++
+        return pasteResult
     }
 
     override fun recycle() {

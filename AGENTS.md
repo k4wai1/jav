@@ -290,3 +290,18 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `tests/test_guards.py:2` y `scripts/fase5_check.py` que lo importan
    quedan rotos a propósito y **los actualiza `@coder`** (fuera del
    alcance de `@architect`, que no toca código).
+
+**2026-10-15 — 36.ª tool `resolve_element` + fallback `ACTION_PASTE`:**
+
+1. `resolve_element` (resolver ciego S1) se registra como **tool MCP oficial**
+   (antes solo invocable desde Go interno). Params `screen_goal_en` (req) +
+   `tau` (number, default 0.70). Envuelve `director.ResolveElementWithTau` con
+   los `tried_node_ids` vigentes (`pkg/uitrack`) y devuelve `{ok, verified,
+   evidence, hint}` con `idx`/`node_id`/`conf`/`snapshot_id` o el Fallback
+   Soberano (`fallback_required`, `top_candidates`, `recovery_instruction`).
+   El árbol pasa de 35 a **36 tools** (6 UI atómicas + 30 director/nativo).
+   `cmd/audit-mcp` verifica `tools-count-36` (11/11 PASS).
+2. `type_text` en Jam: si el nodo está enfocado pero `ACTION_SET_TEXT` falla
+   (típico de inputs en WebView), **fallback `ACTION_PASTE`** vía
+   `ClipboardManager.setPrimaryClip` + `performPaste()`; si ambos fallan,
+   `INTERNAL_ERROR` honesto. No cambia el contrato de la tool.

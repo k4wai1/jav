@@ -68,3 +68,30 @@ sin descargas, sin crear alarma/mensaje.
 | Resolve Play/Pause or Share button via Jev S1 on the player screen (34 nodes) | **BLOQUEO honesto** (`envelope S1 no-JSON` ×5, 408–1354 ms; endpoint OpenRouter 200 vacío en debug sintético n=2/10/34) → **sin tap ciego, sin descarga** | n/a (Jev 0.4–1.4 s) | $0 afectable | mismo jsonl (`youtube/resolve_element` FAIL) |
 | Open the messages app and resolve a field via Jev S1 (read-only, no create) | OK resolve (`idx 0 conf 0.86`, 415 ms) + persistencia por re-`read` (162 ms); **NO tap/type, NO crear alarma/mensaje** | ~6 s (`open_app` 5546 ms poll + reads) | ~$0.00004 (`[COST]` S1) | mismo jsonl (`fossify/*`) |
 | Verify a clean open-source APK is installed via `list_packages` (no install/uninstall) | OK (130 pkgs; fossify 8, morphe 2, rvx 1, seal 0; 104–115 ms) | ms | $0 | mismo jsonl (`paquetes/*`) |
+
+## 6. Revancha 2026-10-15 en A10 USB — `resolve_element` (36.ª tool) + `ACTION_PASTE`
+
+Cierra el bloque de 3 pasos (Paso 2a tool MCP, Paso 2b fallback paste).
+Banco 5002E Android 10 API 29 `e03638e5`, APK debug reinstalada, accesibilidad
+re-enlazada, Shizuku `shizuku_server` vivo, forward `tcp:38472`, `jav` por
+stdio con `OPENROUTER_API_KEY` del `.env` (S1 real, sin `mock`). Sin commits,
+sin push, sin acciones destructivas.
+
+| Paso (genérico, EN) | Resultado | Evidencia |
+|---|---|---|
+| `read_screen` en Fossify Math | OK; `snapshot_id 1117`, `raw_count 42`, `candidates 24`, `screen_fingerprint a7e5ba17f555`, `tried_node_ids []` | tool MCP (JSON-RPC stdio) |
+| `resolve_element{screen_goal_en:"Tap the number 7 button", tau:0.70}` | OK `verified:true`; `idx 7`, `node_id "n_26"`, `conf 0.88`, `snapshot_id 1118`, `fallback_required:false` | tool MCP (S1 real) |
+| `tap_node{node_id:"n_26", snapshot_id:1118}` | OK `via:"action_click"` (no gesture) | tool MCP |
+| `read_screen` (post-tap) | `snapshot_id 1119`; `diff_since_last.changed:true`, `prev_snapshot_id 1117`, `added_labels ["[n_16] TextView \"7\""]`, `removed_labels ["[n_16] TextView \"0\""]` → display 0→7 | tool MCP |
+| `tap_node` sobre nodo **no-clickable** `n_16` (Label) + `read_screen` | OK `via:"gesture"`; `diff_since_last.changed:false`; `tried_node_ids ["n_16"]` → memoria de probados **por fingerprint** confirmada | tool MCP |
+
+Nota: `tried_node_ids` es **fingerprint-scoped** — tras un tap que muta la UI
+(0→7) el fingerprint cambia y la lista arranca limpia; solo se puebla mientras
+el fingerprint es estable (fila 5). `resolve_element` dumpea internamente
+(`snapshot 1118`) pero **no** alimenta `uitrack` (no observa): el diff de la
+fila 4 compara contra la última `read_screen` (1117), que es lo correcto.
+
+Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
+`go test ./...` verde · `./gradlew :app:testDebugUnitTest` **59/59** ·
+`go run ./cmd/audit-mcp` **11/11** (`tools-count-36`).
+

@@ -30,6 +30,9 @@ interface A11yNode {
     fun performClick(): Boolean
     fun performFocus(): Boolean
     fun setText(text: CharSequence): Boolean
+    /** Ejecuta ACTION_PASTE sobre el nodo nativo (fallback de escritura en
+     * inputs que rechazan ACTION_SET_TEXT, típico de WebViews). */
+    fun performPaste(): Boolean
     /** Libera el nodo nativo. El extractor recicla todo lo que obtiene
      * vía [getChild]; la raíz la recicla el llamador (el servicio). */
     fun recycle()
@@ -69,6 +72,7 @@ class RealA11yNode(private val info: AccessibilityNodeInfo) : A11yNode {
         }
         return info.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
+    override fun performPaste(): Boolean = info.performAction(AccessibilityNodeInfo.ACTION_PASTE)
     override fun recycle() = info.recycle()
 }
 

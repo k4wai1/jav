@@ -63,17 +63,20 @@
 >   - `ui/UiTreeExtractor.kt`: abstracción `A11yNode` / `RealA11yNode`, base
 >     del fake JVM `app/src/test/java/dev/jev/jam/ui/FakeA11yNode.kt`
 >     (reciclaje observable).
-> - Gobernanza: **exactamente 35 tools**, forzadas por
->   `pkg/tools/register.go` y `cmd/audit-mcp/main.go` (`make audit-mcp` =
->   11/11 PASS).
+> - Gobernanza: **exactamente 35 tools** fijadas por este contrato (P1/P2),
+>   forzadas por `pkg/tools/register.go` y `cmd/audit-mcp/main.go`
+>   (`make audit-mcp` = 11/11 PASS). **Enmienda 2026-10-15:** el resolver ciego
+>   se registra como 36.ª tool `resolve_element` (contrato aparte); este
+>   documento no cambia su propio `inputSchema`, solo se anota la excepción.
 
 ## 0. Invariantes y no-objetivos
 
 Invariantes que este documento NO rompe (verificables):
 
-1. **35 tools exactas.** Ningún contrato añade, renombra ni elimina una
-   tool. `via` es un valor de `evidence`, nunca una propiedad del
-   `inputSchema`.
+1. **35 tools propias de P1/P2.** Ningún contrato de este documento añade,
+   renombra ni elimina una tool. Excepción trazada (2026-10-15): la 36.ª
+   `resolve_element` nace de otro contrato, no de P1–P6. `via` es un valor de
+   `evidence`, nunca una propiedad del `inputSchema`.
 2. **`SerializeTable` intacta.** El enriquecimiento de glifos (§4) vive en
    una **capa adaptadora** invocada por `pkg/jev` y `pkg/director` al
    componer la tabla que va al modelo, nunca dentro de `SerializeTable`.
@@ -808,8 +811,9 @@ A1–A6 de §6 **siguen vigentes** para P1/P2. P3 se certifica con:
 Enmiendas propuestas al orquestador (no aplicadas aquí):
 
 1. Documentar `top_candidates` como campo **de resultado** del fallback
-   soberano en `PROTOCOL.md` / `MCP_SPEC_GUIDELINES.md` **cuando**
-   `resolve_element` se registre como tool (hoy no lo está).
+   soberano en `PROTOCOL.md` / `MCP_SPEC_GUIDELINES.md`. **Hecho 2026-10-15:**
+   `resolve_element` quedó registrada como tool MCP (36.ª) y `top_candidates`
+   viaja en `evidence` del Fallback Soberano.
 2. Documentar `via = "click_ancestor"` (arrastrado de §7).
 3. Decidir el destino de R8: registrar coste en la rama `NONE`, o documentar
    que `NONE` es deliberadamente gratis porque no consume decisión útil.

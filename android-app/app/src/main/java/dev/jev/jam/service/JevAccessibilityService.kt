@@ -2,6 +2,8 @@ package dev.jev.jam.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -24,6 +26,7 @@ import dev.jev.jam.ui.ReanchorStatus
 import dev.jev.jam.ui.RealA11yNode
 import dev.jev.jam.ui.Selector
 import dev.jev.jam.ui.SelectorResolver
+import dev.jev.jam.ui.TextEntry
 import dev.jev.jam.ui.UiNode
 import dev.jev.jam.ui.UiSnapshot
 import dev.jev.jam.ui.UiTreeExtractor
@@ -228,8 +231,9 @@ class JevAccessibilityService : AccessibilityService() {
             if (!live.isFocused) {
                 throw JamError("el nodo no tiene foco; haz tap antes", "NOT_FOCUSED")
             }
-            if (!live.setText(text)) {
-                throw JamError("ACTION_SET_TEXT rechazado", "INTERNAL_ERROR")
+            val via = TextEntry.write(live, text, preparePaste = { setClipboardText(text) })
+            if (via == null) {
+                throw JamError("ACTION_SET_TEXT y ACTION_PASTE rechazados", "INTERNAL_ERROR")
             }
             return text.length
         } finally {
@@ -238,8 +242,17 @@ class JevAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun scrollBy(direction: String, nodeId: String?) {
-        val dm = resources.displayMetrics
+    /** Copia el texto al clipboard primario para el fallback ACTION_PASTE. */
+    private fun setClipboardText(text: String) {
+        try {
+            getSystemService(ClipboardManager::class.java)
+                ?.setPrimaryClip(ClipData.newPlainText("jev", text))
+        } catch (t: Throwable) {
+            JevLog.d(TAG, "setPrimaryClip falló: ${t.message}")
+        }
+    }
+
+    fun scrollBy(direction: String, nodeId: String?) {        val dm = resources.displayMetrics
         val w = dm.widthPixels
         val h = dm.heightPixels
         var x = w / 2

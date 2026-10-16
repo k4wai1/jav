@@ -7,8 +7,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Registro de las 35 tools (equiv. server.py). Nombre, descripción ES de
-// 5 secciones y JSONSchema idénticos a Python (required = sin default).
+// Registro de las 36 tools (35 equiv. server.py + resolve_element). Nombre,
+// descripción ES de 5 secciones y JSONSchema idénticos a Python (required = sin default).
 
 // --- Constructores de schema (espejo exacto de FastMCP) ---
 
@@ -28,6 +28,7 @@ func titleOf(prop string) string {
 		"calendar_id": "Calendar Id", "include_location": "Include Location",
 		"title": "Title", "start_ms": "Start Ms", "end_ms": "End Ms",
 		"description": "Description", "camera": "Camera", "max_age_s": "Max Age S",
+		"screen_goal_en": "Screen Goal En", "tau": "Tau",
 	}
 	if t, ok := titles[prop]; ok {
 		return t
@@ -49,6 +50,10 @@ func intProp(prop string, def int) map[string]any {
 
 func intReq(prop string) map[string]any {
 	return map[string]any{"title": titleOf(prop), "type": "integer"}
+}
+
+func numProp(prop string, def float64) map[string]any {
+	return map[string]any{"title": titleOf(prop), "type": "number", "default": def}
 }
 
 func boolProp(prop string, def bool) map[string]any {
@@ -172,6 +177,16 @@ Permisos/Grants: accesibilidad (scope ui).
 Errores/gotchas: STALE_SNAPSHOT si la UI cambio (re-lee y usa el nuevo id); SELECTOR_NOT_FOUND si el id no existe. La accion no devuelve snapshot: verificar el efecto con read_screen.
 Cuándo NO usar: NO reutilizar snapshot tras cualquier evento/mutación → re-lee; NO esperar snapshot en su respuesta → verifica después con read_screen.
 Ejemplo: tap_node(node_id="<id>", snapshot_id=123) → {node_id, via}`
+
+const dResolveElement = `Resuelve por S1 Jev el elemento de la pantalla que casa con una micro-intencion (1 sola Choice).
+
+Descripcion: Dumpea el estado actual, lo normaliza a la tabla vigente y pregunta a S1 Jev (una Choice sobre indices + NONE) cual fila corresponde a la micro-intencion de ESTA pantalla. No ejecuta nada: devuelve el node_id resuelto listo para tap_node. Es el resolver ciego del Director externo (OpenCode/Claude/Cursor) expuesto por stdio.
+Parametros: screen_goal_en (str): micro-intencion EN de la pantalla actual, ej. "Tap the Search button" (obligatoria); tau (number): umbral de confianza 0..1 (default 0.70); por debajo -> fallback.
+Retorno: {ok, verified, evidence, hint}; evidence en exito = {idx, node_id, conf, snapshot_id, fallback_required:false, cost_usd, usage}; en Fallback Soberano = {fallback_required:true, reason, recovery_instruction, snapshot_id, top_candidates[], conf?, cost_usd?} con ok:false (no es error fatal: el Director decide). node_id es el id listo para tap_node con el snapshot_id devuelto.
+Permisos/Grants: scope read + accesibilidad; requiere OPENROUTER_API_KEY (S1 solo acepta esa key). Sin key -> fallback honesto S1_UNAVAILABLE (nunca idx inventado).
+Errores/gotchas: sin key S1 -> fallback S1_UNAVAILABLE; red -> S1_NETWORK; NONE -> NO_TARGET con top_candidates; conf<tau -> LOW_CONF; choice fuera de tabla o conf no finita -> S1_HALLUCINATION; valida tau en 0..1. No devuelve snapshot nuevo salvo el del evidence: pasalo a tap_node.
+Cuándo NO usar: NO usar para leer la pantalla → read_screen; NO usar para ejecutar → tap_node/type_text; NO reintentar a ciegas si fallback_required → examina candidates/render y ejecuta directo; NO llamar sin OPENROUTER_API_KEY esperando idx util (devuelve fallback).
+Ejemplo: resolve_element(screen_goal_en="Tap the Search button", tau=0.70) → {idx:3, node_id:"n_12", conf:0.88, snapshot_id:42}`
 
 const dTypeText = `Escribe en un campo ya enfocado (semantica REPLACE).
 
@@ -443,81 +458,87 @@ Errores/gotchas: sin confirm -> planned; sin permiso -> CAMERA_DENIED; sin camar
 Cuándo NO usar: NO ejecutar sin preview aprobado → primera llamada planea (confirm SIEMPRE); NO reenviar preview distinto con el confirm anterior.
 Ejemplo: take_photo(camera="back") → {planned:true, preview, hint} sin confirm; {img_base64, w, h, via} con confirm:true`
 
-// RegisterAll registra las 35 tools en el servidor.
+// toolDef es la tabla declarativa de tools (orden y nombres = tools/list).
+type toolDef struct {
+	name     string
+	desc     string
+	required []string
+	props    map[string]any
+	h        Handler
+}
+
+// RegisterAll registra las 36 tools en el servidor.
 func RegisterAll(s *server.MCPServer) {
-	defs := []struct {
-		name     string
-		desc     string
-		required []string
-		props    map[string]any
-		h        Handler
-	}{
-		{"device_status", dDeviceStatus, nil, map[string]any{}, hDeviceStatus},
-		{"list_packages", dListPackages, nil, map[string]any{"filter": strProp("filter", "")}, hListPackages},
-		{"get_foreground", dGetForeground, nil, map[string]any{}, hGetForeground},
-		{"open_app", dOpenApp, []string{"package"}, map[string]any{"package": strReq("package")}, hOpenApp},
-		{"close_app", dCloseApp, []string{"package"}, map[string]any{"package": strReq("package")}, hCloseApp},
-		{"read_screen", dReadScreen, nil, map[string]any{}, hReadScreen},
-		{"tap_text", dTapText, []string{"text"}, map[string]any{"text": strReq("text")}, hTapText},
-		{"tap_node", dTapNode, []string{"node_id", "snapshot_id"}, map[string]any{
-			"node_id": strReq("node_id"), "snapshot_id": intReq("snapshot_id")}, hTapNode},
-		{"type_text", dTypeText, []string{"node_id", "snapshot_id", "text"}, map[string]any{
-			"node_id": strReq("node_id"), "snapshot_id": intReq("snapshot_id"), "text": strReq("text")}, hTypeText},
-		{"scroll", dScroll, nil, map[string]any{
-			"direction": strProp("direction", "down"), "node_id": nullableStrProp("node_id")}, hScroll},
-		{"press_back", dPressBack, nil, map[string]any{}, hPressBack},
-		{"press_home", dPressHome, nil, map[string]any{}, hPressHome},
-		{"wait_for_text", dWaitForText, []string{"text"}, map[string]any{
-			"text": strReq("text"), "timeout_ms": intProp("timeout_ms", 5000)}, hWaitForText},
-		{"screenshot", dScreenshot, nil, map[string]any{
-			"fmt": strProp("fmt", "png"), "quality": intProp("quality", 80)}, hScreenshot},
-		{"get_battery", dGetBattery, nil, map[string]any{}, hGetBattery},
-		{"get_memory", dGetMemory, nil, map[string]any{}, hGetMemory},
-		{"get_storage", dGetStorage, nil, map[string]any{"detail": strProp("detail", "basic")}, hGetStorage},
-		{"get_cpu", dGetCPU, nil, map[string]any{"detail": strProp("detail", "basic")}, hGetCPU},
-		{"get_device_info", dGetDeviceInfo, nil, map[string]any{}, hGetDeviceInfo},
-		{"settings_get", dSettingsGet, nil, map[string]any{
-			"namespace": strProp("namespace", "system"), "key": strProp("key", "")}, hSettingsGet},
-		{"settings_put", dSettingsPut, nil, map[string]any{
-			"namespace": strProp("namespace", "system"), "key": strProp("key", ""),
-			"value": strProp("value", ""), "confirm": boolProp("confirm", false)}, hSettingsPut},
-		{"open_url", dOpenURL, []string{"url"}, map[string]any{
-			"url": strReq("url"), "package": strProp("package", "")}, hOpenURL},
-		{"send_intent", dSendIntent, []string{"action"}, map[string]any{
-			"action": strReq("action"), "uri": strProp("uri", ""),
-			"package": strProp("package", ""), "mime": strProp("mime", ""),
-			"confirm": boolProp("confirm", false), "extras": extrasProp()}, hSendIntent},
-		{"get_clipboard_device", dGetClipboardDevice, nil, map[string]any{}, hGetClipboardDevice},
-		{"get_app_usage", dGetAppUsage, nil, map[string]any{
-			"hours": intProp("hours", 24), "window": nullableStrProp("window")}, hGetAppUsage},
-		{"list_contacts", dListContacts, nil, map[string]any{
-			"query": strProp("query", ""), "limit": intProp("limit", 50),
-			"offset": intProp("offset", 0), "with_phone": boolProp("with_phone", false)}, hListContacts},
-		{"add_contact", dAddContact, []string{"display_name"}, map[string]any{
-			"display_name": strReq("display_name"), "phone": strProp("phone", ""),
-			"email": strProp("email", ""), "confirm": boolProp("confirm", false)}, hAddContact},
-		{"list_events", dListEvents, nil, map[string]any{
-			"time_min": intProp("time_min", 0), "time_max": intProp("time_max", 0),
-			"calendar_id":      intProp("calendar_id", 0),
-			"include_location": boolProp("include_location", false)}, hListEvents},
-		{"create_event", dCreateEvent, []string{"title", "start_ms", "end_ms"}, map[string]any{
-			"title": strReq("title"), "start_ms": intReq("start_ms"), "end_ms": intReq("end_ms"),
-			"calendar_id": intProp("calendar_id", 0), "description": strProp("description", ""),
-			"confirm": boolProp("confirm", false)}, hCreateEvent},
-		{"list_notifications", dListNotifications, nil, map[string]any{}, hListNotifications},
-		{"reply_notification", dReplyNotification, []string{"key", "text"}, map[string]any{
-			"key": strReq("key"), "text": strReq("text"), "confirm": boolProp("confirm", false)}, hReplyNotification},
-		{"media_state", dMediaState, nil, map[string]any{}, hMediaState},
-		{"media_control", dMediaControl, []string{"action"}, map[string]any{
-			"action": strReq("action"), "package": strProp("package", ""),
-			"confirm": boolProp("confirm", false)}, hMediaControl},
-		{"get_location", dGetLocation, nil, map[string]any{
-			"timeout_ms": intProp("timeout_ms", 8000), "max_age_s": intProp("max_age_s", 300)}, hGetLocation},
-		{"take_photo", dTakePhoto, nil, map[string]any{
-			"confirm": boolProp("confirm", false), "camera": strProp("camera", "back")}, hTakePhoto},
-	}
-	for _, d := range defs {
+	for _, d := range toolDefs {
 		t, h := defTool(d.name, d.desc, d.required, d.props, d.h)
 		s.AddTool(t, h)
 	}
+}
+
+var toolDefs = []toolDef{
+	{"device_status", dDeviceStatus, nil, map[string]any{}, hDeviceStatus},
+	{"list_packages", dListPackages, nil, map[string]any{"filter": strProp("filter", "")}, hListPackages},
+	{"get_foreground", dGetForeground, nil, map[string]any{}, hGetForeground},
+	{"open_app", dOpenApp, []string{"package"}, map[string]any{"package": strReq("package")}, hOpenApp},
+	{"close_app", dCloseApp, []string{"package"}, map[string]any{"package": strReq("package")}, hCloseApp},
+	{"read_screen", dReadScreen, nil, map[string]any{}, hReadScreen},
+	{"tap_text", dTapText, []string{"text"}, map[string]any{"text": strReq("text")}, hTapText},
+	{"tap_node", dTapNode, []string{"node_id", "snapshot_id"}, map[string]any{
+		"node_id": strReq("node_id"), "snapshot_id": intReq("snapshot_id")}, hTapNode},
+	{"type_text", dTypeText, []string{"node_id", "snapshot_id", "text"}, map[string]any{
+		"node_id": strReq("node_id"), "snapshot_id": intReq("snapshot_id"), "text": strReq("text")}, hTypeText},
+	{"scroll", dScroll, nil, map[string]any{
+		"direction": strProp("direction", "down"), "node_id": nullableStrProp("node_id")}, hScroll},
+	{"press_back", dPressBack, nil, map[string]any{}, hPressBack},
+	{"press_home", dPressHome, nil, map[string]any{}, hPressHome},
+	{"wait_for_text", dWaitForText, []string{"text"}, map[string]any{
+		"text": strReq("text"), "timeout_ms": intProp("timeout_ms", 5000)}, hWaitForText},
+	{"screenshot", dScreenshot, nil, map[string]any{
+		"fmt": strProp("fmt", "png"), "quality": intProp("quality", 80)}, hScreenshot},
+	{"resolve_element", dResolveElement, []string{"screen_goal_en"}, map[string]any{
+		"screen_goal_en": strReq("screen_goal_en"), "tau": numProp("tau", 0.70)}, hResolveElement},
+	{"get_battery", dGetBattery, nil, map[string]any{}, hGetBattery},
+	{"get_memory", dGetMemory, nil, map[string]any{}, hGetMemory},
+	{"get_storage", dGetStorage, nil, map[string]any{"detail": strProp("detail", "basic")}, hGetStorage},
+	{"get_cpu", dGetCPU, nil, map[string]any{"detail": strProp("detail", "basic")}, hGetCPU},
+	{"get_device_info", dGetDeviceInfo, nil, map[string]any{}, hGetDeviceInfo},
+	{"settings_get", dSettingsGet, nil, map[string]any{
+		"namespace": strProp("namespace", "system"), "key": strProp("key", "")}, hSettingsGet},
+	{"settings_put", dSettingsPut, nil, map[string]any{
+		"namespace": strProp("namespace", "system"), "key": strProp("key", ""),
+		"value": strProp("value", ""), "confirm": boolProp("confirm", false)}, hSettingsPut},
+	{"open_url", dOpenURL, []string{"url"}, map[string]any{
+		"url": strReq("url"), "package": strProp("package", "")}, hOpenURL},
+	{"send_intent", dSendIntent, []string{"action"}, map[string]any{
+		"action": strReq("action"), "uri": strProp("uri", ""),
+		"package": strProp("package", ""), "mime": strProp("mime", ""),
+		"confirm": boolProp("confirm", false), "extras": extrasProp()}, hSendIntent},
+	{"get_clipboard_device", dGetClipboardDevice, nil, map[string]any{}, hGetClipboardDevice},
+	{"get_app_usage", dGetAppUsage, nil, map[string]any{
+		"hours": intProp("hours", 24), "window": nullableStrProp("window")}, hGetAppUsage},
+	{"list_contacts", dListContacts, nil, map[string]any{
+		"query": strProp("query", ""), "limit": intProp("limit", 50),
+		"offset": intProp("offset", 0), "with_phone": boolProp("with_phone", false)}, hListContacts},
+	{"add_contact", dAddContact, []string{"display_name"}, map[string]any{
+		"display_name": strReq("display_name"), "phone": strProp("phone", ""),
+		"email": strProp("email", ""), "confirm": boolProp("confirm", false)}, hAddContact},
+	{"list_events", dListEvents, nil, map[string]any{
+		"time_min": intProp("time_min", 0), "time_max": intProp("time_max", 0),
+		"calendar_id":      intProp("calendar_id", 0),
+		"include_location": boolProp("include_location", false)}, hListEvents},
+	{"create_event", dCreateEvent, []string{"title", "start_ms", "end_ms"}, map[string]any{
+		"title": strReq("title"), "start_ms": intReq("start_ms"), "end_ms": intReq("end_ms"),
+		"calendar_id": intProp("calendar_id", 0), "description": strProp("description", ""),
+		"confirm": boolProp("confirm", false)}, hCreateEvent},
+	{"list_notifications", dListNotifications, nil, map[string]any{}, hListNotifications},
+	{"reply_notification", dReplyNotification, []string{"key", "text"}, map[string]any{
+		"key": strReq("key"), "text": strReq("text"), "confirm": boolProp("confirm", false)}, hReplyNotification},
+	{"media_state", dMediaState, nil, map[string]any{}, hMediaState},
+	{"media_control", dMediaControl, []string{"action"}, map[string]any{
+		"action": strReq("action"), "package": strProp("package", ""),
+		"confirm": boolProp("confirm", false)}, hMediaControl},
+	{"get_location", dGetLocation, nil, map[string]any{
+		"timeout_ms": intProp("timeout_ms", 8000), "max_age_s": intProp("max_age_s", 300)}, hGetLocation},
+	{"take_photo", dTakePhoto, nil, map[string]any{
+		"confirm": boolProp("confirm", false), "camera": strProp("camera", "back")}, hTakePhoto},
 }

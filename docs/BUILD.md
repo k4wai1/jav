@@ -568,3 +568,38 @@ usa `screencap` (via WS/Shizuku) para `screenshot`; `WEBP_LOSSY` corregido
   (~2.3 s/dump); confirma por qué la accesibilidad in-process manda.
 
 Sin commits (cierra @judge), sin push. Sin keys/tokens expuestos.
+
+## 17. Revancha en vivo `resolve_element` + `ACTION_PASTE` (2026-10-15, A10 API 29)
+
+Cierre del bloque de 3 pasos: (1) higiene `gofmt` + commit del hito
+`a6aaba8`/`a76ba65`; (2) `resolve_element` como **36.ª tool MCP** y fallback
+`ACTION_PASTE` en Jam; (3) revancha en vivo. Banco `e03638e5` (Android 10 /
+API 29, USB), sin commits ni push.
+
+**Qué cambió**
+- Go: `pkg/tools/resolve.go` (`hResolveElement`, envuelve
+  `director.ResolveElementWithTau` con `tried_node_ids` vigentes de
+  `pkg/uitrack`), `register.go` (`toolDefs` como var de paquete, `numProp`),
+  `helpers.go` (`getFloat`); `cmd/audit-mcp` con `tools-count-36`.
+- Kotlin: `A11yNode.performPaste()` (Real+Fake), `ui/TextEntry.kt` (puro,
+  JVM-testeable); `JevAccessibilityService.typeNode` usa `TextEntry.write` y
+  `setClipboardText` (`ClipboardManager.setPrimaryClip`), `INTERNAL_ERROR`
+  honesto si `SET_TEXT` **y** `PASTE` fallan.
+
+**Verificación**
+```
+gofmt -l cmd/ pkg/                 # vacío
+go test ./...                      # verde
+cd android-app && ./gradlew :app:testDebugUnitTest   # 59/59 (antes 56; +3 TextEntry)
+go run ./cmd/audit-mcp             # 11/11 PASS, tools-count-36
+```
+En vivo (Fossify Math, stdio JSON-RPC, S1 real): `read_screen` → 1117 (24
+cands) · `resolve_element "Tap the number 7 button"` → `idx 7 / node_id n_26 /
+conf 0.88` · `tap_node` → `via action_click` · `read_screen` → 1119,
+`diff.changed:true` (`7` reemplaza `0`). Segundo caso: tap sobre nodo
+no-clickable → `via gesture`, `diff.changed:false`, `tried_node_ids ["n_16"]`
+(memoria por fingerprint). Tabla completa en `docs/benchmarks/TASK_HISTORY.md §6`.
+
+Reactivación: mismo ciclo `delete`+`put`+`enabled=1` de §15 (Accesibilidad)
+tras `install -r`; Shizuku lo arranca el operador, la app nunca lo inicia
+(`AGENTS §2.7`). Sin `su`, sin literales de app, sin keys/tokens en claro.

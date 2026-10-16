@@ -71,6 +71,20 @@ func getInt64(args map[string]any, key string, def int64) int64 {
 	return def
 }
 
+func getFloat(args map[string]any, key string, def float64) float64 {
+	switch v := args[key].(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	}
+	return def
+}
+
 func getNullableString(args map[string]any, key string) string {
 	if v, ok := args[key].(string); ok {
 		return v

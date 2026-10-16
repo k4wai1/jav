@@ -71,7 +71,7 @@ Arquitectura **Dual-Tier** histórica del carril 3 (congelada; detalle en §6):
 | 13 | **director-client v5 (2026-10-07)** | Director-cliente: OpenCode/operador dirige, **Jev = resolver ciego** (1 `Choice` de micro-intención EN, anti-poisoning), **`loop.py` congelado** para el SENT simple. Atajos nativos en 1 salto (SO antes que dedos). Detalle en `docs/specs/director-client.md` |
 | 14 | **Carril nativo N0/N1 (2026-10-07)** | Telemetría (batería/RAM/storage/CPU/device), `settings` System get/put, intents/`open_url`, clipboard, usage, contactos, calendario, notificaciones/media (honesto), ubicación, cámara. **N2 = `METHOD_NOT_ALLOWED` hasta Fase 6.** Detalle en `docs/specs/native-apis.md` |
 | 15 | **Escala física en gestos (2026-10-07)** | `DisplayScale`: `bounds` de `dump_ui` siguen en **espacio lógico** de accesibilidad; solo `dispatchGesture` proyecta a **píxeles físicos del panel**. Medido en banco: lógico 360×720 (`wm size override`) vs panel 720×1440 → factor **2.0** por eje (identidad si no hay override) |
-| 16 | Separación de tools | De las **35 tools MCP** expuestas: **6** son primitivas del bucle Jev (`read_screen`, `tap_node`, `type_text`, `scroll`, `press_back`, `open_app`-bootstrap); **29** sirven al director / carril nativo / diagnóstico (§7) |
+| 16 | Separación de tools | De las **36 tools MCP** expuestas: **6** son primitivas del bucle Jev (`read_screen`, `tap_node`, `type_text`, `scroll`, `press_back`, `open_app`-bootstrap); **30** sirven al director / carril nativo / diagnóstico (§7). Incluye `resolve_element` (resolver ciego S1, 36.ª, 2026-10-15) |
 
 ## 3. Verdad del terreno (medido 2026-09-30…10-07)
 
@@ -293,11 +293,11 @@ dedos antes que APIs). v5 la sustituye para metas complejas:
 - **Podador "agresivo = 20" RECHAZADO sin medir:** `MAX_TABLE = 254` intacto;
   `EXPERIMENT-TABLE-20` queda como experimento pendiente (v4 §9.5).
 
-## 7. Árbol de herramientas MCP (35 tools, runtime Go)
+## 7. Árbol de herramientas MCP (36 tools, runtime Go)
 
 **Separación por carril (decisión §2.16):** 6 tools son atómicas de UI
 (dirigidas paso a paso por el **Director externo**, no por un loop interno);
-las otras 29 sirven al director, al carril nativo y al diagnóstico.
+las otras 30 sirven al director, al carril nativo y al diagnóstico.
 Implementación activa: `pkg/tools/` (Go). El histórico Python
 (`mcp-server/src/jev_mcp/tools/`, `director.py`, `loop.py`) está congelado.
 
@@ -305,10 +305,11 @@ Implementación activa: `pkg/tools/` (Go). El histórico Python
 normalizer + tabla + `snapshot_id` + `first_result`/`zone`/`focused_field`),
 `tap_node`, `type_text`, `scroll`, `press_back`, `open_app` (solo bootstrap por el director).
 
-**29 — director / nativo / diagnóstico:**
+**30 — director / nativo / diagnóstico:**
 
 | Grupo | Tools |
 |---|---|
+| resolver S1 | `resolve_element` (resolver ciego: `screen_goal_en` → `idx`/`node_id`/`conf`/`snapshot_id` o Fallback Soberano) |
 | device/diag | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, preferir `tap_node`) |
 | telemetría N0 | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
 | settings/intents N0 | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
@@ -342,8 +343,9 @@ verificación real posterior, nunca por "comando enviado".
   terceros **no existen** para una app non-root; llevan error honesto
   (`*_UNAVAILABLE` / `METHOD_NOT_ALLOWED`) + hint.
 
-Tools nueva incorporación v5 (§2.13): `resolve_element` (resolver ciego),
-`set_clipboard` (Jam `ClipboardManager`, sin Shizuku/garant), `get_clipboard`
+Tools nueva incorporación v5 (§2.13): `resolve_element` (resolver ciego,
+**registrada como tool MCP en 2026-10-15**, 36.ª), `set_clipboard` (Jam
+`ClipboardManager`, sin Shizuku/garant), `get_clipboard`
 (host `dumpsys`). `shell`/`adb_shell`: denylist de irreversibles
 (`rm -rf /`, `pm uninstall` de sistema, `reboot recovery`, `dd`, `wipe`) →
 scope `admin` **y** `confirm: true`. Push/pull solo bajo

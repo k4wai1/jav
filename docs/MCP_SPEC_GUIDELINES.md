@@ -13,7 +13,7 @@
 > Fuentes normativas leídas para v1:
 >
 > - Servidor Go (raíz del repo): `cmd/jav/main.go` (stdio, logs solo a
->   stderr), `pkg/tools/register.go` (35 tools, descripciones ES de
+>   stderr), `pkg/tools/register.go` (36 tools, descripciones ES de
 >   5 secciones verbatim de Python), `pkg/tools/helpers.go` + `ui.go`
 >   (validación client-side, envolvente, `readScreenState` sin
 >   post-snapshot), `pkg/jam/jam.go` (`hintFor`, `Dial` + `hello`,
@@ -151,8 +151,9 @@ part of the contract (see the per-tool Errors section for the catalog).
 
 ### 2.1 Estado actual y delta normativo
 
-Las 35 tools ya tienen 5 secciones (Descripcion / Parametros / Retorno /
-Permisos-Grants / Errores-gotchas), idénticas Python ≡ Go. Este
+Las 36 tools ya tienen 5 secciones (Descripcion / Parametros / Retorno /
+Permisos-Grants / Errores-gotchas), idénticas Python ≡ Go (la 36.ª,
+`resolve_element`, es Go-only: expone el resolver ciego de S1). Este
 estándar **no las reescribe**: define el **delta exigible** a partir de
 v1 para toda tool nueva o re-descripción:
 
@@ -384,8 +385,10 @@ siguiente paso 1.
 
 2. **Vía rápida vs táctica.** `tap_text` (rápida: texto exacto e inequívoco,
    un dump interno) o el adaptador táctico del director `resolve_element`
-   (**no** es una tool MCP: es `pkg/director.ResolveElement`, una `Choice`
-   ciega sobre índices de la tabla). Si `resolve_element` cae en Fallback
+   (**tool MCP nativa desde 2026-10-15**, 36.ª: envuelve
+   `pkg/director.ResolveElementWithTau`, una `Choice` ciega sobre índices de
+   la tabla y devuelve `idx`/`node_id`/`conf`/`snapshot_id`). Si
+   `resolve_element` cae en Fallback
    Soberano (`{ok:false, fallback_required:true, reason,
    recovery_instruction}`, error de Go nil), no se inventa el nodo: se vuelve
    al paso 1.

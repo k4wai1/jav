@@ -128,6 +128,12 @@
   `~15 ms + ~1.4 ms/nodo`, `get_foreground` 26 ms, native N0 7–12 ms,
   `screenshot` webp 1037 ms; vs `uiautomator dump` ~2280 ms (**~30×**).
   Crudo `docs/TESTING.md §12`, síntesis `PERFORMANCE.md §5`, build `BUILD.md §16`.
+- [x] 36.ª tool MCP `resolve_element` (`pkg/tools/resolve.go`; `screen_goal_en`+`tau`,
+  envuelve `director.ResolveElementWithTau` con `tried_node_ids`; fallback
+  Soberano honesto) + fallback `ACTION_PASTE` en Jam (`ui/TextEntry.kt`, JVM
+  test). `cmd/audit-mcp` `tools-count-36` **11/11**; Kotlin **59/59**.
+  Revancha en vivo (A10): `resolve_element` `conf 0.88` → `tap_node` `action_click`
+  → display 0→7; memoria `tried` por fingerprint. `TASK_HISTORY §6`, `BUILD.md §17`.
 
 ### Fase v5 — Director-cliente (loop congelado; `resolve_element` + `set_clipboard`)
 - [x] Contratos `@architect`: `docs/specs/paradigm-shift.md` (3 giros 2026-10-06),
