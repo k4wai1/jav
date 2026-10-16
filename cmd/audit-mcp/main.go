@@ -29,10 +29,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -225,26 +227,69 @@ func main() {
 		{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{
 			"name": "type_text", "arguments": map[string]any{"node_id": "", "snapshot_id": 1, "text": "x"}}},
 	}
-	var stdin bytes.Buffer
-	for _, r := range reqs {
-		raw, _ := json.Marshal(r)
-		stdin.Write(raw)
-		stdin.WriteByte('\n')
-	}
+	// Streaming deliberado: mantenemos el stdin ABIERTO hasta reunir las 5
+	// respuestas. Cerrar el pipe (EOF) dispara el shutdown de ServeStdio y
+	// las tool calls en vuelo (id 3/4/5) pueden no alcanzar a escribirse
+	// (race que hacía flaky error-isError-id{3,4,5}). Un cliente MCP real
+	// (opencode) mantiene el pipe abierto y lee incremental.
+	pr, pw := io.Pipe()
 	cmd := exec.Command(bin)
-	cmd.Stdin = &stdin
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	done := make(chan error, 1)
-	go func() { done <- cmd.Run() }()
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
-		_ = cmd.Process.Kill()
-		fmt.Println("FAIL stdio: timeout 30s esperando al binario")
+	cmd.Stdin = pr
+	sp, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Printf("FAIL stdout pipe: %v\n", err)
 		os.Exit(1)
 	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("FAIL start: %v\n", err)
+		os.Exit(1)
+	}
+	go func() {
+		for _, r := range reqs {
+			raw, _ := json.Marshal(r)
+			if _, err := pw.Write(append(raw, '\n')); err != nil {
+				return
+			}
+		}
+	}()
+	want := map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true}
+	allSeen := make(chan struct{})
+	scanDone := make(chan struct{})
+	go func() {
+		defer close(scanDone)
+		seen := map[string]bool{}
+		sc := bufio.NewScanner(sp)
+		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+		for sc.Scan() {
+			ln := sc.Text()
+			var m map[string]any
+			if json.Unmarshal([]byte(strings.TrimSpace(ln)), &m) == nil {
+				if rawID, ok := m["id"]; ok && want[fmt.Sprint(rawID)] {
+					seen[fmt.Sprint(rawID)] = true
+				}
+			}
+			stdout.WriteString(ln)
+			stdout.WriteByte('\n')
+			if len(seen) == len(want) {
+				close(allSeen)
+				return
+			}
+		}
+	}()
+	select {
+	case <-allSeen:
+	case <-scanDone:
+	case <-time.After(30 * time.Second):
+		_ = cmd.Process.Kill()
+	}
+	_ = pw.Close()
+	select {
+	case <-scanDone:
+	case <-time.After(5 * time.Second):
+	}
+	_ = cmd.Wait()
 
 	// --- CHECK 2a: stdout puro JSON-RPC ---
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")

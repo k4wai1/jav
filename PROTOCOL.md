@@ -84,7 +84,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `dump_ui` | `{}` | `{snapshot_id, package, activity, timestamp, nodes[]}` (sin ventana activa → `package: ""`, `nodes: []`) | read |
 | `tap` | `{selector}` | `{node_id, via}` | ui |
 | `tap_node` | `{node_id, snapshot_id}` | `{via: action_click\|click_ancestor\|gesture}` (mismatch → `STALE_SNAPSHOT`) | ui |
-| `type` | `{node_id, snapshot_id, text}` | `{chars}` (nodo sin foco → `NOT_FOCUSED`; el cliente hace `tap` previo explícito) | ui |
+| `type` | `{node_id, snapshot_id, text}` | `{chars, via: action_set_text\|action_paste}` (nodo sin foco → `NOT_FOCUSED`; el cliente hace `tap` previo explícito; `ACTION_SET_TEXT` y, si un WebView/input lo rechaza, fallback `ACTION_PASTE` vía `ClipboardManager`) | ui |
 | `scroll` | `{direction: up\|down\|left\|right, node_id?}` | `{}` | ui |
 | `press_back` / `press_home` | `{}` | `{}` | ui |
 | `wait_for_node` | `{selector, timeout_ms}` | `{node_id, snapshot_id}` o `TIMEOUT` | ui |

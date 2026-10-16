@@ -76,8 +76,11 @@ func hTypeText(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 			nodeID = id
 		}
 		uitrack.MarkTried(nodeID, -1)
-		env = jam.OK(true, map[string]any{"chars": chars, "snapshot_id": snap},
-			"verifica el efecto con read_screen")
+		out := map[string]any{"chars": chars, "snapshot_id": snap}
+		if via, _ := ev["via"].(string); via != "" {
+			out["via"] = via
+		}
+		env = jam.OK(true, out, "verifica el efecto con read_screen")
 	}
 	return result(env)
 }

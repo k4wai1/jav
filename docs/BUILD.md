@@ -603,3 +603,33 @@ no-clickable → `via gesture`, `diff.changed:false`, `tried_node_ids ["n_16"]`
 Reactivación: mismo ciclo `delete`+`put`+`enabled=1` de §15 (Accesibilidad)
 tras `install -r`; Shizuku lo arranca el operador, la app nunca lo inicia
 (`AGENTS §2.7`). Sin `su`, sin literales de app, sin keys/tokens en claro.
+
+## 18. Pulido de producción: `via` en `type`, race de `audit-mcp`, `dist/` (2026-10-15)
+
+Cierre del hito #36. Tres frentes:
+
+1. **`via` en `type_text`**: `JevAccessibilityService.typeNode` devuelve
+   `TypeResult(chars, via)` (`action_set_text`|`action_paste`);
+   `CommandDispatcher.type` añade `put("via", …)`; `pkg/tools/ui.go` lo
+   reenvía en `evidence`. Contrato en `PROTOCOL §4`. Verificado en vivo
+   (Fossify Filemanager, campo "Buscar"): `type_text` →
+   `evidence {"chars":9,"via":"action_set_text"}`.
+2. **Race de `cmd/audit-mcp`**: el harness volcaba las 6 peticiones a un
+   `bytes.Buffer` y cerraba stdin (EOF); el shutdown de `ServeStdio` podía
+   abortar las tool calls en vuelo (id 3/4/5) → `error-isError-id{3,4,5}`
+   flaky (≈1/5). Ahora usa `io.Pipe` + lectura incremental y **mantiene el
+   stdin abierto** hasta reunir las 5 respuestas (como un cliente MCP real).
+   Estabilidad medida: **15/15**.
+3. **`dist/` + README + jav-e2e**: `make build` → `dist/jav-linux-amd64`
+   (binario de `opencode.json`); `README.md` (EN+ES) y `cmd/jav-e2e` a
+   **36 tools**; `cmd/jav-e2e` añade `resolve_element` con `goal` vacío
+   (`VALIDATION_ERROR` sin gastar saldo ni tocar UI).
+
+```
+gofmt -l cmd/ pkg/                                   # vacío
+go test ./...                                        # verde
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug  # 59/59
+make build                                           # dist/jav-linux-amd64
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 11/11 PASS (tools-count-36)
+```
+APK reinstalada en `e03638e5` (Accesibilidad re-enlazada, Shizuku vivo).

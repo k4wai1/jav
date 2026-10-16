@@ -24,7 +24,7 @@ vet:
 # Auditoría nativa Go (reemplaza scripts/tools-list-diff.py, eliminado por
 # muerto: importaba jev_mcp.server, purgado en 65b424e; la referencia viva
 # es PROTOCOL.md + register.go verificado en vivo por stdio).
-# 1) 35 tools vs PROTOCOL (nombres/schema/retornos/affordances),
+# 1) 36 tools vs PROTOCOL (nombres/schema/retornos/affordances),
 # 2) stdout puro JSON-RPC (logs a stderr), 3) initialize con instructions,
 # errores isError:true + hint (=recovery_instruction), escritura sensible
 # con confirm:true y {planned:true, preview} sin él.

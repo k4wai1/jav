@@ -107,7 +107,7 @@
   de frescura (`TYPE_WINDOW_CONTENT_CHANGED` no invalida).
 - [ ] Pendiente honesto: walk-up y glifos validados en tests unitarios, sin
   corrida con modelo S1 live. `verify_state`/`tap_point` siguen fuera
-  (invariante estricta de 35 tools; `make audit-mcp` 11/11).
+  (invariante de 36 tools; `make audit-mcp` 11/11).
 
 ### Robustez táctica P3–P6 + S2 `JAV_AI_*` (2026-10-15, banco A10 `e03638e5`, SDK 29)
 - [x] P3 (§8): resiliencia S1 — `SanitizeModelLabel`, retry 2xx

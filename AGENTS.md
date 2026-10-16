@@ -304,4 +304,11 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 2. `type_text` en Jam: si el nodo está enfocado pero `ACTION_SET_TEXT` falla
    (típico de inputs en WebView), **fallback `ACTION_PASTE`** vía
    `ClipboardManager.setPrimaryClip` + `performPaste()`; si ambos fallan,
-   `INTERNAL_ERROR` honesto. No cambia el contrato de la tool.
+   `INTERNAL_ERROR` honesto. La respuesta ahora incluye `via`
+   (`action_set_text`|`action_paste`), igual que `tap_node`, para trazabilidad
+   del Director/forense (PROTOCOL §4).
+3. `cmd/audit-mcp` deja de tener el race de stdin: mantiene el pipe abierto y
+   lee incremental hasta reunir las 5 respuestas (cerrar stdin → EOF disparaba
+   el shutdown de `ServeStdio` y podía perder las tool calls en vuelo; hacía
+   flaky `error-isError-id{3,4,5}`). 15/15 estable. `README.md`, `cmd/jav-e2e`
+   y `dist/` sincronizados a 36 tools.

@@ -21,8 +21,8 @@ del core conoce apps, paquetes, contactos, textos o flujos concretos: lo
 específico lo aporta el runtime (el Director externo o S2 por conocimiento
 general). El **Director es el cliente externo** (OpenCode/operador, nunca
 parte de Jav): es el único planificador; **Jav es un servidor MCP Go delgado
-(`cmd/jav` stdio, `pkg/tools`, sin bucles y sin S2 interno)** que expone 35
-tools atómicas + `resolve_element` ciego. Tres carriles conviven, del más
+(`cmd/jav` stdio, `pkg/tools`, sin bucles y sin S2 interno)** que expone 36
+tools atómicas (incl. `resolve_element` ciego). Tres carriles conviven, del más
 determinista al más semántico:
 
 1. **Carril nativo (APIs directas, sin Jev, sin UI).** Jam responde por

@@ -1,6 +1,6 @@
 // Harness e2e jav (spec docs/specs/ai-providers.md, tarea @coder §2).
 //
-// Lanza `jav` stdio como subproceso y recorre las 35 tools contra el
+// Lanza `jav` stdio como subproceso y recorre las 36 tools contra el
 // teléfono + initialize + resources + prompts. Sin keys propias, 100%
 // genérico: ningún paquete concreto, ningún literal de dominio.
 //
@@ -369,6 +369,8 @@ func main() {
 	add("press_home", "real", env, ms, cerr, "navegación reversible")
 	env, ms, cerr = call("get_foreground", nil, T)
 	add("get_foreground", "tras navegación", env, ms, cerr, "dónde quedamos")
+	env, ms, cerr = call("resolve_element", map[string]any{"screen_goal_en": ""}, T)
+	add("resolve_element", "goal vacío", env, ms, cerr, "VALIDATION_ERROR sin gastar saldo ni tocar UI")
 
 	// 11. open_app / close_app: validación por defecto; real opt-in.
 	env, ms, cerr = call("open_app", map[string]any{"package": "no-es-paquete"}, T)

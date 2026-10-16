@@ -187,7 +187,8 @@ class CommandDispatcher(private val appContext: Context) {
         if (p.node_id.isEmpty()) throw JamError("node_id vacío", "VALIDATION_ERROR")
         val chars = svc().typeNode(p.node_id, p.snapshot_id, p.text)
         return okResponse(req.id, buildJsonObject {
-            put("chars", chars)
+            put("chars", chars.chars)
+            put("via", chars.via)
         })
     }
 

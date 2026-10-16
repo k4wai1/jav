@@ -59,7 +59,7 @@ PC (Debian, Go, MCP stdio)                 Phone (Jam, non-root)
   adb forward tcp:38472 │  WSS tailnet (opt-in, TOFU pinning)
 ```
 
-## Tools — 35 total (6 Jev + 29 director/native)
+## Tools — 36 total (6 Jev + 30 director/native)
 
 Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only
 with real post-verification, never on "command sent".
@@ -70,15 +70,16 @@ with real post-verification, never on "command sent".
 |---|---|
 | `read_screen` | `dump_ui` + normalizer + table + `snapshot_id` + `first_result` / `zone` / `focused_field` |
 | `tap_node` | `ACTION_CLICK` first if clickable, `dispatchGesture` fallback; reports `via`; requires fresh `snapshot_id` |
-| `type_text` | `ACTION_SET_TEXT`; requires explicit focus or `NOT_FOCUSED` |
+| `type_text` | `ACTION_SET_TEXT`, falling back to `ACTION_PASTE` (`ClipboardManager` + `performPaste`) when a WebView/input rejects it; requires explicit focus or `NOT_FOCUSED`; reports `via` |
 | `scroll` | Scroll at position / node |
 | `press_back` | Back key |
 | `open_app` | Bootstrap only in the loop; Shizuku `am start`, fallback `monkey` |
 
-**29 — director / native / diagnostics:**
+**30 — director / native / diagnostics:**
 
 | Group | Tools |
 |---|---|
+| resolver S1 (1) | `resolve_element` (blind resolver: `screen_goal_en` + `tau`; returns `idx`/`node_id`/`conf`/`snapshot_id` or the Sovereign fallback) |
 | device / diag (8) | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, prefer `tap_node`) |
 | telemetry N0 (5) | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
 | settings / intents N0 (4) | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
@@ -129,7 +130,7 @@ harness is frozen history, not an active component.
 
 ## Current status + roadmap
 
-- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 35 tools,
+- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 36 tools,
   `go test ./...` green); Phases 0–4 green; v5 director-client vigente
   (**Director = external OpenCode/operator**, Jav = thin server with no loops
   and no internal S2: `resolve_element` blind resolver + `set_clipboard` +
@@ -258,7 +259,7 @@ PC (Debian, Go, MCP stdio)                 Teléfono (Jam, sin root)
   adb forward tcp:38472 │  WSS tailnet (opt-in, pinning TOFU)
 ```
 
-## Herramientas — 35 en total (6 Jev + 29 director/nativo)
+## Herramientas — 36 en total (6 Jev + 30 director/nativo)
 
 Toda tool devuelve `{ok, verified, evidence, hint}`. `verified: true` solo con
 verificación real posterior, nunca por "comando enviado".
@@ -269,15 +270,16 @@ verificación real posterior, nunca por "comando enviado".
 |---|---|
 | `read_screen` | `dump_ui` + normalizer + tabla + `snapshot_id` + `first_result` / `zone` / `focused_field` |
 | `tap_node` | `ACTION_CLICK` primero si clickable, fallback `dispatchGesture`; reporta `via`; exige `snapshot_id` fresco |
-| `type_text` | `ACTION_SET_TEXT`; exige foco explícito o `NOT_FOCUSED` |
+| `type_text` | `ACTION_SET_TEXT`, con fallback `ACTION_PASTE` (`ClipboardManager` + `performPaste`) si un WebView/input lo rechaza; exige foco explícito o `NOT_FOCUSED`; reporta `via` |
 | `scroll` | Scroll en posición / nodo |
 | `press_back` | Tecla atrás |
 | `open_app` | Solo bootstrap en el bucle; `am start` por Shizuku, fallback `monkey` |
 
-**29 — director / nativo / diagnóstico:**
+**30 — director / nativo / diagnóstico:**
 
 | Grupo | Tools |
 |---|---|
+| resolver S1 (1) | `resolve_element` (resolver ciego: `screen_goal_en` + `tau`; devuelve `idx`/`node_id`/`conf`/`snapshot_id` o el fallback Soberano) |
 | device / diag (8) | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, preferir `tap_node`) |
 | telemetría N0 (5) | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
 | settings / intents N0 (4) | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
@@ -328,7 +330,7 @@ Runtime 100% Go (`go test ./...`, `make build`); el harness Python
 
 ## Estado actual + roadmap
 
-- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 35 tools,
+- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 36 tools,
   `go test ./...` verde); Fases 0–4 verdes; v5 director-cliente vigente
   (**Director = OpenCode/operador externo**, Jav = servidor delgado sin bucles
   ni S2 interno: `resolve_element` ciego + `set_clipboard` + `loop.py`

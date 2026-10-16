@@ -42,6 +42,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 data class TapResult(val nodeId: String, val via: String)
 
 data class ScreenshotData(val img: String, val w: Int, val h: Int, val via: String)
+data class TypeResult(val chars: Int, val via: String)
 
 // Anti-ticker (spec tactical-robustness-p1p2 §1): los
 // TYPE_WINDOW_CONTENT_CHANGED son ruido cosmético del sistema Y de la
@@ -224,7 +225,7 @@ class JevAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun typeNode(nodeId: String, snapshotId: Long, text: String): Int {
+    fun typeNode(nodeId: String, snapshotId: Long, text: String): TypeResult {
         val expected = requireFreshNode(nodeId, snapshotId)
         val live = reanchorOrThrow(expected)
         try {
@@ -235,7 +236,7 @@ class JevAccessibilityService : AccessibilityService() {
             if (via == null) {
                 throw JamError("ACTION_SET_TEXT y ACTION_PASTE rechazados", "INTERNAL_ERROR")
             }
-            return text.length
+            return TypeResult(text.length, via)
         } finally {
             live.recycle()
             uiDirty = true
@@ -252,7 +253,8 @@ class JevAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun scrollBy(direction: String, nodeId: String?) {        val dm = resources.displayMetrics
+    fun scrollBy(direction: String, nodeId: String?) {
+        val dm = resources.displayMetrics
         val w = dm.widthPixels
         val h = dm.heightPixels
         var x = w / 2
