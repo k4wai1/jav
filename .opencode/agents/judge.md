@@ -6,10 +6,16 @@ permission:
   edit: deny
   bash:
     "*": deny
+    "go build*": allow
+    "go vet*": allow
+    "go test*": allow
+    "go run ./cmd/audit-mcp*": allow
     "uv run pytest*": allow
     "uv run ruff*": allow
     "./gradlew *test*": allow
     "./gradlew *lint*": allow
+    "grep *": allow
+    "rg *": allow
     "git diff *": allow
     "git status *": allow
 ---

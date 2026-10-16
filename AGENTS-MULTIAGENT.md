@@ -18,10 +18,16 @@
 | Orquestador gratis | `plan` (nativo) | primary | `opencode/muse-spark-1.3-contributor-free` | `PLAN.md` | deny |
 | Arquitecto | `architect` | subagent | `opencode/space-bunny-free` | `docs/**`, `*.md` | deny |
 | Auditor/Explorer | `explorer` | subagent | `opencode/nemotron-3.5-lightning-free` | ninguno | grep/git read-only |
-| Constructor | `coder` | subagent | `opencode/ling-3.1-flash-free` | libre | `uv`, `./gradlew` |
-| Juez | `judge` | subagent | `opencode/nemotron-3.5-lightning-free` | ninguno | tests/lint |
+| Constructor | `coder` | subagent | `opencode/deepseek-v4.1-flash-free` | libre | `go build/vet/test/run`, `gofmt`, `uv`, `./gradlew`, grep/git |
+| Juez | `judge` | subagent | `opencode/nemotron-3.5-lightning-free` | ninguno | `go build/vet/test`, `go run ./cmd/audit-mcp`, `./gradlew test/lint`, grep/git |
 
 Notas de mapeo (la propuesta original nombraba modelos inexistentes):
+- **2026-10-15 — `coder` re-apuntado:** `opencode/ling-3.1-flash-free` está dado
+  de baja en esta instalación (`Model not found`). Sustituido por
+  `opencode/deepseek-v4.1-flash-free` (verificado con `opencode models`) y su
+  `bash` ampliado a Go. `judge` recibió `go build/vet/test` y
+  `go run ./cmd/audit-mcp` (antes solo `uv`/`./gradlew`, por lo que no podía
+  certificar el runtime Go).
 - `opencode/muse-spark-1.3-free` **no existe**; se usa
   `opencode/muse-spark-1.3-contributor-free`.
 - `deepseek/deepseek-chat` **no existe** en `opencode models`; el orquestador
