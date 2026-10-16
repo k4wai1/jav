@@ -9,10 +9,10 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/k4wai1/jav/pkg/jam"
 	"github.com/k4wai1/jav/pkg/normalizer"
 )
 
@@ -37,9 +37,9 @@ type JevHallucination struct{ Msg string }
 
 func (e *JevHallucination) Error() string { return e.Msg }
 
-// ModelID modelo S1 (env JEV_MODEL).
+// ModelID modelo S1: JEV_MODEL → config.ai_model (default Jev 1.13).
 func ModelID() string {
-	if m := os.Getenv("JEV_MODEL"); m != "" {
+	if m := jam.AIModel(); m != "" {
 		return m
 	}
 	return "typesafe/jev-1.13"
@@ -69,8 +69,9 @@ func checkModelID() error {
 	return &JevHallucination{Msg: "JEV_MODEL " + m + " no expone la API de decisiones (S1 es Choice/Noul, no chat-model); usa typesafe/jev-1.13"}
 }
 
-// IsMock true sin clave (stub honesto {mock:true}).
-func IsMock() bool { return os.Getenv("OPENROUTER_API_KEY") == "" }
+// IsMock true sin clave (stub honesto {mock:true}). Key: OPENROUTER_API_KEY
+// → config.openrouter_api_key (v1.2.1, sin fricción de `.env`).
+func IsMock() bool { return jam.OpenRouterAPIKey() == "" }
 
 // Answer normalizada: choice -> clave; noul -> true/false; score -> número.
 type Answer struct {
@@ -275,7 +276,7 @@ func sleepBeforeRetry(attempt int) {
 }
 
 func postJSON(payload map[string]any) (map[string]any, error) {
-	key := os.Getenv("OPENROUTER_API_KEY")
+	key := jam.OpenRouterAPIKey()
 	var last error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), Timeout)

@@ -66,7 +66,7 @@ func TestHintCoreUnchanged(t *testing.T) {
 		"SECURE_SURFACE":         "la ventana tiene FLAG_SECURE; usa dump_ui, no screenshot",
 		"PAYLOAD_TOO_LARGE":      "reintenta con fmt webp y quality 80",
 		"METHOD_NOT_ALLOWED":     "metodo no disponible en esta fase; no reintentes igual",
-		"UNAUTHORIZED":           "revisa JAV_TOKEN en el entorno del servidor",
+		"UNAUTHORIZED":           "sin token: ejecuta en terminal `jav pair <IP_TAILNET> <TOKEN>` (no hace falta reiniciar el MCP)",
 	}
 	for code, want := range core {
 		if hintFor(code) != want {

@@ -7,12 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/k4wai1/jav/pkg/cost"
+	"github.com/k4wai1/jav/pkg/jam"
 )
 
 // Superficie S2 agnóstica OpenAI-compatible (spec docs/specs/ai-providers.md
@@ -27,11 +27,11 @@ const S2DefaultBaseURL = "https://openrouter.ai/api/v1"
 // s2Timeout 15 s (spec §2); un retry lo aplica el llamante si lo desea.
 const s2Timeout = 15 * time.Second
 
-// S2BaseURL base resuelta de JAV_AI_BASE_URL (default OpenRouter), sin
-// barra final.
+// S2BaseURL base resuelta de JAV_AI_BASE_URL → config.ai_base_url (default
+// OpenRouter), sin barra final.
 func S2BaseURL() string {
-	if b := strings.TrimSpace(os.Getenv("JAV_AI_BASE_URL")); b != "" {
-		return strings.TrimRight(b, "/")
+	if b := strings.TrimRight(strings.TrimSpace(jam.AIBaseURL()), "/"); b != "" {
+		return b
 	}
 	return S2DefaultBaseURL
 }
@@ -39,13 +39,13 @@ func S2BaseURL() string {
 // S2Endpoint URL completa de `chat/completions`.
 func S2Endpoint() string { return S2BaseURL() + "/chat/completions" }
 
-// S2Key key resuelta: JAV_AI_API_KEY → OPENROUTER_API_KEY → "". Opcional
+// S2Key key resuelta: JAV_AI_API_KEY → OPENROUTER_API_KEY → config. Opcional
 // contra base local; obligatoria contra base remota (ver S2Config).
 func S2Key() string {
-	if k := strings.TrimSpace(os.Getenv("JAV_AI_API_KEY")); k != "" {
+	if k := strings.TrimSpace(jam.AIAPIKey()); k != "" {
 		return k
 	}
-	return strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	return strings.TrimSpace(jam.OpenRouterAPIKey())
 }
 
 // S2IsLocalBase true si la base es loopback/localhost (auth opcional).

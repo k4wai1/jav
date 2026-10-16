@@ -14,8 +14,8 @@ import (
 	"github.com/k4wai1/jav/pkg/tools"
 )
 
-// version se inyecta por -ldflags -X main.version=… (default 1.2.0).
-var version = "1.2.0"
+// version se inyecta por -ldflags -X main.version=… (default 1.2.1).
+var version = "1.2.1"
 
 // instructions es el bloque §1 de docs/MCP_SPEC_GUIDELINES.md, compactado a
 // ≤220 palabras (v1.2.0). Conserva intactos los tokens obligatorios
@@ -38,6 +38,11 @@ PRIVACY — clipboard/contacts/calendar/notifications/location are minimal-proje
 ERRORS — every failure carries evidence.code plus a recovery hint; follow it literally. Full per-tool specs load on demand: android://tool/<name> or android://tools/catalog.`
 
 func main() {
+	// Subcomando de vinculación sin fricción (no arranca el servidor MCP):
+	//   jav pair <ip-o-url> <token> [openrouter_api_key]
+	if len(os.Args) > 1 && os.Args[1] == "pair" {
+		os.Exit(runPair(os.Args[2:]))
+	}
 	// Logs SOLO a stderr: stdout es framing JSON-RPC puro (spec §3.2).
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	jam.ClientVersion = version

@@ -22,6 +22,8 @@
 //     escrituras a stdout en cmd/jav y pkg/ (todo log va a stderr).
 //     cmd/jav-e2e se excluye a propósito: es un harness CLI cuya salida
 //     a stdout (tabla markdown) ES su contrato, no framing MCP.
+//     cmd/jav/pair.go (v1.2.1) se excluye igual: el subcomando `jav pair`
+//     imprime su mensaje de vinculación a stdout; no es el servidor MCP.
 //  3. initialize trae instructions; errores de validación (sin Jav)
 //     devuelven isError:true + {ok:false, evidence.code, hint} (la hint
 //     ES la recovery_instruction); escritura sensible exige confirm:true
@@ -581,12 +583,17 @@ func main() {
 			if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
+			rel, _ := filepath.Rel(root, p)
+			if filepath.ToSlash(rel) == "cmd/jav/pair.go" {
+				// CLI `jav pair`: stdout ES su contrato (mensaje de
+				// vinculación), no framing MCP. Se excluye como jav-e2e.
+				return nil
+			}
 			raw, err := os.ReadFile(p)
 			if err != nil {
 				return nil
 			}
 			src := string(raw)
-			rel, _ := filepath.Rel(root, p)
 			for _, re := range forbidden {
 				for _, m := range re.FindAllString(src, -1) {
 					m = strings.TrimSpace(m)

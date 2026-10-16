@@ -1,0 +1,171 @@
+package jam
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// wsHarness es un servidor WS de prueba single-client que cuenta
+// conexiones, `hello`s y cierres ordenados, y puede tirar la conexión.
+type wsHarness struct {
+	t             *testing.T
+	srv           *httptest.Server
+	mu            sync.Mutex
+	hellos        int
+	conns         int
+	gracefulClose int
+	forceClose    chan struct{}
+}
+
+func newWsHarness(t *testing.T) *wsHarness {
+	h := &wsHarness{t: t, forceClose: make(chan struct{}, 16)}
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := up.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		h.mu.Lock()
+		h.conns++
+		h.mu.Unlock()
+		defer conn.Close()
+
+		stop := make(chan struct{})
+		go func() {
+			select {
+			case <-h.forceClose:
+				_ = conn.Close()
+			case <-stop:
+			}
+		}()
+		defer close(stop)
+
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				if ce, ok := err.(*websocket.CloseError); ok &&
+					ce.Code == websocket.CloseNormalClosure {
+					h.mu.Lock()
+					h.gracefulClose++
+					h.mu.Unlock()
+				}
+				return
+			}
+			var req map[string]any
+			_ = json.Unmarshal(data, &req)
+			id := req["id"]
+			method, _ := req["method"].(string)
+			if method == "hello" {
+				h.mu.Lock()
+				h.hellos++
+				h.mu.Unlock()
+				_ = conn.WriteJSON(map[string]any{
+					"jsonrpc": "2.0", "id": id, "ok": true,
+					"scopes": []string{"read", "ui", "admin"}, "app_version": "test",
+				})
+				continue
+			}
+			_ = conn.WriteJSON(map[string]any{
+				"jsonrpc": "2.0", "id": id, "ok": true,
+				"result": map[string]any{"method": method},
+			})
+		}
+	}))
+	return h
+}
+
+func (h *wsHarness) url() string {
+	return "ws" + strings.TrimPrefix(h.srv.URL, "http")
+}
+
+func (h *wsHarness) counts() (hellos, conns, graceful int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.hellos, h.conns, h.gracefulClose
+}
+
+// pointClientAt apunta el cliente a este harness en un archivo de config
+// temporal y resetea la sesión compartida.
+func (h *wsHarness) pointClientAt(t *testing.T) {
+	t.Setenv("JAV_WS_URL", h.url())
+	t.Setenv("JAV_TOKEN", "test-token")
+	t.Setenv("JAV_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	resetShared()
+	t.Cleanup(resetShared)
+}
+
+// v1.2.1: la sesión persistente reutiliza UNA conexión — N tool calls
+// generan 1 solo `hello` (antes: 1 hello por call).
+func TestPersistentReusesOneHello(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	for i := 0; i < 4; i++ {
+		if _, jerr := c.Call("get_battery", nil); jerr != nil {
+			t.Fatalf("call %d: %v", i, jerr)
+		}
+	}
+	hellos, conns, _ := h.counts()
+	if hellos != 1 {
+		t.Fatalf("hellos=%d, esperado 1 (sesión persistente)", hellos)
+	}
+	if conns != 1 {
+		t.Fatalf("conns=%d, esperado 1", conns)
+	}
+}
+
+// v1.2.1: si el servidor tira la conexión, la siguiente llamada reconecta
+// (hello nuevo) y reintenta una vez antes de fallar.
+func TestReconnectAfterServerDrop(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	if _, jerr := c.Call("get_battery", nil); jerr != nil {
+		t.Fatalf("call 1: %v", jerr)
+	}
+	h.forceClose <- struct{}{}
+	time.Sleep(150 * time.Millisecond)
+	if _, jerr := c.Call("get_battery", nil); jerr != nil {
+		t.Fatalf("reconexión: %v", jerr)
+	}
+	hellos, conns, _ := h.counts()
+	if hellos != 2 || conns != 2 {
+		t.Fatalf("hellos=%d conns=%d, esperado 2/2 tras reconexión", hellos, conns)
+	}
+}
+
+// v1.2.1 (regresión del bug BUSY): el cierre de la sesión persistente
+// envía un frame `close` ordenado para que el teléfono libere el slot
+// single-client de inmediato (no tras ~2 min de timeout).
+func TestResetSharedSendsCloseFrame(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.pointClientAt(t)
+
+	if _, jerr := Dial(); jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	resetShared()
+	_, _, graceful := h.counts()
+	if graceful != 1 {
+		t.Fatalf("gracefulCloses=%d, esperado 1 (frame close ordenado)", graceful)
+	}
+}

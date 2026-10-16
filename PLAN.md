@@ -276,6 +276,25 @@
   (88/88) + e2e en vivo `e03638e5`. No ejecutable en el entorno del agente
   (sin JDK/SDK, dispositivo no conectado); ver `docs/BUILD.md §22`.
 
+### Release v1.2.1 — sesión persistente + `jav pair` + Auto-TOFU (2026-10-16)
+- [x] **Sesión persistente** compartida (`pkg/jam`, `sharedMu`): `Dial` reusa la
+  conexión; `Call`/`CallTimeout` serializan y reconectan **1 vez** ante error de
+  transporte. Efecto real (VPS→TECNO por WSS/Tailnet): **989 ms → 320 ms** por
+  llamada, **1 `hello` por ráfaga** (antes 1 por llamada).
+- [x] **Cierre ordenado** (`close` + eco, `closeTimeout` 500 ms): cierra el bug
+  `4001: BUSY` del cierre TCP abrupto (slot single-client). 10/10 sin `BUSY`.
+- [x] **Config sin fricción** (`~/.config/jav/config.json`, 0600) + **Auto-TOFU**
+  en `wss://` + **recarga en caliente** (sin reiniciar el MCP); prioridad
+  env → config → default. `JAV_CONFIG` override.
+- [x] **`jav pair <ip-o-url|usb> <token> [openrouter_key]`** (`cmd/jav/pair.go`).
+- [x] IA (`pkg/jev`, S2 `pkg/director`) leen la config; sin `.env` obligatorio.
+- [x] Go: `gofmt`/`vet` limpios, `go test` verde (salvo el preexistente
+  `pkg/normalizer`), `make build`, **`audit-mcp` 12/12**
+  (`token-budget-startup` ≈1631 tokens ≤3000).
+- [x] `versionName 1.2.1` / `versionCode 3`; sin dependencias Android nuevas.
+- [ ] **Pendiente en hardware**: `./gradlew :app:testDebugUnitTest` (88/88) +
+  `assembleDebug`, a cargo del workflow CI (JDK 17); ver `docs/BUILD.md §23`.
+
 ## Próxima tarea (director v5 vigente; loop congelado)
 
 1. `@judge`: cierre formal v5 — `uv run pytest -q` (148 en verde) +

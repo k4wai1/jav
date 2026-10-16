@@ -897,3 +897,59 @@ conectado por USB, por lo que **no se pudo** ejecutar
 cambios Android quedan validados por revisión estática (XML + recursos) y por el
 workflow de release (JDK 17 temurin en CI). Pendiente de certificar en hardware
 real (`e03638e5`) antes/junto al tag `v1.2.0`.
+
+## 23. v1.2.1 — sesión persistente + `jav pair` + Auto-TOFU (2026-10-16, VPS → TECNO por WSS/Tailnet)
+
+Cierre de la deuda de latencia/UX detectada en la prueba de campo sobre el
+TECNO. **Go, sin dependencias nuevas.** `versionName 1.2.1` / `versionCode 3`.
+
+**Cambios de código**
+- `pkg/jam/jam.go`: **sesión persistente compartida** (`sharedMu`,
+  `sharedClient`, `sharedCfg`). `Dial()` devuelve la sesión compartida
+  (la abre/renueva si cambió `url|token|fp`); `Call`/`CallTimeout` la
+  serializan y, ante error de transporte, cierran + **1 reconexión + reintento**.
+  `Close()` es no-op sobre la sesión compartida; `resetShared()` la cierra.
+  Cierre ordenado generalizado en `closeConn()` (frame `close` + eco,
+  `closeTimeout` 500 ms) — corrige el `4001: BUSY` del cierre abrupto.
+- `pkg/jam/config.go` (nuevo): `Config` + `LoadConfig`/`SaveConfig`
+  (atómico, `0600`) + `UpdateConfig`; prioridad **env → `config.json` →
+  default**; accessors de IA (`OpenRouterAPIKey`, `AIModel`, `AIBaseURL`,
+  `AIAPIKey`). `JAV_CONFIG` permite otra ruta (tests).
+- `pkg/jam/pair.go` (nuevo): `NormalizeAddr` + `Pair` (hello +
+  `get_device_info` + Auto-TOFU + escritura de config).
+- `pkg/jam/jam.go`: **Auto-TOFU** (`pinnedTLSConfigCapture`): en `wss://` sin
+  pin, captura el SHA-256 del cert, lo acepta y lo persiste; con pin, comparación
+  en tiempo constante (`CERT_MISMATCH`).
+- `cmd/jav/pair.go` (nuevo) + `cmd/jav/main.go`: subcomando `jav pair
+  <ip-o-url> <token> [openrouter_key]` (sin args → servidor MCP stdio igual que
+  antes). `cmd/audit-mcp` excluye `cmd/jav/pair.go` del scan `no-stdout-statico`
+  (es contrato CLI, no framing MCP).
+- `pkg/jev` + `pkg/director/s2.go`: consumen la config de IA (env → config),
+  sin `.env` obligatorio.
+- Hints `UNAUTHORIZED`/`CONNECTION_FAILED` ahora sugieren `jav pair …`.
+
+**Prueba en vivo (VPS → TECNO Pova 4, WSS/Tailnet)**
+```
+jav pair 100.105.124.102 <token>
+✓ Vinculado con TECNO TECNO LG7n (SDK 31) en wss://100.105.124.102:38472/
+  [TOFU sha256: 036898d996256f8e…]   (~0.98 s)
+```
+Ráfaga n=10: avg **320 ms** (vs **989 ms** con `dial`+`hello` por llamada),
+`hello` **0** extra (vs 11), `device_status` ×10 con **0 `BUSY`**.
+
+**Verificación (Go)**
+```
+gofmt -l cmd/ pkg/                                   # vacío
+go vet ./...                                         # 0
+go test ./...                                        # verde salvo el
+                                                     #   preexistente pkg/normalizer
+                                                     #   (logs/ gitignored)
+make build                                           # dist/jav-linux-amd64
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 12/12 PASS
+```
+`token-budget-startup` sigue en **≈1631 tokens ≤ 3000**;
+`tools-count-38`, `tools-schema`, `no-stdout-statico` en verde.
+
+**Android (`android-app`)** — solo `versionName 1.2.1` / `versionCode 3`; sin
+cambios de código Kotlin. `./gradlew :app:testDebugUnitTest` (88/88) y
+`assembleDebug` siguen a cargo del workflow CI (JDK 17 temurin), como en §22.

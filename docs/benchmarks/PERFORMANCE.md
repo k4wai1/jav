@@ -1,4 +1,4 @@
-# PERFORMANCE.md — latencias medidas en hardware real (v1.0.2)
+# PERFORMANCE.md — latencias medidas en hardware real (v1.2.1)
 
 > Fuente única de números de rendimiento. El `README.md` resume y enlaza aquí;
 > ante discrepancia, **este archivo manda**. Solo datos ya medidos en
@@ -135,3 +135,36 @@ adb forward tcp:38472 tcp:38472
 Historial Python (`mcp-server/`, `uv run pytest`, 148 en verde) congelado como
 referencia: sus jsonls forenses siguen citándose en `TASK_HISTORY.md`, pero el
 runtime activo es 100% Go.
+
+## 8. Sesión persistente + `jav pair` (v1.2.1, WSS/Tailnet, TECNO real)
+
+Fuente: prueba de campo 2026-10-16, VPS `racknerd-54f9d67`
+(`100.77.106.123`) → **TECNO Pova 4** (`100.105.124.102`), `wss://…:38472/` por
+Tailnet (`tailscale ping` ≈ **176 ms**), cliente MCP stdio Go v1.2.1. "Antes" =
+`dial`+`hello` por llamada (v1.2.0 / `1.2.1-dev` sin persistencia); "después" =
+sesión persistente compartida (`pkg/jam`, `sharedMu`).
+
+| Medición | Antes (dial+hello por llamada) | Después (persistente v1.2.1) |
+|---|---|---|
+| Ráfaga n=10 mixta (`get_foreground`/`get_battery`/`read_screen`) | avg **989 ms** (min 829, max 1321) | avg **320 ms** (min 132, max 875) |
+| 20× tools ligeras (`get_foreground`/`get_battery`) | — | avg **237 ms**; `get_battery` avg **142 ms** (min 120, max 180) |
+| `device_status` ×10 consecutivos | — (riesgo `4001: BUSY`) | avg **336 ms**, **BUSY=0**, `isError=0` |
+| Frames `hello` por ráfaga de 10 | **11** | **0** (reusa el `hello` de warmup) |
+| `jav pair` (hello + `get_device_info` + Auto-TOFU) | `openssl` a mano + `.env` | **~0.98 s**, un solo comando, sin `.env` |
+
+Desglose del "antes" (v1.2.0, avg de 6): `dial+hello` ≈ **1074 ms** +
+`close` ≈ **248 ms** + comando ≈ **207 ms** → **~86 %** de cada llamada era
+churn TLS/WS. La sesión persistente elimina ese churn: el costo por llamada
+pasa a ser casi todo el comando en el dispositivo (tools ligeras **~140 ms**).
+
+**Cierre ordenado (bug `4001: BUSY`):** el servidor Android es single-client y
+solo libera el slot en `onClose`; un cierre TCP abrupto (solo FIN) no lo dispara
+hasta su timeout de conexión perdida (~2 min) → `websocket: close 4001: BUSY`.
+`Client.Close` ahora envía un frame `close` y espera el eco del peer
+(≤ `closeTimeout` 500 ms): el slot se libera de inmediato.
+
+**Auto-TOFU:** `jav pair 100.105.124.102 <token>` vinculó **TECNO LG7n (SDK 31)**
+con `cert_fingerprint 036898d996256f8e…` (coincide con el prefijo del cert
+`CN=jav.local` de la app, válido hasta 2036). Auditoría del teléfono: todas las
+entradas `origin=100.77.106.123` (IP del VPS), **nunca** loopback; scopes
+mapeados (`auth`/`n0`/`ui`/`read`/`admin`).

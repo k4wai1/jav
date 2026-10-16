@@ -5,8 +5,8 @@
 > Contrato: `docs/specs/go-migration-plan.md`. Proveedores IA:
 > `docs/specs/ai-providers.md` (S1 Jev fijo vs S2 agnóstico).
 > 100% genérico. Los valores aquí son **ejemplos no-secretos**;
-> los secretos reales viven solo en tu `.env` local (`chmod 600`,
-> nunca commiteado).
+> los secretos reales viven solo en tu `~/.config/jav/config.json`
+> (`chmod 600`) o tu `.env` local (`chmod 600`), nunca commiteados.
 
 ## 0. Requisitos
 
@@ -43,7 +43,51 @@ go run ./cmd/jav  # sin instalar: arranca el servidor MCP por stdio
 (compara `tools/list` Go vs Python; diff vacío = OK). Cada build real
 se documenta en `docs/BUILD.md` (comando, tiempo, RAM).
 
-## 3. `.env` (forma, sin secretos)
+## 3. Configuración (v1.2.1: `config.json`; `.env` opcional)
+
+### 3.0 Vinculación sin fricción (recomendada): `jav pair`
+
+Sin `.env` y sin reiniciar el cliente MCP.
+
+```sh
+# remoto por Tailnet (WSS + Auto-TOFU del certificado):
+jav pair 100.x.y.z <TOKEN>
+# por USB/loopback (adb forward tcp:38472):
+jav pair usb <TOKEN>
+# opcional: guarda también la key de IA en la misma config:
+jav pair 100.x.y.z <TOKEN> <OPENROUTER_API_KEY>
+```
+
+Escribe `~/.config/jav/config.json` (`chmod 0600`, directorio `0700`):
+
+```json
+{
+  "ws_url": "wss://100.x.y.z:38472/",
+  "token": "…",
+  "cert_fingerprint": "<sha256 sin separadores>",
+  "openrouter_api_key": "…",
+  "ai_base_url": "…",
+  "ai_api_key": "…",
+  "ai_model": "…"
+}
+```
+
+- **Auto-TOFU:** en `wss://` sin `cert_fingerprint`, el primer handshake TLS
+  captura el SHA-256 del certificado presentado, lo acepta y lo **guarda**
+  (igual que `ssh`). Las conexiones siguientes quedan pinneadas; un cert
+  distinto → `CERT_MISMATCH`.
+- **Prioridad por campo:** variable de entorno (`JAV_*`/`JEV_*`) →
+  `config.json` → default (`ws://127.0.0.1:38472/`).
+- **Recarga en caliente:** `config.json` se relee en cada conexión, así que no
+  hay que reiniciar el cliente MCP tras `jav pair`. `JAV_CONFIG` permite otra
+  ruta (tests/portabilidad).
+- El token vive en claro en disco con `0600` (igual que `.env`); en el teléfono
+  sigue cifrado en `AndroidKeyStore`.
+
+### 3.1 `.env` (forma opcional, sin secretos)
+
+La forma `.env` sigue soportada para CI/scripts y como fallback (el entorno
+tiene prioridad sobre `config.json`).
 
 ```sh
 cp .env.example .env
@@ -88,6 +132,22 @@ Notas:
   (swap futuro), `JEV_CERT_FINGERPRINT` (TLS tailnet = fase posterior).
 
 ## 4. Registro en clientes MCP
+
+### 4.0 Mínimo (v1.2.1, recomendado)
+
+Con `jav pair` ya hecho (§3.0), el cliente solo necesita el comando: la config
+se lee **en caliente** de `~/.config/jav/config.json`.
+
+```json
+{
+  "mcp": {
+    "jav": { "type": "local", "command": ["jav"], "enabled": true }
+  }
+}
+```
+
+Los bloques `environment` de abajo son **opcionales** (fallback/CI o para fijar
+valores por cliente; el entorno tiene prioridad sobre `config.json`).
 
 ### 4.1 opencode.json (host Linux, stdio)
 

@@ -36,7 +36,7 @@ the loop; Jav holds the device.
 ```bash
 # 1. Install the Go server (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    or: VERSION=v1.2.0 sh install.sh
+#    or: VERSION=v1.2.1 sh install.sh
 
 # 2. Install the companion APK (Releases) and enable accessibility (once)
 #    download jav-companion.apk from the latest GitHub Release, then:
@@ -45,11 +45,13 @@ adb install -r jav-companion.apk
 
 # 3. Start Shizuku (the USER starts it; the app only requests API_V23)
 
-# 4. Forward + environment (PC)
-adb forward tcp:38472 tcp:38472
-cp .env.example .env   # edit JAV_TOKEN, OPENROUTER_API_KEY, models (chmod 600)
+# 4. Pair once — no .env, no restart (Auto-TOFU cert pinning included):
+jav pair <PHONE-TAILNET-IP> <TOKEN>   # remote → wss://<ip>:38472/
+#    over USB loopback:  jav pair usb <TOKEN>
+#    writes ~/.config/jav/config.json (chmod 0600) and pins the cert.
 
-# 5. Point your Director (OpenCode/Claude/Cursor) at `jav` over stdio.
+# 5. Point your Director (OpenCode/Claude/Cursor) at `jav` over stdio:
+#    { "command": ["jav"] }   # no environment block needed
 ```
 
 From source instead of Releases:
@@ -84,6 +86,26 @@ Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
 first call: they return `{planned:true, preview, hint}` with `verified:false`
 and only execute after `confirm:true`.
 
+## What changed in v1.2.1
+
+- **Frictionless pairing, no `.env`, no restart.** New **`jav pair
+  <ip-or-url> <token>`** connects once (hello + `get_device_info`), performs
+  **Auto-TOFU** on `wss://` (captures and pins the cert SHA-256) and writes
+  `~/.config/jav/config.json` (`chmod 0600`). The MCP server re-reads the
+  config **hot**, so registering `"command": ["jav"]` is enough. Priority per
+  field: env (`JAV_*`) → `config.json` → default.
+- **Persistent session: ~1.3 s → ~0.2 s per call.** `pkg/jam` keeps ONE
+  shared WebSocket and serialises calls with a mutex, so a burst of tool calls
+  yields a **single `hello`** (was 1 per call). Measured on a real TECNO over
+  WSS/Tailnet: **989 ms → 320 ms** avg (light tools **~140 ms**), **0 extra
+  `hello` frames** vs **11**. Automatic **1 reconnect + retry** on transport
+  errors.
+- **Graceful WebSocket close** (frame `close` + peer echo, ~500 ms bound)
+  added to `Client.Close`: fixes the `4001: BUSY` seen with abrupt TCP closes
+  (the phone kept its single-client slot until its ~2 min timeout).
+- AI keys also live in `config.json` (`openrouter_api_key`, `ai_base_url`,
+  `ai_api_key`, `ai_model`) with the same env → config priority.
+
 ## What changed in v1.2.0
 
 - **~80% fewer startup tokens.** 38 compact descriptions in `tools/list` +
@@ -117,6 +139,7 @@ and only execute after `confirm:true`.
 | tap (`ACTION_CLICK` first) | ~70 ms |
 | S1 Jev | ~1.6 s |
 | N0 native (Go e2e) | ~50–190 ms/tool |
+| Persistent session (v1.2.1, WSS/Tailnet) | **~140 ms** light / **~320 ms** avg per call; **1 `hello`** per burst |
 | Cost ceiling | **<$0.003** per run |
 
 Host: Debian, Go, MCP stdio; `dump_ui` is ~16× faster than `uiautomator dump`.
@@ -172,7 +195,7 @@ Director; el dispositivo lo lleva Jav.
 ```bash
 # 1. Instala el servidor Go (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    o: VERSION=v1.2.0 sh install.sh
+#    o: VERSION=v1.2.1 sh install.sh
 
 # 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
 #    descarga jav-companion.apk del último Release y:
@@ -181,11 +204,13 @@ adb install -r jav-companion.apk
 
 # 3. Shizuku lo arranca el USUARIO (la app solo pide el permiso runtime API_V23)
 
-# 4. Forward + entorno (PC)
-adb forward tcp:38472 tcp:38472
-cp .env.example .env   # edita JAV_TOKEN, OPENROUTER_API_KEY, modelos (chmod 600)
+# 4. Empareja una vez — sin .env, sin reiniciar (incluye Auto-TOFU del cert):
+jav pair <IP-TAILNET-DEL-TELEFONO> <TOKEN>   # remoto → wss://<ip>:38472/
+#    por USB loopback:  jav pair usb <TOKEN>
+#    escribe ~/.config/jav/config.json (chmod 0600) y fija el certificado.
 
-# 5. Apunta tu Director (OpenCode/Claude/Cursor) a `jav` por stdio.
+# 5. Apunta tu Director (OpenCode/Claude/Cursor) a `jav` por stdio:
+#    { "command": ["jav"] }   # sin bloque environment
 ```
 
 ## Herramientas — 38 en 4 grupos
@@ -205,6 +230,26 @@ descripción compacta de 1–2 líneas; la ficha completa de 7 secciones se carg
 Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
 usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
 interactivo (1 cmd / 5 min / 30 min).
+
+## Qué cambió en v1.2.1
+
+- **Vinculación sin fricción, sin `.env`, sin reiniciar.** Nuevo **`jav pair
+  <ip-o-url> <token>`**: conecta una vez (hello + `get_device_info`), hace
+  **Auto-TOFU** en `wss://` (captura y fija el SHA-256 del cert) y escribe
+  `~/.config/jav/config.json` (`chmod 0600`). El servidor MCP relee la config
+  **en caliente**, así que basta registrar `"command": ["jav"]`. Prioridad por
+  campo: env (`JAV_*`) → `config.json` → default.
+- **Sesión persistente: ~1.3 s → ~0.2 s por llamada.** `pkg/jam` mantiene UN
+  WebSocket compartido y serializa las llamadas con un mutex: una ráfaga de
+  tools produce **un solo `hello`** (antes 1 por llamada). Medido en un TECNO
+  real por WSS/Tailnet: **989 ms → 320 ms** de media (tools ligeras **~140 ms**),
+  **0 `hello` extra** frente a **11**. **1 reconexión + reintento** automáticos
+  ante error de transporte.
+- **Cierre WebSocket ordenado** (frame `close` + eco del peer, acotado ~500 ms)
+  en `Client.Close`: corrige el `4001: BUSY` del cierre TCP abrupto (el teléfono
+  retenía el slot single-client hasta su timeout de ~2 min).
+- Las claves de IA también viven en `config.json` (`openrouter_api_key`,
+  `ai_base_url`, `ai_api_key`, `ai_model`) con la misma prioridad env → config.
 
 ## Qué cambió en v1.2.0
 

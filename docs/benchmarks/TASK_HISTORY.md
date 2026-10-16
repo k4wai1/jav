@@ -181,3 +181,32 @@ Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
 `./gradlew :app:testDebugUnitTest` **88/88** (antes 73; +7 `AuthLockoutTest`,
 +5 `TlsCertStoreTest`, +3 `TailnetDetectorTest`) ·
 `go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **11/11** (`tools-count-38`).
+
+## 10. Prueba de campo v1.2.1 — `jav pair` + sesión persistente (2026-10-16)
+
+Primer dogfooding **remoto sin USB** del binario v1.2.1: VPS
+`racknerd-54f9d67` (`100.77.106.123`) → **TECNO Pova 4**
+(`100.105.124.102`) por `wss://…:38472/` (Tailnet, `tailscale ping` ≈ 176 ms).
+
+| Tarea | Resultado | Números | Evidencia |
+|---|---|---|---|
+| `jav pair 100.105.124.102 <token>` (hello + `get_device_info` + Auto-TOFU) | OK: **TECNO LG7n (SDK 31)**, `cert_fingerprint 036898d996256f8e…`, `~/.config/jav/config.json` `0600` | **~0.98 s** | `~/.config/jav/config.json` |
+| Ráfaga n=10 mixta (sesión persistente) | **0 `BUSY`**, 0 errores, `hello` único para la sesión | avg **320 ms** (min 132, max 875) | `get_audit` (`origin` VPS) |
+| 20× tools ligeras | `get_battery` estable | avg **142 ms** | medido en vivo |
+| `device_status` ×10 consecutivos | **0 `BUSY`**, `isError=0` | avg **336 ms** | `get_audit` |
+| Antes/después | persistente vs `dial`+`hello` por llamada | **989 ms → 320 ms** (`hello` 11 → **0**) | `PERFORMANCE.md §8` |
+| Auditoría | todas las entradas `origin=100.77.106.123`, **nunca** loopback | scopes `auth/n0/ui/read/admin` | `get_audit` |
+
+**Causa raíz del `4001: BUSY`:** cierre TCP abrupto (solo FIN, sin frame
+`close`); el teléfono (single-client) no dispara `onClose` hasta su timeout de
+conexión perdida (~2 min) y deja el slot ocupado. **Fix:** `Client.Close` con
+handshake de cierre ordenado (frame `close` + eco, `closeTimeout` 500 ms); el
+slot se libera de inmediato (verificado 10/10 sin `BUSY`).
+
+**Verificación de suites tras el hito:** `gofmt -l cmd/ pkg/` vacío ·
+`go vet ./...` limpio · `go test ./...` verde (salvo el preexistente
+`pkg/normalizer`, dependiente de `logs/run-*.jsonl` gitignored) · `make build` ·
+`go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **12/12 PASS**.
+Tests Go nuevos en `pkg/jam`: `TestPersistentReusesOneHello`,
+`TestReconnectAfterServerDrop`, `TestResetSharedSendsCloseFrame`
+(harness WS single-client en `close_test.go`).

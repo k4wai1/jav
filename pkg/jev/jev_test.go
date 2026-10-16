@@ -3,10 +3,25 @@ package jev
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestMain aísla la config real (~/.config/jav) en tests herméticos.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "jev-cfg-test")
+	if err == nil {
+		_ = os.Setenv("JAV_CONFIG", filepath.Join(dir, "config.json"))
+	}
+	code := m.Run()
+	if err == nil {
+		_ = os.RemoveAll(dir)
+	}
+	os.Exit(code)
+}
 
 func criteria(keys ...string) map[string]any {
 	m := map[string]any{}

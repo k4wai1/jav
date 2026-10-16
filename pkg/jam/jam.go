@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -23,6 +24,11 @@ const ProtocolVersion = 1
 
 // MaxFrameBytes es el frame WS máximo (AGENTS.md §3.6: 4 MiB).
 const MaxFrameBytes = 4 * 1024 * 1024
+
+// closeTimeout acota el handshake de cierre (`close` + eco del peer) para
+// que el servidor libere su slot single-client antes de la siguiente
+// conexión (ver Client.Close).
+const closeTimeout = 500 * time.Millisecond
 
 // ClientVersion se inyecta por -ldflags -X main.version=… (spec §1).
 var ClientVersion = "0.1.0"
@@ -59,7 +65,7 @@ func hintFor(code string) string {
 	case "METHOD_NOT_ALLOWED":
 		return "metodo no disponible en esta fase; no reintentes igual"
 	case "UNAUTHORIZED":
-		return "revisa JAV_TOKEN en el entorno del servidor"
+		return "sin token: ejecuta en terminal `jav pair <IP_TAILNET> <TOKEN>` (no hace falta reiniciar el MCP)"
 	// --- Extensión guía §3.2 (v1): sin cambiar las anteriores ---
 	case "SHIZUKU_DENIED":
 		return "concede el permiso runtime de Shizuku a Jav y reintenta"
@@ -78,7 +84,7 @@ func hintFor(code string) string {
 	case "VERIFY_FAILED":
 		return "confirma con get_foreground/read_screen; si no llegó, un reintento y luego informe"
 	case "CONNECTION_FAILED":
-		return "revisa adb forward + dispositivo conectado; reintenta una vez tras forward"
+		return "revisa la conexion (adb forward o WSS tailnet); si aun no vinculaste: `jav pair <IP_TAILNET> <TOKEN>` en terminal (sin reiniciar el MCP)"
 	case "CERT_MISMATCH":
 		return "el cert del tailnet cambió: re-verifica el fingerprint en la app (cert_sha256) y actualiza el pin; no continues a ciegas"
 	case "RATE_LIMITED", "BUSY":
@@ -119,42 +125,47 @@ func JamFail(e *JamError) Envelope {
 	return Fail(e.Code, e.Message, hintFor(e.Code))
 }
 
-// WSURL lee JAV_WS_URL con fallback JEV_WS_URL (spec §8).
+// WSURL resuelve la URL del servidor Jav con prioridad
+// env (`JAV_WS_URL`/`JEV_WS_URL`) → `~/.config/jav/config.json` → default
+// loopback. Se relee en caliente (v1.2.1: `jav pair` sin reiniciar el MCP).
 func WSURL() string {
-	if u := os.Getenv("JAV_WS_URL"); u != "" {
-		return u
-	}
-	if u := os.Getenv("JEV_WS_URL"); u != "" {
-		return u
-	}
-	return "ws://127.0.0.1:38472/"
+	return firstNonEmpty(
+		os.Getenv("JAV_WS_URL"),
+		os.Getenv("JEV_WS_URL"),
+		LoadConfig().WSURL,
+		"ws://127.0.0.1:38472/",
+	)
 }
 
-// Token lee JAV_TOKEN con fallback JEV_TOKEN. Sin token → error honesto
-// UNAUTHORIZED (nunca cuelga, nunca inventa).
+// TokenOrEmpty resuelve el token (env → config) sin error.
+func TokenOrEmpty() string {
+	return firstNonEmpty(
+		os.Getenv("JAV_TOKEN"),
+		os.Getenv("JEV_TOKEN"),
+		LoadConfig().Token,
+	)
+}
+
+// Token resuelve el token; sin él → error honesto UNAUTHORIZED (nunca
+// cuelga, nunca inventa) con hint de `jav pair`.
 func Token() (string, *JamError) {
-	if t := os.Getenv("JAV_TOKEN"); t != "" {
+	if t := TokenOrEmpty(); t != "" {
 		return t, nil
 	}
-	if t := os.Getenv("JEV_TOKEN"); t != "" {
-		return t, nil
-	}
-	return "", &JamError{Code: "UNAUTHORIZED", Message: "sin token (JAV_TOKEN ausente en el entorno)"}
+	return "", &JamError{Code: "UNAUTHORIZED",
+		Message: "sin token: ejecuta `jav pair <IP_TAILNET> <TOKEN>` en terminal (o define JAV_TOKEN)"}
 }
 
-// certFingerprint lee el pin SHA-256 del cert del tailnet
-// (JAV_CERT_FINGERPRINT con fallback JEV_CERT_FINGERPRINT); normaliza
-// mayúsculas y separadores `:`. Vacío = TOFU sin pin.
+// certFingerprint resuelve el pin SHA-256 del cert del tailnet con
+// prioridad env (`JAV_CERT_FINGERPRINT`/`JEV_CERT_FINGERPRINT`) →
+// `config.json`. Vacío = TOFU sin pin (se captura y guarda al conectar).
 func certFingerprint() string {
 	for _, k := range []string{"JAV_CERT_FINGERPRINT", "JEV_CERT_FINGERPRINT"} {
 		if v := os.Getenv(k); v != "" {
-			v = strings.ToLower(strings.TrimSpace(v))
-			v = strings.ReplaceAll(v, ":", "")
-			v = strings.ReplaceAll(v, " ", "")
-			return v
+			return normalizeFP(v)
 		}
 	}
-	return ""
+	return normalizeFP(LoadConfig().CertFingerprint)
 }
 
 // isLoopback dice si la URL apunta a loopback (solo ahí vale auto-forward).
@@ -177,20 +188,67 @@ type Client struct {
 	conn       *websocket.Conn
 }
 
-// Dial conecta + hello; ante connection refused en loopback crea el
-// forward y reintenta UNA vez (igual que _base.jam_client).
+// --- Sesión persistente (política single-client del teléfono) -----------
+//
+// El servidor del teléfono es single-client y procesa frames en serie. En
+// vez de abrir/cerrar un WSS por tool call (≈1.3 s de TLS+WS por llamada,
+// v1.2.0), se mantiene UNA conexión compartida y se serializa con
+// `sharedMu`: N llamadas = 1 solo `hello`. Un cambio de configuración en
+// caliente (env o `~/.config/jav/config.json`) fuerza reconexión.
+var (
+	sharedMu     sync.Mutex
+	sharedClient *Client
+	sharedCfg    string
+)
+
+// effectiveConfig identifica la sesión como `url|token|fp`.
+func effectiveConfig() string {
+	return WSURL() + "|" + TokenOrEmpty() + "|" + certFingerprint()
+}
+
+// Dial devuelve la sesión compartida (la abre si no existe o si la
+// configuración cambió). Igual que _base.jam_client: ante connection
+// refused en loopback crea el forward y reintenta UNA vez.
 func Dial() (*Client, *JamError) {
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	return acquireSharedLocked()
+}
+
+// acquireSharedLocked exige `sharedMu` tomado.
+func acquireSharedLocked() (*Client, *JamError) {
+	cfg := effectiveConfig()
+	if sharedClient != nil && sharedCfg != cfg {
+		sharedClient.closeConn()
+		sharedClient = nil
+	}
+	if sharedClient != nil {
+		return sharedClient, nil
+	}
 	url := WSURL()
 	token, terr := Token()
 	if terr != nil {
 		return nil, terr
 	}
-	c, jerr := dialOnce(url, token, 10*time.Second, 0)
+	fp := certFingerprint()
+	c, captured, jerr := dialConn(url, token, fp)
 	if jerr != nil && isLoopback(url) && isRefused(jerr) {
 		EnsureForward()
-		c, jerr = dialOnce(url, token, 10*time.Second, 0)
+		c, captured, jerr = dialConn(url, token, fp)
 	}
-	return c, jerr
+	if jerr != nil {
+		return nil, jerr
+	}
+	// Auto-TOFU: si conectamos a wss:// sin pin, fijamos el observado.
+	if captured != "" {
+		if err := UpdateConfig(func(cf *Config) { cf.CertFingerprint = captured }); err == nil {
+			fmt.Fprintf(os.Stderr, "jav: Auto-TOFU %s… guardado en %s\n",
+				captured[:min(16, len(captured))], ConfigPath())
+		}
+	}
+	sharedClient = c
+	sharedCfg = effectiveConfig() // post-TOFU
+	return sharedClient, nil
 }
 
 func isRefused(e *JamError) bool {
@@ -201,21 +259,29 @@ func isRefused(e *JamError) bool {
 }
 
 // pinnedTLSConfig arma el tls.Config de un bind `wss://`: TOFU con
-// verificación por pin SHA-256 cuando `fp` no está vacío (comparación
-// en tiempo constante).
+// verificación por pin SHA-256 cuando `fp` no está vacío (comparación en
+// tiempo constante). Sin pin acepta y (si `captured` != nil) deja el
+// fingerprint observado para el Auto-TOFU de v1.2.1.
 func pinnedTLSConfig(fp string) *tls.Config {
+	return pinnedTLSConfigCapture(fp, nil)
+}
+
+func pinnedTLSConfigCapture(fp string, captured *string) *tls.Config {
 	return &tls.Config{
 		// TOFU: certificado autofirmado; si hay fingerprint, se pinnea abajo.
 		InsecureSkipVerify: true,
 		VerifyConnection: func(cs tls.ConnectionState) error {
-			if fp == "" {
-				return nil
-			}
 			if len(cs.PeerCertificates) == 0 {
 				return fmt.Errorf("servidor sin certificado")
 			}
 			sum := sha256.Sum256(cs.PeerCertificates[0].Raw)
 			got := hex.EncodeToString(sum[:])
+			if fp == "" {
+				if captured != nil {
+					*captured = got
+				}
+				return nil
+			}
 			if subtle.ConstantTimeCompare([]byte(got), []byte(fp)) != 1 {
 				return fmt.Errorf("fingerprint TLS no coincide (TOFU)")
 			}
@@ -224,12 +290,13 @@ func pinnedTLSConfig(fp string) *tls.Config {
 	}
 }
 
-func dialOnce(url, token string, timeout, readTimeout time.Duration) (*Client, *JamError) {
-	d := websocket.Dialer{HandshakeTimeout: timeout}
-	// Fase 2b: WSS en el tailnet con pinning TOFU opcional.
-	fp := certFingerprint()
+// dialConn abre + `hello` sobre url/token/fp explícitos. Devuelve el
+// fingerprint observado (Auto-TOFU cuando `fp`="" en `wss://`).
+func dialConn(url, token, fp string) (*Client, string, *JamError) {
+	d := websocket.Dialer{HandshakeTimeout: 10 * time.Second}
+	var captured string
 	if strings.HasPrefix(strings.ToLower(url), "wss://") {
-		d.TLSClientConfig = pinnedTLSConfig(fp)
+		d.TLSClientConfig = pinnedTLSConfigCapture(fp, &captured)
 	}
 	conn, _, err := d.Dial(url, nil)
 	if err != nil {
@@ -237,13 +304,10 @@ func dialOnce(url, token string, timeout, readTimeout time.Duration) (*Client, *
 		if fp != "" && strings.Contains(err.Error(), "fingerprint TLS") {
 			code = "CERT_MISMATCH"
 		}
-		return nil, &JamError{Code: code, Message: err.Error()}
+		return nil, "", &JamError{Code: code, Message: err.Error()}
 	}
 	conn.SetReadLimit(MaxFrameBytes)
 	c := &Client{URL: url, Token: token, conn: conn}
-	if readTimeout > 0 {
-		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
-	}
 	hello, jerr := c.raw("hello", map[string]any{
 		"protocol_version": ProtocolVersion,
 		"client_version":   ClientVersion,
@@ -251,8 +315,11 @@ func dialOnce(url, token string, timeout, readTimeout time.Duration) (*Client, *
 		"client":           "jav-go/" + ClientVersion,
 	})
 	if jerr != nil {
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, ""),
+			time.Now().Add(closeTimeout))
 		_ = conn.Close()
-		return nil, jerr
+		return nil, "", jerr
 	}
 	if sc, ok := hello["scopes"].([]any); ok {
 		for _, s := range sc {
@@ -264,16 +331,59 @@ func dialOnce(url, token string, timeout, readTimeout time.Duration) (*Client, *
 	if v, ok := hello["app_version"].(string); ok {
 		c.AppVersion = v
 	}
-	_ = conn.SetReadDeadline(time.Time{})
-	return c, nil
+	return c, captured, nil
 }
 
-// Close cierra el WS.
+// Close cierra el WS con handshake ordenado (frame `close` + eco del peer,
+// 1 RTT acotado por closeTimeout). Necesario porque el servidor Android
+// aplica política single-client: un cierre abrupto (solo TCP FIN, sin
+// frame `close`) no dispara `onClose` hasta su timeout de conexión perdida
+// (~2 min), dejando el slot en BUSY.
+//
+// En v1.2.1 la sesión de trabajo es persistente y compartida: `Close()`
+// sobre el cliente compartido es un no-op (no rompe el pool). El cierre
+// real ocurre al cambiar la config en caliente o con `resetShared`.
 func (c *Client) Close() {
-	if c != nil && c.conn != nil {
-		_ = c.conn.Close()
-		c.conn = nil
+	if c == nil {
+		return
 	}
+	sharedMu.Lock()
+	isShared := c == sharedClient
+	sharedMu.Unlock()
+	if isShared {
+		return
+	}
+	c.closeConn()
+}
+
+// closeConn cierra la conexión con handshake ordenado. No toma sharedMu.
+func (c *Client) closeConn() {
+	if c == nil || c.conn == nil {
+		return
+	}
+	conn := c.conn
+	c.conn = nil
+	_ = conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(closeTimeout))
+	_ = conn.SetReadDeadline(time.Now().Add(closeTimeout))
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			break
+		}
+	}
+	_ = conn.Close()
+}
+
+// resetShared cierra y olvida la sesión compartida (tests / shutdown).
+func resetShared() {
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	if sharedClient != nil {
+		sharedClient.closeConn()
+		sharedClient = nil
+	}
+	sharedCfg = ""
 }
 
 func newID() string {
@@ -283,6 +393,9 @@ func newID() string {
 }
 
 func (c *Client) raw(method string, params map[string]any) (map[string]any, *JamError) {
+	if c.conn == nil {
+		return nil, &JamError{Code: "CONNECTION_FAILED", Message: "conexión no inicializada"}
+	}
 	if params == nil {
 		params = map[string]any{}
 	}
@@ -307,8 +420,33 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, *Ja
 	return c.CallTimeout(method, params, 0)
 }
 
-// CallTimeout permite deadline de lectura (p.ej. wait_for_node largo).
+// CallTimeout ejecuta un método sobre la **sesión persistente compartida**
+// (adquiere sharedMu). Ante un error de transporte (EOF/pipe roto/reset)
+// cierra la conexión, reconecta UNA vez y reintenta antes de fallar.
 func (c *Client) CallTimeout(method string, params map[string]any, readTimeout time.Duration) (map[string]any, *JamError) {
+	sharedMu.Lock()
+	defer sharedMu.Unlock()
+	cli, jerr := acquireSharedLocked()
+	if jerr != nil {
+		return nil, jerr
+	}
+	res, jerr := cli.callOnConn(method, params, readTimeout)
+	if jerr != nil && isTransportError(jerr) {
+		cli.closeConn()
+		if sharedClient == cli {
+			sharedClient = nil
+		}
+		cli2, jerr2 := acquireSharedLocked()
+		if jerr2 != nil {
+			return nil, jerr2
+		}
+		res, jerr = cli2.callOnConn(method, params, readTimeout)
+	}
+	return res, jerr
+}
+
+// callOnConn ejecuta un método sobre ESTA conexión (sin tocar sharedMu).
+func (c *Client) callOnConn(method string, params map[string]any, readTimeout time.Duration) (map[string]any, *JamError) {
 	if readTimeout > 0 {
 		_ = c.conn.SetReadDeadline(time.Now().Add(readTimeout))
 		defer c.conn.SetReadDeadline(time.Time{})
@@ -334,6 +472,17 @@ func (c *Client) CallTimeout(method string, params map[string]any, readTimeout t
 		out = r
 	}
 	return out, nil
+}
+
+// isTransportError distingue un fallo de socket (reintentable con
+// reconexión) de un error lógico del servidor. `CONNECTION_FAILED` solo se
+// genera en el cliente (dial/lectura/escritura); el único caso lógico es
+// BUSY (cierre 4001 por la política single-client), que NO se reintenta.
+func isTransportError(e *JamError) bool {
+	if e == nil || e.Code != "CONNECTION_FAILED" {
+		return false
+	}
+	return !strings.Contains(strings.ToLower(e.Message), "busy")
 }
 
 // --- Métodos 1:1 (equiv. socket_client.py) ---

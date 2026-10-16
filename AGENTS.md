@@ -6,13 +6,15 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v1.2.0)
+## Estado Operativo Actual (v1.2.1)
 
 | Área | Estado |
 | --- | --- |
 | Identidad | App **`Jav`**, paquete `dev.k4wai1.jav`; repo `github.com/k4wai1/jav` |
 | Binario MCP | `cmd/jav` (Go, stdio JSON-RPC puro; logs solo a stderr) |
 | Catálogo | **38 tools** en 4 grupos (`state`, `ui`, `native`, `resolve`) + fichas de 7 secciones bajo demanda (`android://tool/<name>`, `android://tools/<group>`, índice `android://tools/catalog`) |
+| Vinculación / UX | `jav pair <ip-o-url\|usb> <token>` → `~/.config/jav/config.json` (0600) + **Auto-TOFU** en `wss://`; prioridad env → config → default; **recarga en caliente** (sin reiniciar el MCP) |
+| Transporte | **Sesión persistente** compartida (`pkg/jam`, `sharedMu`): 1 `hello` por ráfaga (~140–320 ms/llamada); cierre ordenado (`close`+eco) contra `BUSY` |
 | Seguridad | Token **AES-GCM/Keystore** · Lockout **5/60 s → 5 min** · **WSS tailnet** TOFU · **Audit Ring 500** · **Kill Switch** (QS tile + notificación) · **Shell Grant 1 cmd/5 min/30 min + denylist** |
 | GUI (Android) | Icono 1000×1000 + launcher mipmaps + header con logo; colores semánticos `values`/`values-night` |
 
@@ -413,3 +415,41 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 5. **Poda documental:** specs históricos movidos a `docs/specs/archive/`
    (marcados `> ARCHIVED`); vigentes en `docs/specs/`. Tabla de estado en este
    archivo y `README.md` reescrito (Quickstart, 4 grupos, `What changed in v1.2.0`).
+
+**2026-10-16 — v1.2.1: sesión persistente + `jav pair` + Auto-TOFU (campo VPS→TECNO por WSS):**
+
+1. **Sesión persistente** (`pkg/jam/jam.go`): el servidor del teléfono es
+   single-client y procesa frames en serie, así que se mantiene **una** conexión
+   compartida protegida por `sharedMu` (`sharedClient`, `sharedCfg`). `Dial()`
+   la devuelve (la abre/renueva si cambió `url|token|fp`); `Call`/`CallTimeout`
+   la serializan y, ante error de transporte, cierran + **1 reconexión + 1
+   reintento**. `Close()` es **no-op** sobre la sesión compartida;
+   `resetShared()` la cierra. Efecto medido: **989 ms → 320 ms** por llamada
+   (tools ligeras ~140 ms) y **1 `hello` por ráfaga** (antes 1 por llamada).
+2. **Cierre WebSocket ordenado** (`Client.closeConn`): frame `close` + espera el
+   eco del peer (≤ `closeTimeout` 500 ms). Corrige el `4001: BUSY`: un cierre TCP
+   abrupto no dispara `onClose` en el teléfono hasta su timeout de conexión
+   perdida (~2 min), dejando el slot ocupado. Verificado 10/10 sin `BUSY`.
+3. **Config sin fricción** (`pkg/jam/config.go`): `~/.config/jav/config.json`
+   (`chmod 0600`, atómico) con `ws_url`, `token`, `cert_fingerprint`,
+   `openrouter_api_key`, `ai_base_url`, `ai_api_key`, `ai_model`. Prioridad por
+   campo **env (`JAV_*`/`JEV_*`) → config → default**; **recarga en caliente**
+   (no hay que reiniciar el cliente MCP). `JAV_CONFIG` override (tests).
+   `pkg/jev` y `pkg/director/s2.go` consumen la config de IA.
+4. **Auto-TOFU** (`pinnedTLSConfigCapture`): en `wss://` sin `cert_fingerprint`,
+   el primer handshake captura el SHA-256 del certificado, lo acepta y lo
+   **persiste** (como `ssh`); con pin, comparación en tiempo constante →
+   `CERT_MISMATCH`. El pin se relee en caliente.
+5. **CLI `jav pair <ip-o-url> <token> [openrouter_key]`** (`cmd/jav/pair.go`):
+   normaliza `usb`/loopback → `ws://127.0.0.1:38472/` y cualquier IP/host →
+   `wss://<host>:38472/`; conecta (hello + `get_device_info`), fija el TOFU y
+   escribe la config. Sin argumentos, `jav` arranca el servidor MCP stdio igual
+   que hoy. `cmd/audit-mcp` **excluye `cmd/jav/pair.go`** del scan
+   `no-stdout-statico` (stdout ES su contrato CLI, no framing MCP).
+6. **Hints** `UNAUTHORIZED`/`CONNECTION_FAILED` ahora enseñan
+   `jav pair <IP_TAILNET> <TOKEN>` (sin añadir una tool #39: la regla
+   `tools-count-38` se mantiene). `spec_test.go` actualizado en consecuencia.
+7. **Sin dependencias nuevas de Android**; la APK solo sube
+   `versionName 1.2.1` / `versionCode 3`. Suite Go nueva en `pkg/jam`
+   (`TestPersistentReusesOneHello`, `TestReconnectAfterServerDrop`,
+   `TestResetSharedSendsCloseFrame`). `cmd/audit-mcp` **12/12 PASS**.
