@@ -953,3 +953,24 @@ go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 12/12 PASS
 **Android (`android-app`)** — solo `versionName 1.2.1` / `versionCode 3`; sin
 cambios de código Kotlin. `./gradlew :app:testDebugUnitTest` (88/88) y
 `assembleDebug` siguen a cargo del workflow CI (JDK 17 temurin), como en §22.
+
+## 24. v1.2.2 — icono de la app (Android + rayito) (2026-10-16)
+
+**Cambios**
+- `docs/assets/icon.png` refrescado al nuevo diseño (1000×1000; fuente raíz
+  `icon.png`, commiteada). Mipmaps `ic_launcher[_round]` regenerados en las 5
+  densidades (mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192; `round`
+  con máscara circular + alfa, supersampling ×4). Verificación: 10/10 PNG con
+  dimensiones correctas y mismo diseño.
+- `README.md`: logo del header `docs/assets/icon.png?v=1.2.2` (cache-bust de
+  GitHub/camo) + sección "What changed in v1.2.2" (EN/ES). `AGENTS.md` actualiza
+  el estado operativo a v1.2.2 y registra la enmienda.
+- Bump: `app/build.gradle.kts` → `versionName 1.2.2` / `versionCode 4`;
+  `cmd/jav/main.go` → `version = "1.2.2"`; `install.sh` comentario `VERSION`.
+
+**Verificación**
+- Sin dependencias nuevas ni cambios de contrato (38 tools intactas). El
+  manifest ya referenciaba `@mipmap/ic_launcher[_round]`, así que el empaquetado
+  hereda el icono sin tocar Kotlin (`out`/build a cargo del CI).
+- Generación de recursos con PIL 12.3 (LANCZOS); inspección visual del montage
+  de los 10 mipmaps.

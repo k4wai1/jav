@@ -1,7 +1,7 @@
 #!/bin/sh
 # jav installer — one-liner:
 #   curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-# Env: VERSION=v1.2.1 (default: latest), REPO=k4wai1/jav (override),
+# Env: VERSION=v1.2.2 (default: latest), REPO=k4wai1/jav (override),
 #      PREFIX=/custom (default: /usr/local/bin o ~/.local/bin), BIN=jav.
 set -eu
 

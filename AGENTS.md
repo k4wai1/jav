@@ -6,7 +6,7 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v1.2.1)
+## Estado Operativo Actual (v1.2.2)
 
 | Área | Estado |
 | --- | --- |
@@ -453,3 +453,18 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `versionName 1.2.1` / `versionCode 3`. Suite Go nueva en `pkg/jam`
    (`TestPersistentReusesOneHello`, `TestReconnectAfterServerDrop`,
    `TestResetSharedSendsCloseFrame`). `cmd/audit-mcp` **12/12 PASS**.
+
+**2026-10-16 — v1.2.2: icono de la app (Android + rayito) en repo y launcher:**
+
+1. **Icono refrescado**: `docs/assets/icon.png` (1000×1000, fuente raíz
+   `icon.png`) sustituye el diseño v1.2.0. Mipmaps `ic_launcher[_round]`
+   regenerados en las 5 densidades (mdpi 48 / hdpi 72 / xhdpi 96 /
+   xxhdpi 144 / xxxhdpi 192; `round` con máscara circular + alfa). El manifest
+   (`android:icon`/`android:roundIcon`, `AndroidManifest.xml:30-31`) y el logo
+   del header (`activity_main.xml:27`, `@mipmap/ic_launcher_round`) lo heredan
+   sin cambios de código.
+2. **Cache-bust del logo en README**: `docs/assets/icon.png?v=1.2.2` fuerza a
+   GitHub/camo a re-renderizar la imagen (misma ruta = caché servida).
+3. **Bump de versión**: `app/build.gradle.kts` → `versionName 1.2.2` /
+   `versionCode 4`; `cmd/jav/main.go` → `version = "1.2.2"`. Sin dependencias
+   nuevas ni cambios de contrato.

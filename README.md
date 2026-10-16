@@ -4,7 +4,7 @@
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kwai1)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-<p align="center"><img src="docs/assets/icon.png" width="140" alt="Jav logo" /></p>
+<p align="center"><img src="docs/assets/icon.png?v=1.2.2" width="140" alt="Jav logo" /></p>
 
 > **English first, español después.** Normative detail lives in `AGENTS.md`,
 > `PROTOCOL.md`, `ARCHITECTURE.md`, `PLAN.md` and `docs/specs/`.
@@ -36,7 +36,7 @@ the loop; Jav holds the device.
 ```bash
 # 1. Install the Go server (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    or: VERSION=v1.2.1 sh install.sh
+#    or: VERSION=v1.2.2 sh install.sh
 
 # 2. Install the companion APK (Releases) and enable accessibility (once)
 #    download jav-companion.apk from the latest GitHub Release, then:
@@ -85,6 +85,15 @@ Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
 `reply_notification`, `media_control`, `take_photo`, `adb_shell`) never run on
 first call: they return `{planned:true, preview, hint}` with `verified:false`
 and only execute after `confirm:true`.
+
+## What changed in v1.2.2
+
+- **New app icon (Android + lightning).** Refreshed `docs/assets/icon.png`
+  (1000×1000) and regenerated all launcher mipmaps `ic_launcher[_round]`
+  (mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192; round with a
+  circular alpha mask). The manifest (`android:icon`/`android:roundIcon`) and
+  the in-app header logo (`@mipmap/ic_launcher_round`) pick it up automatically.
+  No new dependencies; `versionName 1.2.2` / `versionCode 4`.
 
 ## What changed in v1.2.1
 
@@ -195,7 +204,7 @@ Director; el dispositivo lo lleva Jav.
 ```bash
 # 1. Instala el servidor Go (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    o: VERSION=v1.2.1 sh install.sh
+#    o: VERSION=v1.2.2 sh install.sh
 
 # 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
 #    descarga jav-companion.apk del último Release y:
@@ -230,6 +239,15 @@ descripción compacta de 1–2 líneas; la ficha completa de 7 secciones se carg
 Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
 usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
 interactivo (1 cmd / 5 min / 30 min).
+
+## Qué cambió en v1.2.2
+
+- **Nuevo icono de la app (Android + rayito).** `docs/assets/icon.png`
+  (1000×1000) refrescado y mipmaps `ic_launcher[_round]` regenerados
+  (mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192; round con máscara
+  circular y alfa). El manifest (`android:icon`/`android:roundIcon`) y el logo
+  del header (`@mipmap/ic_launcher_round`) lo heredan automáticamente. Sin
+  dependencias nuevas; `versionName 1.2.2` / `versionCode 4`.
 
 ## Qué cambió en v1.2.1
 
