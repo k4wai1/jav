@@ -94,6 +94,17 @@ data class ScreenshotParams(val format: String = "png", val quality: Int = 80)
 data class SetClipboardParams(val text: String = "")
 
 /**
+ * Params de `shell` (Fase 6b, carril N2). `cmd` arbitrario con UID shell
+ * vía Shizuku; exige grant interactivo y `confirm` para la denylist.
+ */
+@Serializable
+data class ShellParams(
+    val cmd: String = "",
+    val timeout_ms: Long = 15_000,
+    val confirm: Boolean = false
+)
+
+/**
  * Params de `get_audit` (Fase 6a). `limit` se acota a 1..200 en el
  * dispatcher; `since_seq` devuelve solo entradas con seq mayor.
  */

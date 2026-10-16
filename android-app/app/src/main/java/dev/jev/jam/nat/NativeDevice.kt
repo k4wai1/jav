@@ -10,6 +10,7 @@ import android.os.Environment
 import android.os.PowerManager
 import android.os.StatFs
 import android.provider.Settings
+import dev.jev.jam.shell.ShizukuBridge
 import dev.jev.jam.socket.JamError
 import java.io.File
 import kotlinx.serialization.json.JsonArray
@@ -67,31 +68,47 @@ object NativeDevice {
         }
     }
 
-    /** Básico P0 (`StatFs`). Desglose por app (P1) y `dumpsys` (P2) no aquí. */
+    /** Básico P0 (`StatFs`); `fine` (N2) añade `df` por Shizuku. */
     fun getStorage(detail: String): JsonObject {
-        if (detail == "fine") {
-            throw JamError(
-                "desglose fino requiere shell/Shizuku (Fase 6+)", "METHOD_NOT_ALLOWED"
-            )
-        }
         val path = Environment.getDataDirectory().path
         val st = StatFs(path)
         val block = st.blockSizeLong
-        return buildJsonObject {
+        val basic = buildJsonObject {
             put("path", path)
             put("total_bytes", block * st.blockCountLong)
             put("free_bytes", block * st.freeBlocksLong)
             put("avail_bytes", block * st.availableBlocksLong)
         }
+        if (detail != "fine") return basic
+        val r = ShizukuBridge.exec(listOf("df", "-k", "/data", "/sdcard"))
+        val entries = buildJsonArray {
+            for (line in r.stdout.lines()) {
+                val c = line.trim().split(Regex("\\s+"))
+                if (c.size < 6 || c[0] == "Filesystem") continue
+                if (c[1].toLongOrNull() == null) continue
+                add(buildJsonObject {
+                    put("filesystem", c[0])
+                    put("size_kb", c[1].toLongOrNull() ?: 0L)
+                    put("used_kb", c[2].toLongOrNull() ?: 0L)
+                    put("avail_kb", c[3].toLongOrNull() ?: 0L)
+                    put("use_pct", c[4])
+                    put("mounted_on", c.last())
+                })
+            }
+        }
+        return buildJsonObject {
+            for ((k, v) in basic) put(k, v)
+            put("fine", buildJsonObject {
+                put("via", "shizuku")
+                put("cmd", "df -k /data /sdcard")
+                put("exit_code", r.exitCode)
+                put("entries", entries)
+            })
+        }
     }
 
     /** Básica P0: nº de CPUs + uso instantáneo vía delta de `/proc/stat`. */
     fun getCpu(detail: String): JsonObject {
-        if (detail == "fine") {
-            throw JamError(
-                "detalle per-proceso requiere shell/Shizuku (Fase 6+)", "METHOD_NOT_ALLOWED"
-            )
-        }
         val cpus = Runtime.getRuntime().availableProcessors()
         val a = readCpuJiffies()
         try {
@@ -109,9 +126,33 @@ object NativeDevice {
             val dTotal = totalB - totalA
             if (dTotal > 0) usagePct = (dTotal - (idleB - idleA)).toDouble() / dTotal * 100.0
         }
-        return buildJsonObject {
+        val basic = buildJsonObject {
             put("processors", cpus)
             put("usage_pct", usagePct)
+        }
+        if (detail != "fine") return basic
+        val r = ShizukuBridge.exec(listOf("top", "-b", "-n", "1", "-m", "10"))
+        val procs = buildJsonArray {
+            for (line in r.stdout.lines()) {
+                val c = line.trim().split(Regex("\\s+"))
+                if (c.size < 3) continue
+                val pid = c[0].toIntOrNull() ?: continue
+                add(buildJsonObject {
+                    put("pid", pid)
+                    put("name", c.last())
+                    if (c.size >= 2) put("cpu_pct", c.getOrNull(8) ?: "")
+                })
+            }
+        }
+        return buildJsonObject {
+            for ((k, v) in basic) put(k, v)
+            put("fine", buildJsonObject {
+                put("via", "shizuku")
+                put("cmd", "top -b -n 1 -m 10")
+                put("exit_code", r.exitCode)
+                put("processes", procs)
+                put("raw", r.stdout.take(4000))
+            })
         }
     }
 

@@ -14,6 +14,9 @@ import dev.jev.jam.nat.photoResult
 import dev.jev.jam.service.JamNotificationListener
 import dev.jev.jam.service.JevAccessibilityService
 import dev.jev.jam.shell.ShellActions
+import dev.jev.jam.shell.ShellGrantManager
+import dev.jev.jam.shell.ShellPolicy
+import dev.jev.jam.shell.ShizukuBridge
 import dev.jev.jam.ui.UiSnapshot
 import dev.jev.jam.util.JevLog
 import java.util.concurrent.atomic.AtomicLong
@@ -28,8 +31,8 @@ class JamError(message: String, val code: String) : Exception(message)
 
 /**
  * Enruta métodos WS a ejecutores. Grupo UI + 3a (open_app/force_stop/
- * screenshot). `shell` se rechaza explícito hasta Fase 6 (no es
- * "desconocido": está gateado). Sin `su` en ningún camino (AGENTS.md §2).
+ * screenshot) + catálogo nativo N0/N1/N2 + Fase 6a (audit/kill) + Fase 6b
+ * (`shell` con denylist + grant). Sin `su` en ningún camino (AGENTS.md §2).
  */
 class CommandDispatcher(private val appContext: Context) {
 
@@ -80,7 +83,7 @@ class CommandDispatcher(private val appContext: Context) {
                 caps = mapOf(
                     "accessibility" to acc,
                     "shizuku" to shizuku,
-                    "shell_grant" to false,
+                    "shell_grant" to ShellGrantManager.hasActiveGrant(),
                     "usage_access" to NativeSensitive.hasUsageAccess(appContext),
                     "notification_listening" to JamNotificationListener.isConnected(),
                     "contacts" to granted(android.Manifest.permission.READ_CONTACTS),
@@ -140,9 +143,7 @@ class CommandDispatcher(private val appContext: Context) {
                 "get_location" -> location(req)
                 "take_photo" -> takePhoto(req)
                 "settings_put" -> settingsPut(req)
-                "shell" -> throw JamError(
-                    "shell se habilita en Fase 6 (seguridad cerrada)", "METHOD_NOT_ALLOWED"
-                )
+                "shell" -> shell(req)
                 else -> throw JamError("método desconocido: ${req.method}", "METHOD_NOT_ALLOWED")
             }
             code = "OK"
@@ -316,13 +317,11 @@ class CommandDispatcher(private val appContext: Context) {
 
     private fun storage(req: WsRequest): String {
         val p = decodeParams<DetailParams>(req)
-        // detail=fine → N2 (dumpsys vía Shizuku, Fase 6+): stub honesto.
         return okResponse(req.id, NativeDevice.getStorage(p.detail))
     }
 
     private fun cpu(req: WsRequest): String {
         val p = decodeParams<DetailParams>(req)
-        // detail=fine → N2 (per-proceso vía Shizuku, Fase 6+): stub honesto.
         return okResponse(req.id, NativeDevice.getCpu(p.detail))
     }
 
@@ -332,22 +331,84 @@ class CommandDispatcher(private val appContext: Context) {
     }
 
     /**
-     * N2 salvo namespace `system` (P1 con WRITE_SETTINGS): Secure/Global
-     * directo es IMPOSIBLE non-root; vía Shizuku-shell llega en Fase 6+.
+     * N2: `secure`/`global` escriben vía Shizuku-shell (imposible non-root).
+     * Clave crítica de accesibilidad → `FORBIDDEN` (protege a Jam). Sin
+     * `confirm` → `{planned:true}`. `system` (P1 con WRITE_SETTINGS) sigue
+     * por la API directa.
      */
     private fun settingsPut(req: WsRequest): String {
         val p = decodeParams<SettingsPutParams>(req)
-        if (!NatPolicies.putAllowed(p.namespace)) {
+        val ns = p.namespace
+        if (ns == "secure" || ns == "global") {
+            if (ShellPolicy.isCriticalSettingsKey(p.key)) {
+                throw JamError(
+                    "clave protegida: modificar «${p.key}» desconectaría la accesibilidad",
+                    "FORBIDDEN"
+                )
+            }
+            if (!p.confirm) return okResponse(req.id, NativeSensitive.planned(
+                mapOf("namespace" to ns, "key" to p.key,
+                    "value_sha256" to NativeSensitive.sha256(p.value))
+            ))
+            val r = ShizukuBridge.exec(listOf("settings", "put", ns, p.key, p.value))
+            if (r.exitCode != 0) {
+                throw JamError(
+                    "settings put ${ns}/${p.key} falló: ${r.stderr.trim()}", "INTERNAL_ERROR"
+                )
+            }
+            return okResponse(req.id, buildJsonObject {
+                put("namespace", ns)
+                put("key", p.key)
+                put("written", true)
+                put("via", "shizuku")
+            })
+        }
+        if (!NatPolicies.putAllowed(ns)) {
             throw JamError(
-                "settings_put ${p.namespace} requiere Shizuku/shell (Fase 6+)",
-                "METHOD_NOT_ALLOWED"
+                "settings_put $ns requiere Shizuku/shell", "METHOD_NOT_ALLOWED"
             )
         }
         if (!p.confirm) return okResponse(req.id, NativeSensitive.planned(
-            mapOf("namespace" to p.namespace, "key" to p.key,
+            mapOf("namespace" to ns, "key" to p.key,
                 "value_sha256" to NativeSensitive.sha256(p.value))
         ))
-        return okResponse(req.id, NativeSensitive.settingsPut(appContext, p.namespace, p.key, p.value))
+        return okResponse(req.id, NativeSensitive.settingsPut(appContext, ns, p.key, p.value))
+    }
+
+    /**
+     * Fase 6b: `shell` arbitrario (scope admin) con UID shell vía Shizuku.
+     * Gate triple: rate limit 5/s → denylist (`SHELL_DENYLIST` self / preview
+     * si irreversible sin `confirm`) → grant interactivo (`SHELL_DENIED`).
+     */
+    private fun shell(req: WsRequest): String {
+        val p = decodeParams<ShellParams>(req)
+        val cmd = p.cmd.trim()
+        if (cmd.isEmpty()) throw JamError("cmd vacío", "VALIDATION_ERROR")
+        if (!ShellPolicy.allowRequest()) {
+            throw JamError("rate limit shell (5/s)", "RATE_LIMITED")
+        }
+        when (ShellPolicy.classify(cmd)) {
+            ShellPolicy.PolicyVerdict.FORBIDDEN_SELF -> throw JamError(
+                "comando prohibido: afecta a la propia Jam", "SHELL_DENYLIST"
+            )
+            ShellPolicy.PolicyVerdict.NEEDS_CONFIRM -> if (!p.confirm) {
+                return okResponse(req.id, NativeSensitive.planned(
+                    mapOf("cmd_sha256" to ShellPolicy.sha256Hex(cmd),
+                        "reason" to "denylist_irreversible")
+                ))
+            }
+            ShellPolicy.PolicyVerdict.ALLOWED -> {}
+        }
+        if (!ShellGrantManager.requestGrantBlocking(appContext, cmd)) {
+            throw JamError("grant de shell denegado o expirado", "SHELL_DENIED")
+        }
+        val timeout = p.timeout_ms.coerceIn(500L, 60_000L)
+        val r = ShizukuBridge.exec(listOf("sh", "-c", cmd), timeout)
+        return okResponse(req.id, buildJsonObject {
+            put("exit_code", r.exitCode)
+            put("stdout", r.stdout)
+            put("stderr", r.stderr)
+        })
     }
 
     private fun openUrl(req: WsRequest): String {

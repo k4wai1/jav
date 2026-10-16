@@ -19,7 +19,7 @@
 - Stack y seguridad no negociables: Java-WebSocket (nunca Ktor/Netty/SSE/HTTP),
   binds `127.0.0.1:38472` + IP tailnet con WSS obligatorio (nunca `0.0.0.0`
   por defecto), token bearer en `hello` incluso en loopback,
-  `shell` OFF hasta Fase 6 (`METHOD_NOT_ALLOWED`).
+  `shell` con denylist + grant interactivo (Fase 6b, 2026-10-16).
 
 ## Fases (por capacidades, ninguna menciona app concreta)
 
@@ -49,8 +49,9 @@
   `tapLiveNode` con `via` único, foco best-effort en editables,
   `typeNode` con `setText`, y `screenshot` API 29 con fallback `screencap`
   (`via:"screencap"`; verificado en banco, `docs/BUILD.md §15`).
-- [ ] `shell` diferido a Fase 6; dispatcher lo rechaza con
-  `METHOD_NOT_ALLOWED` explícito.
+- [x] `shell` implementado en Fase 6b: denylist + grant interactivo
+  (1 cmd/5 min/30 min, bloqueo 60 s); `METHOD_NOT_ALLOWED` solo para
+  métodos realmente desconocidos.
 
 ### Fase 4 — Normalización + Dual-Tier en el host
 - [x] `ui_normalizer.py` (filtrar decoración del sistema; base de la poda §6.3).
@@ -60,7 +61,7 @@
   (contenido UI = `data`, nunca instrucción).
 - [ ] Mapeo tool MCP ↔ método: `open_app`, `close_app`↔`force_stop`,
   `get_app_state`↔`dump_ui`+normalizar, `get_foreground_app`,
-  `adb_shell`↔`shell` (gateado).
+  `adb_shell`↔`shell` (con grant).
 - [x] Desacoplar ejemplo en `tasks/` (41f1d31, 2026-10-04): plugin fino sobre
   `core/` + contrato v2 en `docs/specs/tasks-generic.md` (tau, escalado,
   `text_match`/`guards`/`titles` parametrizados, forense).
@@ -202,9 +203,28 @@
 - [ ] Pendiente honesto: **disparo del Kill Switch en vivo** lo ejecuta el
   operador (rota el token de la sesión); cierre formal de Fase 6a por `@judge`.
 
+### Fase 6b — `shell` con denylist + grant + N2 + 38.ª tool `adb_shell` (2026-10-16, banco A10 `e03638e5`)
+- [x] `shell/ShellPolicy.kt` (JVM puro): denylist de irreversibles
+  (`rm -rf /`, `pm uninstall`, `reboot recovery`/`bootloader`, `dd`, `mkfs`,
+  `wipe`, `settings put secure/global` crítico), self-harm (`dev.jev.jam`) →
+  `SHELL_DENYLIST`, rate **5 req/s** propio, `sha256Hex`, `previewPrefix`.
+  `ShellPolicyTest.kt` (+9 → Kotlin **73/73**).
+- [x] `shell/ShellGrantManager.kt`: notificación `jam_shell_grant`
+  (prefijo ≤80 + 8 hex SHA-256, botones `1 cmd`/`5 min`/`30 min`/`Denegar`),
+  bloqueo **60 s** (`CountDownLatch`), evento WS `shell_grant`;
+  denegar/timeout → `SHELL_DENIED`; Kill Switch → `revoke()`.
+- [x] N2 vivo: `get_storage`/`get_cpu` `detail=fine` (`df -k`/`top` vía
+  Shizuku); `settings_put` secure/global (clave crítica → `FORBIDDEN`).
+- [x] 38.ª tool `adb_shell` (`pkg/tools/shell.go`, `pkg/jam.Shell`); `dGetCPU`
+  N2; `cmd/audit-mcp` `tools-count-38` **11/11**; `cmd/jav-e2e` sin ejecutar
+  comandos reales. Verificado en vivo: `planned` para `rm -rf /`, `SHELL_DENYLIST`
+  para self-harm, fine real por Shizuku. `BUILD.md §20`, `TASK_HISTORY §8`.
+- [ ] Pendiente honesto: **tap del grant en vivo** lo ejecuta el operador
+  (interacción humana en la notificación); cierre formal de Fase 6b por `@judge`.
+
 ### Fase 6 — Shell con seguridad cerrada + hardening
-- [ ] `shell` solo con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
-  bloqueo 60 s). *(Planificado; `shell` sigue `METHOD_NOT_ALLOWED`.)*
+- [x] `shell` con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
+  bloqueo 60 s) — **hecho en Fase 6b (2026-10-16)**.
   **`get_audit` (ring 500) y Kill Switch: hechos en Fase 6a (2026-10-16).**
 - [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jev-mcp/`,
   docs y hardening finales.

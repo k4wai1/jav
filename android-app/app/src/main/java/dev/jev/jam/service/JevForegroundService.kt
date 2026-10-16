@@ -15,6 +15,8 @@ import dev.jev.jam.socket.AuditLog
 import dev.jev.jam.socket.AuthStore
 import dev.jev.jam.socket.CommandDispatcher
 import dev.jev.jam.socket.JamWsServer
+import dev.jev.jam.socket.eventFrame
+import dev.jev.jam.shell.ShellGrantManager
 import dev.jev.jam.util.JevLog
 
 /**
@@ -52,11 +54,41 @@ class JevForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_KILL_SWITCH) {
-            killSwitch()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_KILL_SWITCH -> {
+                killSwitch()
+                return START_NOT_STICKY
+            }
+            ShellGrantManager.ACTION_GRANT_ONCE,
+            ShellGrantManager.ACTION_GRANT_5M,
+            ShellGrantManager.ACTION_GRANT_30M,
+            ShellGrantManager.ACTION_GRANT_DENY -> {
+                resolveShellGrant(intent)
+                return START_STICKY
+            }
         }
         return START_STICKY
+    }
+
+    /**
+     * Fase 6b: resuelve la solicitud de grant de `shell` (botones de la
+     * notificación) y emite `shell_grant` por WS para que el cliente
+     * sepa el desenlace. El `CountDownLatch` del manager se libera dentro
+     * de `resolve`, desbloqueando la request que esperaba.
+     */
+    private fun resolveShellGrant(intent: Intent) {
+        val action = intent.action ?: return
+        val sha = intent.getStringExtra(ShellGrantManager.EXTRA_SHA256)
+        val resolved = ShellGrantManager.resolve(action, sha) ?: return
+        val (mode, cmdSha) = resolved
+        try {
+            server?.broadcastEvent(
+                eventFrame("shell_grant", mapOf("mode" to mode, "sha256" to cmdSha))
+            )
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "broadcast shell_grant falló", t)
+        }
+        JevLog.i(TAG, "shell_grant mode=$mode")
     }
 
     override fun onDestroy() {
@@ -180,6 +212,7 @@ class JevForegroundService : Service() {
 
         /** Efecto local: rota el token y deja constancia en el audit ring. */
         private fun killSwitchLocal(ctx: Context) {
+            ShellGrantManager.revoke()
             try {
                 AuthStore.regenerateToken(ctx)
             } catch (t: Throwable) {

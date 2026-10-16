@@ -16,7 +16,7 @@
 //     jamás ejecuta adb remotos ni eleva privilegios.
 //
 // Verifica (exit 0 = todo PASS, exit 1 = algún FAIL):
-//  1. 37 tools en vivo == tabla esperada (nombres, required, tipos,
+//  1. 38 tools en vivo == tabla esperada (nombres, required, tipos,
 //     descripciones con affordances/retornos) y cobertura de PROTOCOL.md.
 //  2. stdout puro JSON-RPC (ningún log a stdout) + scan estático de
 //     escrituras a stdout en cmd/jav y pkg/ (todo log va a stderr).
@@ -84,7 +84,7 @@ type toolExp struct {
 var sensitive = map[string]bool{
 	"settings_put": true, "send_intent": true, "add_contact": true,
 	"create_event": true, "reply_notification": true,
-	"media_control": true, "take_photo": true,
+	"media_control": true, "take_photo": true, "adb_shell": true,
 }
 
 var expected = map[string]toolExp{
@@ -104,6 +104,7 @@ var expected = map[string]toolExp{
 	"screenshot":           {nil, map[string]string{"fmt": "string", "quality": "integer"}},
 	"resolve_element":      {[]string{"screen_goal_en"}, map[string]string{"screen_goal_en": "string", "tau": "number"}},
 	"get_audit":            {nil, map[string]string{"limit": "integer", "since_seq": "integer"}},
+	"adb_shell":            {[]string{"cmd"}, map[string]string{"cmd": "string", "timeout_ms": "integer", "confirm": "boolean"}},
 	"get_battery":          {nil, map[string]string{}},
 	"get_memory":           {nil, map[string]string{}},
 	"get_storage":          {nil, map[string]string{"detail": "string"}},
@@ -368,7 +369,7 @@ func main() {
 	}
 	sort.Strings(onlyExp)
 	sort.Strings(onlyGot)
-	emit("tools-count-37", len(got) == 37 && len(onlyExp) == 0 && len(onlyGot) == 0,
+	emit("tools-count-38", len(got) == 38 && len(onlyExp) == 0 && len(onlyGot) == 0,
 		fmt.Sprintf("got=%d solo-esperada=%v solo-got=%v", len(got), onlyExp, onlyGot))
 
 	schemaDiffs := []string{}

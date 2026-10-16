@@ -128,3 +128,32 @@ queda como prueba manual del operador.
 Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
 `go test ./...` verde · `./gradlew :app:testDebugUnitTest` **64/64** ·
 `go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **11/11** (`tools-count-37`).
+
+## 8. Fase 6b 2026-10-16 en A10 USB — `shell`+grant+N2 + `adb_shell` (38.ª tool)
+
+Cierre de Fase 6 (AGENTS §3.6/§3.7): `shell` ya no es `METHOD_NOT_ALLOWED`;
+se ejecuta por Shizuku (UID `shell`) con rate 5/s, denylist de irreversibles
+y grant interactivo del operador; N2 (`settings_put` secure/global,
+`get_storage`/`get_cpu` `detail=fine`) vivo. Sin LLM. La denylist detuvo
+`rm -rf /` antes de tocar el dispositivo; el grant en vivo requiere tap
+humano en la notificación (no automatizado).
+
+| Paso (WS directo, `adb forward tcp:38472`) | Resultado | Evidencia |
+|---|---|---|
+| `get_storage{detail:"fine"}` | `ok:true verified:true` | `fine.via=shizuku exit=0 entries=2` |
+| `get_cpu{detail:"fine"}` | `ok:true verified:true` | `processors=4 fine.via=shizuku exit=0 procs=10` |
+| `settings_put{global, airplane_mode_on, "0", confirm:false}` | `ok:true verified:false` | `planned:true`, `value_sha256` |
+| `adb_shell{cmd:"rm -rf /", confirm:false}` | `ok:true verified:true` | `planned:true`, `preview.reason=denylist_irreversible`, `cmd_sha256` |
+| `adb_shell{cmd:"pm uninstall dev.jev.jam"}` | `ok:false` `SHELL_DENYLIST` | sin tocar el dispositivo |
+| `adb_shell{cmd:""}` | `ok:false` `VALIDATION_ERROR` | `cmd vacío` |
+| `get_foreground` / `read_screen` | `ok:true` (tras re-enlazar a11y) | tool MCP |
+
+Sanity: `rm -rf /` se detiene en la compuerta `planned` (el operador no
+aprobó confirm); el self-harm se rechaza por política (`SHELL_DENYLIST`)
+antes de abrir shell; el grant bloquea hasta 60 s y emite `shell_grant`
+por WS al aprobar.
+
+Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
+`go test ./...` verde (`pkg/tools` 38) · `./gradlew :app:testDebugUnitTest`
+**73/73** · `go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **11/11**
+(`tools-count-38`).

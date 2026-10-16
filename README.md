@@ -59,7 +59,7 @@ PC (Debian, Go, MCP stdio)                 Phone (Jam, non-root)
   adb forward tcp:38472 │  WSS tailnet (opt-in, TOFU pinning)
 ```
 
-## Tools — 37 total (6 Jev + 31 director/native)
+## Tools — 38 total (6 Jev + 32 director/native)
 
 Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only
 with real post-verification, never on "command sent".
@@ -75,7 +75,7 @@ with real post-verification, never on "command sent".
 | `press_back` | Back key |
 | `open_app` | Bootstrap only in the loop; Shizuku `am start`, fallback `monkey` |
 
-**31 — director / native / diagnostics:**
+**32 — director / native / diagnostics:**
 
 | Group | Tools |
 |---|---|
@@ -89,6 +89,7 @@ with real post-verification, never on "command sent".
 | notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
 | location / camera N1 (2) | `get_location`, `take_photo` (FGS + always confirm) |
 | audit (1) | `get_audit` (device ring buffer, 500 entries; `limit` 1–200 + `since_seq`; only `args_sha256`/metadata, never cleartext; scope admin) |
+| shell (1) | `adb_shell` (Shizuku UID shell; rate 5/s + irreversible denylist + interactive grant 1 cmd/5 min/30 min; scope admin; `{planned:true}` for irreversible without `confirm`) |
 
 Example payloads (English):
 
@@ -131,17 +132,17 @@ harness is frozen history, not an active component.
 
 ## Current status + roadmap
 
-- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 37 tools,
+- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 38 tools,
   `go test ./...` green); Phases 0–4 green; v5 director-client vigente
   (**Director = external OpenCode/operator**, Jav = thin server with no loops
   and no internal S2: `resolve_element` blind resolver + `set_clipboard` +
-  historical `loop.py` frozen); native lane N0/N1 live, N2 gated;
-  37/37 docstrings at the 5-section standard.
+  historical `loop.py` frozen); native lane N0/N1 live, N2 live via Shizuku;
+  38/38 docstrings at the 5-section standard.
 - **Roadmap:** formal A10 suite close (battery + calculator + clipboard
   round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
   forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals) →
-  Phase 6 (`shell` with denylist + grant + 500-audit + kill switch) → tailnet
-  WSS 2b. Live tracker: `PLAN.md`. Name: **Jav** = project/runtime,
+  Phase 6 done (`shell` denylist + grant + 500-audit + kill switch + N2) →
+  tailnet WSS 2b. Live tracker: `PLAN.md`. Name: **Jav** = project/runtime,
   **Jev** = tactical backend (`JEV_MODEL`); rename migration deferred
   (`docs/specs/ecosystem.md` §4). Historical Python harness (`mcp-server`,
   148 pytest green at freeze) kept only as forensics reference.
@@ -260,7 +261,7 @@ PC (Debian, Go, MCP stdio)                 Teléfono (Jam, sin root)
   adb forward tcp:38472 │  WSS tailnet (opt-in, pinning TOFU)
 ```
 
-## Herramientas — 37 en total (6 Jev + 31 director/nativo)
+## Herramientas — 38 en total (6 Jev + 32 director/nativo)
 
 Toda tool devuelve `{ok, verified, evidence, hint}`. `verified: true` solo con
 verificación real posterior, nunca por "comando enviado".
@@ -276,7 +277,7 @@ verificación real posterior, nunca por "comando enviado".
 | `press_back` | Tecla atrás |
 | `open_app` | Solo bootstrap en el bucle; `am start` por Shizuku, fallback `monkey` |
 
-**31 — director / nativo / diagnóstico:**
+**32 — director / nativo / diagnóstico:**
 
 | Grupo | Tools |
 |---|---|
@@ -290,6 +291,7 @@ verificación real posterior, nunca por "comando enviado".
 | notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
 | ubicación / cámara N1 (2) | `get_location`, `take_photo` (FGS + siempre confirm) |
 | audit (1) | `get_audit` (ring en dispositivo, 500 entradas; `limit` 1–200 + `since_seq`; solo `args_sha256`/metadatos, nunca en claro; scope admin) |
+| shell (1) | `adb_shell` (shell UID shell vía Shizuku; rate 5/s + denylist de irreversibles + grant interactivo 1 cmd/5 min/30 min; scope admin; `{planned:true}` para irreversible sin `confirm`) |
 
 Payloads ejemplo (en inglés):
 
@@ -332,12 +334,12 @@ Runtime 100% Go (`go test ./...`, `make build`); el harness Python
 
 ## Estado actual + roadmap
 
-- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 37 tools,
+- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 38 tools,
   `go test ./...` verde); Fases 0–4 verdes; v5 director-cliente vigente
   (**Director = OpenCode/operador externo**, Jav = servidor delgado sin bucles
   ni S2 interno: `resolve_element` ciego + `set_clipboard` + `loop.py`
   histórico congelado); carril nativo N0/N1 vivo, N2 gateado;
-  37/37 docstrings al estándar de 5 secciones.
+  38/38 docstrings al estándar de 5 secciones.
 - **Roadmap:** cierre formal suite A10 (batería + calculadora + clipboard
   round-trip) → P1 (firma anti-ticker, `assertFresh`, forense wire+timings) →
   P2 (ranking por relevancia + recalibrar `TAU` con ≥20 goals) → Fase 6

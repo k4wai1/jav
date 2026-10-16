@@ -95,14 +95,16 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |
 | `get_foreground` | `{}` | `{package, activity}` | read |
 | `list_packages` | `{filter?}` | `{packages[]}` (package visibility) | read |
-| `shell` | `{command, confirm?}` | **Hasta Fase 6: `METHOD_NOT_ALLOWED` explícito** (`shell` gateado; ver §8) | shell, **con grant** |
+| `shell` | `{cmd, timeout_ms? 500..60000 default 15000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jam → `SHELL_DENYLIST`; sin grant → `SHELL_DENIED`; > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
 | `get_audit` | `{limit?: int=50 (1..200), since_seq?: int=0}` | `{total_buffered, returned, entries[]}` con cada entry `{seq, ts, method, scope, args_sha256 (16 hex SHA-256), result, origin}` (ring buffer, 500 entradas; nunca args en claro) | admin |
 
 **Flujo de grant de `shell`:** la request **bloquea hasta 60 s**.
-Aprobación "1 comando" → ejecuta solo si `SHA-256(command)` coincide
+Aprobación "1 comando" → ejecuta solo si `SHA-256(cmd)` coincide
 exacto; aprobación "5/30 min" → cubre cualquier `shell` en la ventana.
-Denegación → `SHELL_DENIED`. Timeout 60 s → `TIMEOUT`.
-Denylist (§8) → `SHELL_DENYLIST` salvo `admin` + `confirm: true`.
+Denegación o timeout 60 s → `SHELL_DENIED`.
+Denylist (§8) irreversible sin `confirm: true` → `{planned: true, preview}`;
+comando que mata/desinstala Jam → `SHELL_DENYLIST` (nunca ejecutado).
+El desenlace se emite como evento `shell_grant` (§6).
 
 **Frescura y `via` (contrato):**
 
@@ -121,10 +123,12 @@ Denylist (§8) → `SHELL_DENYLIST` salvo `admin` + `confirm: true`.
 ### 4.1 Catálogo nativo N0+N1 (carril APIs directas, sin Jev)
 
 Diseño en `docs/specs/native-apis.md §§1–13`. N2 (`settings_put`
-`secure`/`global`, `get_storage`/`get_cpu` con `detail=fine`) lo rechaza
-el dispatcher con `METHOD_NOT_ALLOWED` explícito hasta Fase 6 (mismo gate
-que `shell`). PII (contactos, calendario, notificaciones, ubicación,
-clipboard): proyección mínima; el forense MCP guarda solo conteos/hashes.
+`secure`/`global`, `get_storage`/`get_cpu` con `detail=fine`) se ejecuta
+vía Shizuku-shell (UID shell; imposible non-root) y exige Shizuku vivo
+(`SHIZUKU_UNAVAILABLE` sin él). `settings_put` sobre una clave crítica de
+accesibilidad → `FORBIDDEN` (nunca auto-desconecta a Jam). PII (contactos,
+calendario, notificaciones, ubicación, clipboard): proyección mínima; el
+forense MCP guarda solo conteos/hashes.
 
 N0 — sin permisos nuevos:
 
@@ -132,8 +136,8 @@ N0 — sin permisos nuevos:
 |---|---|---|---|
 | `get_battery` | `{}` | `{level_pct, capacity_pct, charging, plugged, temp_c?, saver}` | read |
 | `get_memory` | `{}` | `{avail_bytes, total_bytes, threshold_bytes, low_memory}` | read |
-| `get_storage` | `{detail?: basic}` | `{path, total_bytes, free_bytes, avail_bytes}` (`fine` → `METHOD_NOT_ALLOWED`, N2) | read |
-| `get_cpu` | `{detail?: basic}` | `{processors, usage_pct}` (`usage_pct=-1` = `/proc/stat` ilegible por SELinux, **no es error**; `fine` → `METHOD_NOT_ALLOWED`, N2) | read |
+| `get_storage` | `{detail?: basic\|fine}` | `{path, total_bytes, free_bytes, avail_bytes}`; `fine` (N2) añade `{via, cmd, exit_code, entries[]}` vía `df` por Shizuku; sin Shizuku → `SHIZUKU_UNAVAILABLE` | read |
+| `get_cpu` | `{detail?: basic\|fine}` | `{processors, usage_pct}` (`usage_pct=-1` = `/proc/stat` ilegible por SELinux, **no es error**; `fine` (N2) añade `{via, cmd, exit_code, processes[], raw}` vía `top` por Shizuku; sin Shizuku → `SHIZUKU_UNAVAILABLE`) | read |
 | `get_device_info` | `{}` | `{manufacturer, model, device, sdk_int, abis[], screen_w/h, density_dpi, locale, timezone, features{}}` (sin identificadores persistentes) | read |
 | `settings_get` | `{namespace: system\|secure\|global, key}` | `{namespace, key, found, value?}` (clave sensible denegada → `FORBIDDEN`) | read |
 | `open_url` | `{url, package?}` | `{url, via, package?}` (esquema `://…` válido o `VALIDATION_ERROR`; sin `package` y >1 handler → chooser/`ResolverActivity`; con `package` fija componente, 1 salto: no instalado → `PACKAGE_NOT_FOUND`, instalado sin handler → `INTENT_UNRESOLVED`; fallback Shizuku `am` → `via: shizuku-am`) | ui, sin grant |
@@ -155,7 +159,7 @@ N1 — con grant del usuario (estado en `hello.caps`):
 | `media_control` | `{action: play\|pause\|next\|prev\|stop, package?, confirm?}` | `{action, package, via}`; `stop` sin `confirm` → `{planned: true, preview}`; sin sesiones → `MEDIA_SESSIONS_UNAVAILABLE`; paquete ausente → `MEDIA_SESSION_GONE`; fallo → `MEDIA_CONTROL_FAILED` | ui (`stop` + `confirm`) |
 | `get_location` | `{timeout_ms? ≤30000, max_age_s? ≤3600}` | `{lat, lon, accuracy_m, provider, age_s, via: last_known\|fresh}` (caché primero; sin permiso → `LOCATION_PERMISSION_DENIED`; proveedores apagados → `LOCATION_UNAVAILABLE`; sin fix → `LOCATION_TIMEOUT`, nunca inventada) | read sensible |
 | `take_photo` | `{confirm, camera?: back\|front}` | sin `confirm` → `{planned: true, preview}`; con `confirm` → `{img_base64, w, h, via}` (< 4 MiB; sin permiso → `CAMERA_DENIED`; sin cámara → `CAMERA_UNAVAILABLE`; fallo → `CAMERA_FAILED`) — solo con FGS + notificación + indicador, nunca silenciosa | ui + `confirm` siempre |
-| `settings_put` | `{namespace, key, value, confirm}` | `system` sin `confirm` → `{planned: true, preview}` (valor como hash); con `confirm` → `{namespace, key, written}`; revert = segundo `put` con el valor previo (leer antes con `settings_get`); `secure`/`global` → `METHOD_NOT_ALLOWED` (N2, Fase 6+); `WRITE_SETTINGS` sin conceder → `WRITE_SETTINGS_DISABLED`; rechazo del sistema → `SETTINGS_PUT_FAILED` | admin + `confirm` |
+| `settings_put` | `{namespace, key, value, confirm}` | `system` sin `confirm` → `{planned: true, preview}` (valor como hash); con `confirm` → `{namespace, key, written}`; revert = segundo `put` con el valor previo (leer antes con `settings_get`); `secure`/`global` (N2) con `confirm` → `{namespace, key, written, via: shizuku}`; sin `confirm` → `{planned: true, preview}`; clave crítica de accesibilidad → `FORBIDDEN`; sin Shizuku → `SHIZUKU_UNAVAILABLE`; `WRITE_SETTINGS` sin conceder (`system`) → `WRITE_SETTINGS_DISABLED`; rechazo del sistema → `SETTINGS_PUT_FAILED` | admin + `confirm` |
 
 `{planned: true, preview, hint}` = planeado sin ejecutar: el wrapper MCP
 responde `ok: true, verified: false`; repetir con `confirm: true` ejecuta.
@@ -192,8 +196,7 @@ activa: `package: ""`, `nodes: []` (típicamente transitorio).
 {"event": "ui_dirty", "package": "…", "activity": "…"}
 {"event": "accessibility_state", "connected": true}
 {"event": "shizuku_state", "available": true, "permission": true}
-{"event": "shell_grant",
- "command_hash": "sha256:…", "scope": "once|5m|30m", "expires_at": 0}
+{"event": "shell_grant", "mode": "once|5m|30m|deny", "sha256": "…"}
 {"event": "error", "code": "…", "message": "…"}
 ```
 
@@ -218,15 +221,22 @@ Nativos N0+N1 (§4.1): `USAGE_ACCESS_DISABLED` ·
 `CAMERA_UNAVAILABLE` · `CAMERA_FAILED` · `WRITE_SETTINGS_DISABLED` ·
 `SETTINGS_PUT_FAILED` · `INTENT_UNRESOLVED` · `PACKAGE_NOT_FOUND` ·
 `INTENT_FAILED` · `CLIPBOARD_EMPTY`. N2 (`settings_put` `secure`/`global`,
-`get_storage`/`get_cpu` `detail=fine`) → `METHOD_NOT_ALLOWED` (Fase 6+).
+`get_storage`/`get_cpu` `detail=fine`) corre por Shizuku-shell:
+`SHIZUKU_UNAVAILABLE` sin Shizuku. `settings_put` sobre clave crítica de
+accesibilidad → `FORBIDDEN`; `shell` irreversible sin `confirm` →
+`{planned: true}` y `adb_shell` comando inválido → `VALIDATION_ERROR`.
 
 ## 8. Seguridad operativa
 
-- Shell denylist: `rm -rf /`, `pm uninstall` de sistema,
-  `reboot recovery`, `dd`, `wipe`, `settings put secure` crítico.
+- Shell denylist (irreversibles): `rm -rf /`, `pm uninstall` de sistema,
+  `reboot recovery`/`bootloader`, `dd`, `mkfs`, `wipe`, `settings put secure`
+  crítico → exige `confirm: true` (preview `cmd_sha256`); matar/desinstalar
+  Jam → `SHELL_DENYLIST` (nunca).
 - Política de grant por método: `open_app` = scope `ui` sin grant;
   `force_stop` = scope `shell` sin grant (bajo riesgo);
-  `grant_permission` y `shell` = scope `shell` **con grant**.
+  `grant_permission` y `shell` = scope `shell` **con grant**. El grant de
+  `shell` lo aprueba el operador en la notificación (1 comando por SHA-256
+  exacto / 5 min / 30 min / denegar), bloquea hasta 60 s y expira solo.
 - Push/pull solo bajo `/sdcard/Download/jev-mcp/`.
 - Rotación de token desde la app (QR nuevo); kill switch en
   Quick Settings tile + notificación (revoca tokens, detiene servidor).

@@ -7,8 +7,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Registro de las 37 tools (35 equiv. server.py + resolve_element + get_audit). Nombre,
-// descripción ES de 5 secciones y JSONSchema idénticos a Python (required = sin default).
+// Registro de las 38 tools (35 equiv. server.py + resolve_element + get_audit
+// + adb_shell). Nombre, descripción ES de 5 secciones y JSONSchema idénticos a
+// Python (required = sin default).
 
 // --- Constructores de schema (espejo exacto de FastMCP) ---
 
@@ -29,7 +30,7 @@ func titleOf(prop string) string {
 		"title": "Title", "start_ms": "Start Ms", "end_ms": "End Ms",
 		"description": "Description", "camera": "Camera", "max_age_s": "Max Age S",
 		"screen_goal_en": "Screen Goal En", "tau": "Tau",
-		"since_seq": "Since Seq",
+		"since_seq": "Since Seq", "cmd": "Cmd",
 	}
 	if t, ok := titles[prop]; ok {
 		return t
@@ -199,6 +200,16 @@ Errores/gotchas: limit se acota a 1..200 y since_seq negativo se trata como 0; e
 Cuándo NO usar: NO buscar texto de argumentos en las entradas → nunca se guarda en claro (solo hash); NO esperar mas de 500 entradas → el ring es fijo y descarta las mas viejas; NO usar para estado en vivo de la UI → read_screen.
 Ejemplo: get_audit(limit=50, since_seq=0) → {total_buffered, returned, entries:[{seq, ts, method, scope, args_sha256, result, origin}]}`
 
+const dAdbShell = `Ejecuta un comando de shell con UID shell via Shizuku (scope admin).
+
+Descripcion: Carril privilegiado de ultimo recurso. Gate triple en Jam: rate limit 5 req/s, denylist de irreversibles y grant interactivo del operador. Los comandos que matan o desinstalan la propia Jam se rechazan siempre. Shizuku lo arranca el operador: nunca su.
+Parametros: cmd (str): comando a ejecutar (obligatorio); timeout_ms (int): 500..60000 (default 15000); confirm (bool): aprueba un comando de la denylist irreversible.
+Retorno: {ok, verified, evidence, hint}; denylist sin confirm -> evidence={planned:true, preview{cmd_sha256, reason}, hint}; con exito -> evidence={exit_code, stdout, stderr}.
+Permisos/Grants: scope admin; Shizuku disponible; grant interactivo (1 comando con SHA-256 exacto, 5 min o 30 min) salvo denegacion.
+Errores/gotchas: SHIZUKU_UNAVAILABLE sin Shizuku; SHELL_DENYLIST si el comando es irreversible sin confirm; SHELL_DENIED si el operador deniega o vence el grant (60 s); RATE_LIMITED por encima de 5 req/s; TIMEOUT si excede timeout_ms.
+Cuándo NO usar: NO usar para datos nativos → carril N0/N1 primero (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO usar para acciones de UI → tap_node/type_text; NO reenviar un preview distinto con el confirm anterior.
+Ejemplo: adb_shell(cmd="df -k /data /sdcard", timeout_ms=15000) → {planned:true, preview, hint} en denylist sin confirm; {exit_code, stdout, stderr} tras el grant`
+
 const dTypeText = `Escribe en un campo ya enfocado (semantica REPLACE).
 
 Descripcion: Accion TYPE del enum Jev: escribe con ACTION_SET_TEXT (reemplaza el contenido, sin teclado simulado ni append).
@@ -281,22 +292,22 @@ Ejemplo: get_memory() → {avail_bytes, total_bytes, low_memory, latency_ms}`
 
 const dGetStorage = `Almacenamiento interno del volumen de datos.
 
-Descripcion: Total/libre/disponible (StatFs). fine (desglose por app) es N2, no implementado aun.
+Descripcion: Total/libre/disponible (StatFs); detail="fine" añade el desglose por volumen via df por Shizuku (N2).
 Parametros: detail (str): "basic" (default) o "fine".
-Retorno: {ok, verified, evidence, hint}; evidence = {path, total_bytes, free_bytes, avail_bytes, latency_ms}; BYTES.
-Permisos/Grants: scope read; fine requeriria shell/Shizuku (Fase 6+).
-Errores/gotchas: detail="fine" -> METHOD_NOT_ALLOWED (N2); free_bytes != avail_bytes.
-Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir detail=fine donde es N2 → METHOD_NOT_ALLOWED.
+Retorno: {ok, verified, evidence, hint}; evidence = {path, total_bytes, free_bytes, avail_bytes, latency_ms}; con fine añade {via, cmd, exit_code, entries[]}; BYTES.
+Permisos/Grants: scope read; sin permisos nuevos; detail="fine" requiere Shizuku disponible.
+Errores/gotchas: detail="fine" sin Shizuku -> SHIZUKU_UNAVAILABLE; free_bytes != avail_bytes.
+Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir detail="fine" sin Shizuku → SHIZUKU_UNAVAILABLE.
 Ejemplo: get_storage(detail="basic") → {path, total_bytes, free_bytes, avail_bytes, latency_ms}`
 
 const dGetCPU = `Numero de procesadores y uso de CPU instantaneo.
 
-Descripcion: Cuenta nucleos y mide uso por delta de /proc/stat. fine (per-proceso) es N2.
+Descripcion: Cuenta nucleos y mide uso por delta de /proc/stat; detail="fine" añade el top de procesos via top por Shizuku (N2).
 Parametros: detail (str): "basic" (default) o "fine".
-Retorno: {ok, verified, evidence, hint}; evidence = {processors, usage_pct, latency_ms}. processors = numero de nucleos; usage_pct en % 0..100.
-Permisos/Grants: scope read; sin permisos nuevos.
-Errores/gotchas: usage_pct = -1 es deliberado si SELinux bloquea /proc/stat (no es error); detail="fine" -> METHOD_NOT_ALLOWED (N2).
-Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir detail=fine donde es N2 → METHOD_NOT_ALLOWED.
+Retorno: {ok, verified, evidence, hint}; evidence = {processors, usage_pct, latency_ms}; con fine añade {via, cmd, exit_code, processes[], raw}; processors = numero de nucleos; usage_pct en % 0..100.
+Permisos/Grants: scope read; sin permisos nuevos; detail="fine" requiere Shizuku disponible.
+Errores/gotchas: usage_pct = -1 es deliberado si SELinux bloquea /proc/stat (no es error); detail="fine" sin Shizuku -> SHIZUKU_UNAVAILABLE.
+Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO pedir detail="fine" sin Shizuku → SHIZUKU_UNAVAILABLE.
 Ejemplo: get_cpu(detail="basic") → {processors, usage_pct, latency_ms}`
 
 const dGetDeviceInfo = `Hardware y configuracion, sin identificadores persistentes.
@@ -478,7 +489,7 @@ type toolDef struct {
 	h        Handler
 }
 
-// RegisterAll registra las 37 tools en el servidor.
+// RegisterAll registra las 38 tools en el servidor.
 func RegisterAll(s *server.MCPServer) {
 	for _, d := range toolDefs {
 		t, h := defTool(d.name, d.desc, d.required, d.props, d.h)
@@ -510,6 +521,9 @@ var toolDefs = []toolDef{
 		"screen_goal_en": strReq("screen_goal_en"), "tau": numProp("tau", 0.70)}, hResolveElement},
 	{"get_audit", dGetAudit, nil, map[string]any{
 		"limit": intProp("limit", 50), "since_seq": intProp("since_seq", 0)}, hGetAudit},
+	{"adb_shell", dAdbShell, []string{"cmd"}, map[string]any{
+		"cmd": strReq("cmd"), "timeout_ms": intProp("timeout_ms", 15000),
+		"confirm": boolProp("confirm", false)}, hAdbShell},
 	{"get_battery", dGetBattery, nil, map[string]any{}, hGetBattery},
 	{"get_memory", dGetMemory, nil, map[string]any{}, hGetMemory},
 	{"get_storage", dGetStorage, nil, map[string]any{"detail": strProp("detail", "basic")}, hGetStorage},

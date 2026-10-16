@@ -351,4 +351,19 @@ func (c *Client) GetAudit(limit int, sinceSeq int64) (map[string]any, *JamError)
 	return c.Call("get_audit", map[string]any{"limit": limit, "since_seq": sinceSeq})
 }
 
+// Shell ejecuta un comando con UID shell vía Shizuku (Fase 6b, scope admin).
+// La request puede bloquear hasta 60 s esperando el grant interactivo; el
+// readTimeout cubre grant + ejecución.
+func (c *Client) Shell(cmd string, timeoutMs int, confirm bool) (map[string]any, *JamError) {
+	if timeoutMs <= 0 {
+		timeoutMs = 15000
+	}
+	read := time.Duration(timeoutMs)*time.Millisecond + 65*time.Second
+	return c.CallTimeout("shell", map[string]any{
+		"cmd":        cmd,
+		"timeout_ms": timeoutMs,
+		"confirm":    confirm,
+	}, read)
+}
+
 var _ = fmt.Sprint

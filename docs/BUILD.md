@@ -699,3 +699,70 @@ verificado por composición: tile registrado con `BIND_QUICK_SETTINGS_TILE`
 `PendingIntent startService` (`dumpsys notification`). **No se disparó en
 vivo** a propósito: rotaría el token del operador a mitad de sesión; queda
 como prueba manual del operador (tile o botón de notificación).
+
+## 20. Fase 6b — `shell` con denylist + grant interactivo + N2 + tool #38 `adb_shell` (2026-10-16)
+
+Cierre de Fase 6 (AGENTS §2.7/§3.6/§3.7/§6): `shell` deja de ser
+`METHOD_NOT_ALLOWED` y pasa a ejecutarse por Shizuku (UID `shell`) con
+rate limit, denylist de irreversibles y grant del operador; el carril N2
+(`settings_put` secure/global, `get_storage`/`get_cpu` `detail=fine`)
+queda vivo. Banco `e03638e5` (Android 10 / API 29, USB).
+
+**Qué cambió**
+- **Kotlin `shell/ShellPolicy.kt`** (puro JVM, `object`): `enum
+  PolicyVerdict {ALLOWED, NEEDS_CONFIRM, FORBIDDEN_SELF}`; denylist de
+  irreversibles (`rm -rf /`|`*`, `pm uninstall`, `cmd package uninstall`,
+  `reboot recovery|bootloader|fastboot`, `dd … of=`, `mkfs`, `wipe`,
+  `settings put secure|global <clave crítica>`); `isSelfHarm` (matar/
+  desinstalar `dev.jev.jam`) → `FORBIDDEN_SELF`; `sha256Hex`,
+  `previewPrefix` (≤80), `SlidingWindowRateLimiter(5, 1000)` → `RATE`
+  para el rate **5 req/s** de shell (independiente del 50 req/s general).
+- **Kotlin `shell/ShellGrantManager.kt`** (`object`, en memoria): ventanas
+  `once`/5 min/30 min, `CountDownLatch` bloqueante hasta **60 s**;
+  notificación de alta importancia `jam_shell_grant` con prefijo ≤80 +
+  **8 hex** del SHA-256 y 4 botones (`1 cmd`/`5 min`/`30 min`/`Denegar`)
+  vía `PendingIntent.getService`. `resolve` emite evento `shell_grant`
+  (`{mode, sha256}`) por `JamWsServer.broadcastEvent`; timeout/denegar →
+  `SHELL_DENIED`; Kill Switch → `revoke()`.
+- **`CommandDispatcher`**: ruta `"shell"` → `shell(req)` (valida `cmd`,
+  `RATE_LIMITED` >5/s, `SHELL_DENYLIST` para self-harm, `planned` para
+  irreversible sin `confirm`, `requestGrantBlocking` → `SHELL_DENIED`,
+  `ShizukuBridge.exec(listOf("sh","-c",cmd))`); `settingsPut` N2 para
+  `secure`/`global` (clave crítica → `FORBIDDEN`, sin confirm → `planned`,
+  con confirm → Shizuku, `{namespace,key,written:true,via:"shizuku"}`);
+  `caps["shell_grant"]=ShellGrantManager.hasActiveGrant()`.
+- **`nat/NativeDevice.kt`**: `get_storage`/`get_cpu` con `detail="fine"`
+  → `df -k` / `top -b -n 1 -m 10` por Shizuku, devuelven base + `{via,
+  cmd, exit_code, entries[]/processes[], raw}`.
+- **Go tool #38 `adb_shell`**: `pkg/jam.Shell(cmd, timeoutMs, confirm)`
+  (`CallTimeout`, `read = timeout+65s`), `pkg/tools/shell.go` (clamp
+  500..60000, `cmd` vacío → `VALIDATION_ERROR`), `register.go`
+  (`dAdbShell` 7 secciones + `titleOf "cmd"`), `dGetCPU` N2. Contadores a
+  **38** (`register_test`, `spec_test` 37 descs, `cmd/audit-mcp
+  tools-count-38` + `sensitive["adb_shell"]`, `cmd/jav-e2e`), docs.
+
+**Verificación**
+```
+gofmt -l cmd/ pkg/                                   # vacío
+go test ./...                                        # verde (pkg/tools 38)
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug  # 73/73
+make build                                           # dist/jav-linux-amd64
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 11/11 PASS (tools-count-38)
+```
+Gate `su` (AGENTS §2.2): sigue en **1 hit** preexistente
+(`shell/ShizukuBridge.kt:118`, falso positivo `Re**su**lt`); sin hits nuevos.
+
+**En vivo (WS vía `adb forward tcp:38472`, a11y re-enlazada)**:
+```
+get_storage detail=fine → ok verified via=shizuku exit=0 entries=2
+get_cpu     detail=fine → ok verified processors=4 via=shizuku exit=0 procs=10
+settings_put global airplane_mode_on confirm=false → planned:true (value_sha256)
+adb_shell   "rm -rf /" confirm=false   → planned:true preview reason=denylist_irreversible
+adb_shell   "pm uninstall dev.jev.jam" → SHELL_DENYLIST (no se toca el dispositivo)
+adb_shell   ""                         → VALIDATION_ERROR
+get_foreground / read_screen           → ok tras re-enlazar accesibilidad
+```
+El grant interactivo se aprueba en el dispositivo (notificación) y emite
+`shell_grant` por WS; no se automatizó el tap del operador (rotaría la
+sesión / requiere interacción humana). `rm -rf /` **nunca** tocó el
+dispositivo (se detuvo en la compuerta `planned`).

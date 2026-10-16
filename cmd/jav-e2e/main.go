@@ -1,6 +1,6 @@
 // Harness e2e jav (spec docs/specs/ai-providers.md, tarea @coder §2).
 //
-// Lanza `jav` stdio como subproceso y recorre las 37 tools contra el
+// Lanza `jav` stdio como subproceso y recorre las 38 tools contra el
 // teléfono + initialize + resources + prompts. Sin keys propias, 100%
 // genérico: ningún paquete concreto, ningún literal de dominio.
 //
@@ -373,6 +373,13 @@ func main() {
 	add("resolve_element", "goal vacío", env, ms, cerr, "VALIDATION_ERROR sin gastar saldo ni tocar UI")
 	env, ms, cerr = call("get_audit", map[string]any{"limit": 5, "since_seq": 0}, T)
 	add("get_audit", "ring 500", env, ms, cerr, "entradas con args_sha256 (solo metadatos, sin PII)")
+	// adb_shell: solo validación segura. Denylist sin confirm -> planned
+	// (no toca el dispositivo); self-harm -> SHELL_DENYLIST. Nunca se
+	// ejecuta un comando real (requeriría grant del operador).
+	env, ms, cerr = call("adb_shell", map[string]any{"cmd": "rm -rf /", "confirm": false}, T)
+	add("adb_shell", "denylist sin confirm", env, ms, cerr, "planned: no ejecuta el comando")
+	env, ms, cerr = call("adb_shell", map[string]any{"cmd": "pm uninstall dev.jev.jam"}, T)
+	add("adb_shell", "self uninstall", env, ms, cerr, "SHELL_DENYLIST sin tocar el dispositivo")
 
 	// 11. open_app / close_app: validación por defecto; real opt-in.
 	env, ms, cerr = call("open_app", map[string]any{"package": "no-es-paquete"}, T)
