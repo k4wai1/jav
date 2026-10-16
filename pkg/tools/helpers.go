@@ -14,6 +14,7 @@ import (
 
 	"github.com/k4wai1/jav/pkg/jam"
 	"github.com/k4wai1/jav/pkg/normalizer"
+	"github.com/k4wai1/jav/pkg/uitrack"
 )
 
 // Helpers de args, validación, envolvente y Jam (equiv. tools/_base.py
@@ -304,7 +305,7 @@ func readScreenState() jam.Envelope {
 			"class_short": cd.ClassShort(), "flags": cd.Flags(),
 			"clickable": cd.Clickable, "editable": cd.Editable,
 			"focused": cd.Focused, "scrollable": cd.Scrollable,
-			"visible": cd.Visible, "text": cd.Text, "desc": cd.Desc,
+			"visible": cd.Visible, "text": cd.SafeText(), "desc": cd.Desc,
 			"resource_id": cd.ResourceID,
 			"bounds":      []int{cd.Bounds[0], cd.Bounds[1], cd.Bounds[2], cd.Bounds[3]},
 		})
@@ -314,14 +315,42 @@ func readScreenState() jam.Envelope {
 	if fr, ok := normalizer.FirstResult(rows); ok {
 		first = fr
 	}
+	fp := normalizer.ScreenFingerprintRows(st.Package, rows)
+	labels := make([]string, 0, len(rows))
+	idxByNode := make(map[string]int, len(rows))
+	for _, r := range rows {
+		if !normalizer.LabelIsVolatile(r.Text) {
+			labels = append(labels, normalizer.SanitizeModelLabel(r.Label))
+		}
+		if r.ID != "" {
+			idxByNode[r.ID] = r.Idx
+		}
+	}
+	focusKey := "none\x00none"
+	if ff := st.Focused.AsView(); ff != nil {
+		fl, _ := ff["label"].(string)
+		fk, _ := ff["kind"].(string)
+		if fl == "" {
+			fl = "none"
+		}
+		if fk == "" {
+			fk = "none"
+		}
+		focusKey = fl + "\x00" + fk
+	}
+	diff := uitrack.Observe(fp, st.SnapshotID, st.Package, focusKey, labels, idxByNode)
+	triedIDs := uitrack.TriedIDs(fp)
 	return jam.OK(true, map[string]any{
 		"package": st.Package, "activity": st.Activity,
 		"snapshot_id": st.SnapshotID, "raw_count": st.RawCount,
 		"screen_height": ScreenHeight(), "screen_width": ScreenWidth(),
-		"focused_field": st.Focused.AsView(),
-		"first_result":  first,
-		"candidates":    cands,
-		"render":        normalizer.FormatState(st),
+		"focused_field":      st.Focused.AsView(),
+		"first_result":       first,
+		"candidates":         cands,
+		"render":             normalizer.FormatState(st),
+		"screen_fingerprint": fp,
+		"diff_since_last":    diff,
+		"tried_node_ids":     triedIDs,
 	}, "")
 }
 

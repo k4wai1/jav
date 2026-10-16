@@ -483,3 +483,88 @@ en §7).
 Sin commits (cierra @judge), sin push. Sin keys/tokens.
 
 ## 14. CI `build-apk`: sin `setup-android@v3` (pedía paquete obsoleto `tools`); se usa el SDK del runner + `sdkmanager --install "platforms;android-34" "build-tools;34.0.0"` (AGP 8.5.2 default, `compileSdk 34`).
+
+## 15. Robustez P4/P5/P6 + S2 JAV_AI_* + E2E en banco (2026-10-15, 5002E/API 29, USB e03638e5, SOLO USB)
+
+Alcance ejecutado por el orquestador (subagentes con permisos rotos en
+runtime): cierre **P4** (§9, memoria de estado), **P6** (§10, reanclaje de
+nodo vivo + fallback `screencap`), **P5** (§11, enmascarado de secretos en
+`candidates`/`render`) y cableado **S2 `JAV_AI_*`** (`pkg/director/s2.go`,
+`docs/specs/ai-providers.md` §2.2).
+
+```bash
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain   # OK 56/56, APK OK
+adb -s e03638e5 install -r android-app/app/build/outputs/apk/debug/app-debug.apk        # Success
+go test ./... && go run ./cmd/audit-mcp                                                 # verdes, 11/11 PASS
+go run ./cmd/jav-e2e -serial e03638e5                                                   # ok=31 planned/dry-run=8 error=12
+```
+
+### 15.1 Bug cazado en vivo: `WEBP_LOSSY` en API 29
+
+`screenshot{format:webp}` devolvía `INTERNAL_ERROR` ("error interno" =
+`Throwable` no-`JamError` en `JamWsServer`). Causa: `Bitmap.CompressFormat.WEBP_LOSSY`
+es **API 30+**; en API 29 el `getstatic` lanza `NoSuchFieldError` (es un
+`Error`, no una excepción capturada). El camino `png` sí funcionaba
+(`via:"screencap"`). Fix en `JevAccessibilityService.webpOrPng()`: `WEBP_LOSSY`
+solo en `SDK_INT >= R`; `WEBP` (deprecado) en API 29, referencia aislada en
+`webpLossy()`/`webpLegacy()` para que la línea de API 30 no se ejecute en 29.
+
+### 15.2 `screenshot` en vivo (API 29, Shizuku activo)
+
+Shizuku no estaba corriendo (caps.shizuku=false → `SHIZUKU_UNAVAILABLE`,
+honesto). Arrancado por el operador con el comando que muestra la app
+Shizuku (`adb shell /data/app/moe.shizuku.privileged.api-…/lib/arm/libshizuku.so`;
+la app **nunca** lo arranca, AGENTS §2.7). Tras conceder/heredar API_V23:
+
+```
+caps = {"accessibility": true, "shizuku": true, "shell_grant": false, ...}
+screenshot {format:png,  quality:80} → {ok:true, w:360, h:720, via:"screencap"}
+screenshot {format:webp, quality:80} → {ok:true, w:360, h:720, via:"screencap"}  (antes del fix: INTERNAL_ERROR)
+```
+
+### 15.3 P5 — secretos fuera de `candidates`/`render`
+
+`pkg/normalizer`: `isPasswordNode` (editable + propiedad nativa
+`password`/`is_password` o marcadores) marca `Candidate.Secret`; `Compact()`
+enmascara (etiqueta de content_desc/resource_id/id o `••••`), `SafeText()`
+sustituye el `text` en `evidence.candidates` (`pkg/tools/helpers.go`). Gate
+`editable` evita el falso positivo `pin_indicator` de `wa_home.json` →
+**paridad Python exacta intacta** (`TestReplayPythonParity`). §11 del spec.
+
+### 15.4 Banco
+
+Accesibilidad re-habilitada por `settings put secure` con `ComponentName`
+plano (misma nota que §12.3); tras `install -r`/`force-stop` el ciclo
+`delete`+`put`+`enabled=1` vuelve a enlazar (`Bound services: Jam`).
+Sin commits (cierra @judge), sin push. Sin keys/tokens expuestos.
+
+## 16. Benchmark sintético de tools en A10 (2026-10-15, API 29, USB e03638e5)
+
+Prueba **real** del MCP contra el dispositivo (no unit tests fáciles): cliente
+WS `127.0.0.1:38472`, token del `.env`, `n=20–30` por método, sin LLM.
+Comando y tablas crudas en `docs/TESTING.md §12`; síntesis en
+`docs/benchmarks/PERFORMANCE.md §5`.
+
+| Grupo | p50 destacado |
+|---|---|
+| Lectura accesibilidad | `get_foreground` 26 ms · `dump_ui` (30 n) 74 ms |
+| Captura | webp q80 1037 ms (20 KB) · png q80 1101 ms (60 KB) |
+| Native N0 | 7–12 ms (`get_cpu` 131 ms) |
+| Cross-app `dump_ui` | `~15 ms + ~1.4 ms/nodo` (14–117 n) |
+| Ruta ADB `uiautomator dump` | ~2280 ms (≈30× más lento que Jam) |
+
+`caps` observado: `accessibility:true, shizuku:true, shell_grant:false`. API 29
+usa `screencap` (via WS/Shizuku) para `screenshot`; `WEBP_LOSSY` corregido
+(§15.1). `open_app` con poll de foreground = 1.9–5.3 s (no es coste nativo).
+
+**Experiencia (subjetiva del operador/orquestador):**
+- El `hello` responde **sin campo `id`**; un cliente que espere `id` se cuelga
+  (me pasó hasta leer `PROTOCOL §2`). `caps` viene en el hello.
+- `dump_ui` es consistente (p90≈max, jitter bajo) → apto para loops.
+- `screenshot` domina el presupuesto (~1 s): es evidencia, no primaria
+  (coherente con `AGENTS §1`). WebP q80 recorta el payload ~3×.
+- Native N0 es instantáneo salvo `get_cpu`; sirve para *probes* baratos.
+- La ruta ADB/uiautomator (`android_ui_dump`) es **inviable** para el loop
+  (~2.3 s/dump); confirma por qué la accesibilidad in-process manda.
+
+Sin commits (cierra @judge), sin push. Sin keys/tokens expuestos.

@@ -8,6 +8,8 @@ import (
 	"math"
 	"os/exec"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,20 +17,31 @@ import (
 	"github.com/k4wai1/jav/pkg/jam"
 	"github.com/k4wai1/jav/pkg/jev"
 	"github.com/k4wai1/jav/pkg/normalizer"
+	"github.com/k4wai1/jav/pkg/uitrack"
 )
 
 // Adaptadores pasivos de ejecución paso a paso + resolve_element táctico
 // (Jev vía OPENROUTER_API_KEY/JEV_MODEL). Sin bucles, sin planificación
 // macro, sin clientes que decidan pasos: OpenCode/cliente externo ES el
-// único Sistema 2. El slug S2 por OpenRouter (p.ej. deepseek/deepseek-chat)
-// lo configura el director externo; aquí no vive ningún provider S2.
-// El director externo invoca resolve_element con (screen_goal, tabla
-// serializada, snapshot_id) y ejecuta una primitiva por paso.
+// único Sistema 2. El director externo invoca resolve_element con
+// (screen_goal, tabla serializada, snapshot_id) y ejecuta una primitiva
+// por paso.
+//
+// `resolve_element` (S1) NO usa la superficie S2: `s2.go` resuelve base/key/
+// modelo (JAV_AI_*) y ejecuta chat/completions, pero no está cableado a
+// ningún flujo —la decisión de pasos sigue siendo del director externo.
 
 // --- Resolver ciego (UMA Choice) ---
 
 // BuildResolveState construye (state, questions) ciegos al goal global.
 func BuildResolveState(screenGoal string, serial []jev.SerialRow, snapshotID int64, currentApp string, firstResult any) (map[string]any, map[string]map[string]any) {
+	return BuildResolveStateWithTried(screenGoal, serial, snapshotID, currentApp, firstResult, nil)
+}
+
+// BuildResolveStateWithTried igual que BuildResolveState, marcando con el flag
+// `tried` las filas cuyo idx (col 0) ya fue probado en este fingerprint. El
+// marcado ocurre solo en la copia que va al modelo: SerializeTable intacto.
+func BuildResolveStateWithTried(screenGoal string, serial []jev.SerialRow, snapshotID int64, currentApp string, firstResult any, triedIdx map[int]bool) (map[string]any, map[string]map[string]any) {
 	targetKeys := make([]string, 0, len(serial)+1)
 	for _, r := range serial {
 		if len(r) > 0 {
@@ -46,7 +59,14 @@ func BuildResolveState(screenGoal string, serial []jev.SerialRow, snapshotID int
 		copy(cp, r)
 		if len(cp) > 4 {
 			if s, ok := cp[4].(string); ok {
-				cp[4] = normalizer.FormatCandidateLabel(s)
+				cp[4] = normalizer.FormatCandidateLabel(normalizer.SanitizeModelLabel(s))
+			}
+		}
+		if len(cp) > 3 {
+			if idx, ok := idxOfRow(r); ok && triedIdx[idx] {
+				if f, ok := cp[3].(string); ok {
+					cp[3] = normalizer.AddFlag(f, normalizer.TriedFlag)
+				}
 			}
 		}
 		table = append(table, cp)
@@ -61,6 +81,22 @@ func BuildResolveState(screenGoal string, serial []jev.SerialRow, snapshotID int
 			"criteria":     crit},
 	}
 	return state, questions
+}
+
+// idxOfRow extrae el índice de tabla (col 0) de una fila serializada.
+func idxOfRow(r jev.SerialRow) (int, bool) {
+	if len(r) == 0 {
+		return 0, false
+	}
+	switch v := r[0].(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	}
+	return 0, false
 }
 
 // ParseResolveAnswer valida Choice estricta → (idx|NONE, conf).
@@ -131,6 +167,49 @@ func SovereignFallback(reason string, snapshotID int64) map[string]any {
 // ResolveTau por defecto (generic-dual-tier §7: TAU=0.70).
 const ResolveTau = normalizer.TAU
 
+// TopCandidate un candidato recomendado del Fallback Soberano.
+type TopCandidate struct {
+	Idx  int     `json:"idx"`
+	Prob float64 `json:"prob"`
+}
+
+// TopCandidatesMax candidatos máximos que se recomiendan al Director.
+const TopCandidatesMax = 3
+
+// TopCandidates ordena la distribución de mayor a menor prob; empate →
+// menor idx. Descarta claves no numéricas ("NONE"), índices fuera de
+// [0, normalizer.MaxTable-1] y probs no finitas. nil si no queda nada.
+func TopCandidates(probs map[string]float64, n int) []TopCandidate {
+	if len(probs) == 0 || n <= 0 {
+		return nil
+	}
+	out := make([]TopCandidate, 0, len(probs))
+	for k, v := range probs {
+		i, err := strconv.Atoi(k)
+		if err != nil || i < 0 || i > normalizer.MaxTable-1 {
+			continue
+		}
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			continue
+		}
+		out = append(out, TopCandidate{Idx: i, Prob: v})
+	}
+	// Orden total explícito: la iteración de map en Go es aleatoria.
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].Prob != out[b].Prob {
+			return out[a].Prob > out[b].Prob
+		}
+		return out[a].Idx < out[b].Idx
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // ResolveElement resuelve un elemento vía S1 (UNA Choice, sin goal global).
 // Fallback Soberano: si Jev falla (red, envelope vacío, distribución
 // inválida, conf<tau, NONE, sin key) devuelve payload estructurado
@@ -153,7 +232,7 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 	if jev.IsMock() {
 		return SovereignFallback("S1_UNAVAILABLE: resolve_element desactivado sin OPENROUTER_API_KEY; rellena OPENROUTER_API_KEY (S1 solo acepta esa key, nunca JAV_AI_API_KEY)", snapshotID), nil
 	}
-	state, questions := BuildResolveState(screenGoal, serial, snapshotID, currentApp, firstResult)
+	state, questions := BuildResolveStateWithTried(screenGoal, serial, snapshotID, currentApp, firstResult, uitrack.CurrentTriedIdx())
 	fn := ask
 	if fn == nil {
 		fn = jev.Ask
@@ -169,6 +248,7 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 	criteria, _ := questions["target"]["criteria"].(map[string]any)
 	var idx any
 	var conf float64
+	var top []TopCandidate
 	if norm.Key != "" || norm.Raw != nil {
 		if _, ok := criteria[norm.Key]; !ok {
 			return SovereignFallback("S1_HALLUCINATION: TypeSafe returned an invalid choice distribution. (choice fuera de criteria)", snapshotID), nil
@@ -177,8 +257,14 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 		if math.IsNaN(conf) || math.IsInf(conf, 0) || conf < 0.0 || conf > 1.0 {
 			return SovereignFallback("S1_HALLUCINATION: TypeSafe returned an invalid choice distribution. (conf no finita o fuera de [0,1])", snapshotID), nil
 		}
+		// P3: se calcula AQUÍ, antes de la rama NONE, que retorna antes.
+		top = TopCandidates(norm.Probs, TopCandidatesMax)
 		if norm.Key == "NONE" {
-			return SovereignFallback("NO_TARGET: S1 eligió NONE; ningún candidato útil en esta pantalla", snapshotID), nil
+			fb := SovereignFallback("NO_TARGET: S1 eligió NONE; ningún candidato útil en esta pantalla", snapshotID)
+			if len(top) > 0 {
+				fb["top_candidates"] = top
+			}
+			return fb, nil
 		}
 		var n int
 		if _, err := fmt.Sscan(norm.Key, &n); err != nil {
@@ -198,6 +284,9 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 		inTok, outTok, pcost := jev.UsageTokens(usage)
 		fb["cost_usd"] = tracker.Track(cost.JevModelID(), inTok, outTok, nil, "s1", pcost)
 		fb["usage"] = usage
+		if len(top) > 0 {
+			fb["top_candidates"] = top
+		}
 		return fb, nil
 	}
 	mock := false

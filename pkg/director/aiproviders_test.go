@@ -8,11 +8,9 @@ import (
 	"github.com/k4wai1/jav/pkg/jev"
 )
 
-// Sin S2 interno: OpenCode/cliente externo ES el único Sistema 2. Este
-// fichero solo conserva la aceptación S1 de resolve_element (sin key →
-// error honesto, nunca idx utilizable). El slug S2 por OpenRouter (p.ej.
-// deepseek/deepseek-chat) lo configura el director externo; aquí no hay
-// provider S2 ni tests de base/modelo/key S2.
+// Aceptación S1 de resolve_element (sin key → error honesto, nunca idx
+// utilizable). La superficie S2 agnóstica (base/key/modelo JAV_AI_*) vive en
+// s2.go con su propio s2_test.go; este fichero solo cubre S1.
 
 // Aceptación #3 (Fallback Soberano): resolve_element sin
 // OPENROUTER_API_KEY → payload fallback honesto, nunca idx utilizable,

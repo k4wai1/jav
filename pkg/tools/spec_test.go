@@ -67,7 +67,7 @@ func TestValidationErrorHint(t *testing.T) {
 
 func TestPromptBodiesCarryGates(t *testing.T) {
 	for name, wants := range map[string][]string{
-		"troubleshoot_app": {"read_screen", "STALE_SNAPSHOT", "hint"},
+		"troubleshoot_app":  {"read_screen", "STALE_SNAPSHOT", "hint"},
 		"navigate_and_copy": {"planned:true", "confirm:true", "CLIPBOARD_EMPTY"},
 		"send_verified":     {"planned:true", "confirm:true", "read_screen"},
 	} {

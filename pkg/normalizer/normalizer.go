@@ -30,6 +30,11 @@ const InputTimeoutMs = 2500
 const PollMs = 60
 
 const PassMask = "a password, not read"
+
+// SecretMask sustituye al texto tipeado de un nodo secreto cuando no hay
+// etiqueta derivable (content_desc/resource_id/id) que mostrar.
+const SecretMask = "••••"
+
 const EmptyFlags = "—"
 const ZoneUnknown = "unknown"
 
@@ -86,6 +91,7 @@ type Candidate struct {
 	Focused    bool
 	Scrollable bool
 	Visible    bool
+	Secret     bool
 	Bounds     [4]int
 }
 
@@ -105,6 +111,11 @@ func (c Candidate) Compact() string {
 	if c.Editable && c.Focused {
 		focus = " (focused)"
 	}
+	if c.Secret {
+		// Nunca renderizar el texto tipeado de un campo secreto: se usa la
+		// etiqueta derivada (content_desc → resource_id → id) o «••••».
+		return "[" + c.ID + "] " + c.Cls + " \"" + secretLabel(c.Desc, c.ResourceID, c.ID) + "\"" + focus
+	}
 	if c.Text != "" {
 		return "[" + c.ID + "] " + c.Cls + " \"" + c.Text + "\"" + focus
 	}
@@ -119,6 +130,32 @@ func (c Candidate) Compact() string {
 		return "[" + c.ID + "] " + c.Cls + " id=" + rid
 	}
 	return "[" + c.ID + "] " + c.Cls
+}
+
+// SafeText texto apto para el modelo/forense: reemplaza el texto tipeado de
+// un nodo secreto por SecretMask (nunca el secreto en claro).
+func (c Candidate) SafeText() string {
+	if c.Secret && c.Text != "" {
+		return SecretMask
+	}
+	return c.Text
+}
+
+// secretLabel etiqueta segura de un nodo secreto: content_desc → basename
+// de resource_id → id → SecretMask. Nunca usa el texto tipeado.
+func secretLabel(desc, rid, id string) string {
+	if d := strings.TrimSpace(desc); d != "" {
+		return d
+	}
+	if i := strings.LastIndex(rid, "/"); i >= 0 {
+		if r := rid[i+1:]; r != "" {
+			return r
+		}
+	}
+	if id != "" {
+		return id
+	}
+	return SecretMask
 }
 
 // FocusedField es el campo que recibiría typing (patrón A2).
@@ -197,6 +234,22 @@ func isPassword(class, rid, hint, desc string) bool {
 	return false
 }
 
+// isPasswordNode true si el nodo es un campo de entrada secreto: debe ser
+// editable (un secreto tipeado solo vive en un input) y declarar la propiedad
+// nativa `password`/`is_password` o llevar marcador en class/resource_id/
+// hint/desc. Exigir `editable` evita falsos positivos en badges/indicadores
+// no editables (p.ej. resource_id `pin_indicator`).
+func isPasswordNode(n map[string]any) bool {
+	if !boolVal(n, "editable") {
+		return false
+	}
+	if boolVal(n, "password") || boolVal(n, "is_password") {
+		return true
+	}
+	return isPassword(strVal(n, "class"), strVal(n, "resource_id"),
+		strVal(n, "hint"), strVal(n, "content_desc"))
+}
+
 func fieldLabel(text, desc, rid, id string) string {
 	if t := strings.TrimSpace(text); t != "" {
 		return t
@@ -241,8 +294,7 @@ func theFocusedField(nodes []map[string]any) *FocusedField {
 			break
 		}
 	}
-	secret := isPassword(strVal(chosen, "class"), strVal(chosen, "resource_id"),
-		strVal(chosen, "hint"), strVal(chosen, "content_desc"))
+	secret := isPasswordNode(chosen)
 	holds := strings.TrimSpace(strVal(chosen, "text"))
 	if len(holds) > HoldsMax {
 		holds = holds[:HoldsMax]
@@ -251,8 +303,14 @@ func theFocusedField(nodes []map[string]any) *FocusedField {
 	if secret {
 		kind = "password"
 	}
+	label := fieldLabel(strVal(chosen, "text"), strVal(chosen, "content_desc"), strVal(chosen, "resource_id"), strVal(chosen, "id"))
+	if secret {
+		// Nunca derivar la etiqueta del texto tipeado (sería el secreto):
+		// desc → resource_id → id.
+		label = fieldLabel("", strVal(chosen, "content_desc"), strVal(chosen, "resource_id"), strVal(chosen, "id"))
+	}
 	return &FocusedField{
-		Label:      fieldLabel(strVal(chosen, "text"), strVal(chosen, "content_desc"), strVal(chosen, "resource_id"), strVal(chosen, "id")),
+		Label:      label,
 		Kind:       kind,
 		Holds:      holds,
 		IsPassword: secret,
@@ -356,6 +414,7 @@ func Normalize(dump map[string]any, limit, screenH, screenW int) *NormalizedStat
 			Focused:    boolVal(n, "focused"),
 			Scrollable: boolVal(n, "scrollable"),
 			Visible:    boolValDefault(n, "visible", true),
+			Secret:     isPasswordNode(n),
 			Bounds:     b,
 		})
 	}
@@ -412,6 +471,24 @@ type Row struct {
 	ClassShort string
 	Zone       string
 	Flags      string
+}
+
+// TriedFlag marca en las copias que van al modelo una fila ya probada.
+const TriedFlag = "tried"
+
+// AddFlag añade un flag al subset ordenado sin tocar SerializeTable/Row.Label.
+// EmptyFlags (`—`) equivale a vacío.
+func AddFlag(flags, flag string) string {
+	if flag == "" {
+		return flags
+	}
+	if flags == "" || flags == EmptyFlags {
+		return flag
+	}
+	if strings.Contains("|"+flags+"|", "|"+flag+"|") {
+		return flags
+	}
+	return flags + "|" + flag
 }
 
 // RowFlags subset ordenado `click|edit|foc|scroll`; vacío = `—`.
@@ -528,6 +605,68 @@ func FormatCandidateLabel(text string) string {
 		return text
 	}
 	return t + " [" + role + "]"
+}
+
+// SanitizeMaxRunes tope de la etiqueta que va al modelo (runas, no bytes).
+const SanitizeMaxRunes = 80
+
+// SanitizeModelLabel capa adaptadora de saneamiento para la etiqueta que ve
+// el modelo: elimina ruido de transporte (control chars, zero-width),
+// colapsa espacios y acota longitud. NO la usa SerializeTable (paridad
+// golden), ni BuildTable/Row.Label, ni TapIdx/by_idx, ni el forense.
+func SanitizeModelLabel(text string) string {
+	var b strings.Builder
+	b.Grow(len(text))
+	for _, r := range text {
+		switch {
+		case r < 0x20: // C0: \n, \r, \t y resto
+			continue
+		case r >= 0x200b && r <= 0x200f: // ZWSP/ZWJ/ZWNJ/BOM/LRM/RLM
+			continue
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return truncateRunes(collapseU0020(b.String()), SanitizeMaxRunes)
+}
+
+// collapseU0020 colapsa cada racha de U+0020 a un espacio y recorta
+// extremos. A propósito NO usa strings.Fields: parte por unicode.IsSpace y
+// se comería NBSP/U+2009/U+3000, que deben sobrevivir intactos.
+func collapseU0020(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	space := false
+	for _, r := range s {
+		if r == 0x20 {
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteRune(' ')
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// truncateRunes corta duro a n runas (nunca bytes).
+func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	i := 0
+	for pos := range s {
+		if i == n {
+			return s[:pos]
+		}
+		i++
+	}
+	return s
 }
 
 // FirstResult hint del primer interactivo del contenedor principal (§12.2).
@@ -709,6 +848,42 @@ func ScreenFingerprint(cands []Candidate) string {
 	}
 	sum := sha256.Sum256([]byte(sb.String()))
 	return hex.EncodeToString(sum[:])
+}
+
+// LabelIsVolatile true si el texto es un reloj/porcentaje (anti-ticker §2).
+func LabelIsVolatile(text string) bool {
+	t := strings.TrimSpace(text)
+	return t != "" && volatileTextRe.MatchString(t)
+}
+
+// ScreenFingerprintRows firma corta de pantalla (12 hex de sha256) sobre el
+// paquete + las filas normalizadas (class_short, zone, flags y label limpio),
+// en orden. Excluye filas volátiles (relojes/porcentajes) y no incluye
+// snapshot_id. Pura; NO la usa SerializeTable (paridad golden).
+func ScreenFingerprintRows(pkg string, rows []Row) string {
+	var sb strings.Builder
+	sb.WriteString(pkg)
+	sb.WriteByte('\n')
+	n := 0
+	for _, r := range rows {
+		if LabelIsVolatile(r.Text) {
+			continue
+		}
+		sb.WriteString(r.ClassShort)
+		sb.WriteByte('\x1f')
+		sb.WriteString(r.Zone)
+		sb.WriteByte('\x1f')
+		sb.WriteString(r.Flags)
+		sb.WriteByte('\x1f')
+		sb.WriteString(SanitizeModelLabel(r.Label))
+		sb.WriteByte('\n')
+		n++
+	}
+	if n == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(sb.String()))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 // RunSignature firma fail-fast entre corridas (§12.3).

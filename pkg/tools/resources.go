@@ -43,15 +43,15 @@ func hTelemetry(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.Resourc
 		return res
 	}
 	doc := map[string]any{
-		"scopes":       c.Scopes,
-		"app_version":  c.AppVersion,
-		"battery":      section("get_battery", nil),
-		"memory":       section("get_memory", nil),
-		"storage":      section("get_storage", map[string]any{"detail": "basic"}),
-		"cpu":          section("get_cpu", map[string]any{"detail": "basic"}),
-		"device":       section("get_device_info", nil),
+		"scopes":        c.Scopes,
+		"app_version":   c.AppVersion,
+		"battery":       section("get_battery", nil),
+		"memory":        section("get_memory", nil),
+		"storage":       section("get_storage", map[string]any{"detail": "basic"}),
+		"cpu":           section("get_cpu", map[string]any{"detail": "basic"}),
+		"device":        section("get_device_info", nil),
 		"stale_after_s": 60,
-		"warning":      staleWarning,
+		"warning":       staleWarning,
 	}
 	raw, _ := json.Marshal(doc)
 	return []mcp.ResourceContents{

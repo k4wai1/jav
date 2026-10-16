@@ -93,14 +93,14 @@ func TestReplayPythonParity(t *testing.T) {
 		ScreenW int `json:"screen_w"`
 		ScreenH int `json:"screen_h"`
 		Dumps   map[string]struct {
-			Package    string     `json:"package"`
-			SnapshotID int64      `json:"snapshot_id"`
-			RawCount   int        `json:"raw_count"`
-			NCands     int        `json:"n_cands"`
-			Compact    []string   `json:"compact"`
-			Table      [][]any    `json:"table"`
-			Zones      []string   `json:"zones"`
-			IDs        []string   `json:"ids"`
+			Package    string   `json:"package"`
+			SnapshotID int64    `json:"snapshot_id"`
+			RawCount   int      `json:"raw_count"`
+			NCands     int      `json:"n_cands"`
+			Compact    []string `json:"compact"`
+			Table      [][]any  `json:"table"`
+			Zones      []string `json:"zones"`
+			IDs        []string `json:"ids"`
 		} `json:"dumps"`
 	}
 	if err := json.Unmarshal(expRaw, &exp); err != nil {

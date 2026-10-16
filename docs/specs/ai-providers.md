@@ -80,14 +80,23 @@ Vacío en los cuatro → default final `z-ai/glm-5.3-flash`
 
 ### 2.2 Estado de implementación honesto (Go v1)
 
-`go-migration-plan.md` §6.5 fija **solo OpenRouter en v1**: el Go hoy
-cablea `s2Endpoint = https://openrouter.ai/api/v1/chat/completions`
-con la misma `OPENROUTER_API_KEY` que S1 y modelo `S2_MODEL`/`GLM_MODEL`.
-**`JAV_AI_*` es contrato normativo a cablear por `@coder`, no código
-existente** (grep `JAV_AI_` en `cmd/`+`pkg/` → vacío a 2026-10-08).
-Hasta que esté cableado, la vía operativa S2 es
-`OPENROUTER_API_KEY` + `S2_MODEL`; este spec fija hacia dónde se
-converge sin romperla.
+**Actualizado 2026-10-15.** La resolución de `JAV_AI_*` vive en
+`pkg/director/s2.go` (aditiva, sin cablear a ningún flujo):
+
+- `S2BaseURL()` (`JAV_AI_BASE_URL`, default `https://openrouter.ai/api/v1`),
+  `S2Endpoint()` (`{base}/chat/completions`), `S2Key()` (`JAV_AI_API_KEY` →
+  `OPENROUTER_API_KEY` → `""`), `S2IsLocalBase()` (loopback/`localhost`),
+  `S2Config()` (sin key contra base remota → `*S2NoKey` honesto).
+- `S2Chat(...)` hace `POST {base}/chat/completions` con transporte
+  inyectable (`DoFunc`); content vacío → `*S2EmptyResponse`;
+  `S2ParseCommand(content)` → `*S2BadCommand` si no es objeto JSON.
+- El **modelo** lo resuelve `pkg/cost.S2ModelID()` (cadena §2.1).
+
+Hoy `resolve_element` (S1) **no** usa esta superficie: la vía operativa S2
+sigue siendo el director externo (OpenCode). El slug por OpenRouter (p.ej.
+`deepseek/deepseek-chat`) y la base local/remota los elige el operador por
+env; `s2.go` los resuelve y valida con errores honestos. `pkg/jev` (S1)
+**nunca** lee `JAV_AI_*` (aceptación §5 #1).
 
 ## 3. Tabla qué-puede-ser-qué (ejemplos REALES)
 

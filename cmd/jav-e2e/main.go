@@ -53,12 +53,12 @@ var sensitiveEnv = map[string]bool{
 
 // row es una fila de la tabla e2e.
 type row struct {
-	tool    string
-	args    string
-	result  string // ok | planned | error | dry-run | NotRun
-	code    string
-	latMs   float64
-	note    string
+	tool   string
+	args   string
+	result string // ok | planned | error | dry-run | NotRun
+	code   string
+	latMs  float64
+	note   string
 }
 
 func loadEnvFile(path string) {

@@ -42,9 +42,13 @@
 ### Fase 3 — Ejecución (Shizuku + gestos + captura)
 - [x] 3a: `open_app` (`am start` por Shizuku, fallback `monkey`),
   `force_stop`, `screenshot` (`takeScreenshot`, API 30+).
-- [ ] Deuda: preferir `tap_node(id, snapshot_id)` sobre `tap(selector)`;
+- [x] Deuda: preferir `tap_node(id, snapshot_id)` sobre `tap(selector)`;
   `ACTION_CLICK` primero + `dispatchGesture` fallback + `via` verificado;
   `type` por `ACTION_SET_TEXT` con foco explícito.
+- [x] P6 (2026-10-15, §10): reanclaje de nodo vivo (`LiveNodeReanchor`) +
+  `tapLiveNode` con `via` único, foco best-effort en editables,
+  `typeNode` con `setText`, y `screenshot` API 29 con fallback `screencap`
+  (`via:"screencap"`; verificado en banco, `docs/BUILD.md §15`).
 - [ ] `shell` diferido a Fase 6; dispatcher lo rechaza con
   `METHOD_NOT_ALLOWED` explícito.
 
@@ -104,6 +108,26 @@
 - [ ] Pendiente honesto: walk-up y glifos validados en tests unitarios, sin
   corrida con modelo S1 live. `verify_state`/`tap_point` siguen fuera
   (invariante estricta de 35 tools; `make audit-mcp` 11/11).
+
+### Robustez táctica P3–P6 + S2 `JAV_AI_*` (2026-10-15, banco A10 `e03638e5`, SDK 29)
+- [x] P3 (§8): resiliencia S1 — `SanitizeModelLabel`, retry 2xx
+  vacío/truncado, `Answer.Probs`, `top_candidates` aditivo. `pkg/jev`.
+- [x] P4 (§9): `focused_field` endurecido (nunca viaja el secreto) +
+  `screen_fingerprint`/`diff_since_last` + memoria `[tried]` (`pkg/uitrack`).
+- [x] P5 (§11): secretos enmascarados en `candidates`/`render`
+  (`Candidate.Secret`, `Compact`, `SafeText`); paridad Python intacta.
+- [x] P6 (§10): `LiveNodeReanchor` + `tapLiveNode` (`via` único) + foco
+  best-effort + `screenshot` API 29 con `screencap` (`via:"screencap"`).
+  Bug `WEBP_LOSSY` (API 30+) cazado y corregido en vivo (`BUILD.md §15.1`).
+- [x] S2 `JAV_AI_*` (`docs/specs/ai-providers.md` §2.2): `pkg/director/s2.go`
+  resuelve base/key/modelo (`S2BaseURL`/`S2Key`/`S2Config`), ejecuta
+  `chat/completions` (`S2Chat`) y parsea comando (`S2ParseCommand`); errores
+  honestos `S2NoKey`/`S2EmptyResponse`/`S2BadCommand`. Aditivo, sin cablear a
+  S1. Aceptación §5 #4/#5 cubierta.
+- [x] Benchmark sintético de tools en A10 (2026-10-15): `dump_ui` 74 ms (30 n),
+  `~15 ms + ~1.4 ms/nodo`, `get_foreground` 26 ms, native N0 7–12 ms,
+  `screenshot` webp 1037 ms; vs `uiautomator dump` ~2280 ms (**~30×**).
+  Crudo `docs/TESTING.md §12`, síntesis `PERFORMANCE.md §5`, build `BUILD.md §16`.
 
 ### Fase v5 — Director-cliente (loop congelado; `resolve_element` + `set_clipboard`)
 - [x] Contratos `@architect`: `docs/specs/paradigm-shift.md` (3 giros 2026-10-06),

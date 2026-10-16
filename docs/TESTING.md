@@ -312,3 +312,83 @@ content-changed). Walk-up y glifos quedan cubiertos por tests unitarios
 
 Estado de suites: `go test ./...` verde · `./gradlew testDebugUnitTest` 49
 tests verde · `make audit-mcp` **11/11 PASS** (35 tools, 0 diffs de schema).
+
+## 12. Benchmark sintético de latencias — A10 `e03638e5` (Android 10/API 29)
+
+Fecha 2026-10-15. Banco A10 solo USB, accesibilidad **on** + Shizuku **on**
+(`caps` = `accessibility:true, shizuku:true`), APK debug con P4/P5/P6 y el
+fix `WEBP_LOSSY` (§13). Host: Debian, JDK 21. Sin LLM (latencia pura de tool).
+Cliente: WS `127.0.0.1:38472` (`adb forward tcp:38472 tcp:38472`), token del
+`.env` (**nunca impreso**).
+
+Reproducir (script efímero, no commiteado; el token se lee del `.env`):
+
+```bash
+adb -s e03638e5 forward tcp:38472 tcp:38472
+python3 /tmp/opencode/bench.py            # grupo lectura + native N0 + cross-app
+# equivalencias de la ruta ADB/uiautomator (MCP android_*):
+for i in $(seq 1 8); do
+  t0=$(date +%s%N); adb -s e03638e5 shell uiautomator dump /sdcard/w.xml >/dev/null 2>&1; \
+  adb -s e03638e5 pull /sdcard/w.xml /tmp/w.xml >/dev/null 2>&1; \
+  t1=$(date +%s%N); echo "uia dump $(( (t1-t0)/1000000 )) ms"; done
+for i in $(seq 1 8); do
+  t0=$(date +%s%N); adb -s e03638e5 exec-out screencap -p >/tmp/sc.png; \
+  t1=$(date +%s%N); echo "screencap $(( (t1-t0)/1000000 )) ms"; done
+```
+
+### 12.1 Grupo lectura (Jam WS, AccessibilityService in-process)
+
+| Método | n | min | p50 | p90 | max | media |
+|---|---|---|---|---|---|---|
+| `get_foreground` | 30 | 17.9 | **26.4** | 33.0 | 37.7 | 26.9 ms |
+| `dump_ui` (30 nodos) | 20 | 61.4 | **74.3** | 91.6 | 102.3 | 76.3 ms |
+| `screenshot` webp q80 | 8 | 1017.5 | **1037.2** | 1040.4 | 1041.2 | 1033.8 ms |
+| `screenshot` png q80 | 8 | 1075.5 | **1100.9** | 1112.8 | 1119.3 | 1101.7 ms |
+
+`screenshot` reporta `via:"screencap"` (API 29), `360x720`; payload webp
+**~20 KB** vs png **~60 KB** (base64 en el frame).
+
+### 12.2 Grupo native-apis N0 (sin Shizuku)
+
+| Método | n | min | p50 | p90 | max | media |
+|---|---|---|---|---|---|---|
+| `get_device_info` | 30 | 9.4 | **10.3** | 13.6 | 15.9 | 11.2 ms |
+| `get_battery` | 30 | 6.1 | **11.9** | 16.1 | 20.8 | 11.6 ms |
+| `get_memory` | 30 | 6.2 | **7.3** | 11.3 | 14.8 | 8.2 ms |
+| `get_cpu` | 30 | 129.3 | **130.5** | 134.0 | 136.7 | 131.4 ms |
+| `get_storage` | 30 | 6.8 | **8.5** | 11.4 | 13.2 | 9.1 ms |
+
+`get_cpu` (lectura `/proc/stat` + delta) es el único con coste apreciable
+(~130 ms); el resto es sub-16 ms.
+
+### 12.3 Cross-app: `dump_ui` escala ~1.4 ms/nodo
+
+`open_app` (Shizuku + poll foreground) + 5× `dump_ui` por app:
+
+| package | open_ms | nodos | dump p50 | dump max |
+|---|---|---|---|---|
+| com.aurora.store | 3259 | 14 | 34.1 | 44.5 |
+| org.fossify.messages | 2122 | 31 | 70.9 | 84.2 |
+| org.fossify.math | 1918 | 42 | 67.6 | 109.8 |
+| org.fossify.gallery | 2351 | 47 | 95.6 | 124.6 |
+| com.brave.browser | 5275 | 56 | 194.2 | 537.3 |
+| org.fossify.musicplayer | 2566 | 76 | 143.2 | 192.0 |
+| org.fossify.filemanager | 3628 | 85 | 128.2 | 169.4 |
+| org.fossify.home | 2131 | 117 | 183.2 | 362.4 |
+
+Ajuste lineal ≈ `~15 ms + ~1.4 ms/nodo` (117 nodos → 183 ms), **mejor** que el
+`~2 ms/nodo` de `PERFORMANCE.md §1`; se cumple el criterio ≤300 ms para ≤150
+nodos. `open_app` domina con 1.9–5.3 s (poll de foreground, no la llamada
+nativa). `brave` p90 alto = repintado durante el dump.
+
+### 12.4 Ruta ADB / `uiautomator` (referencia MCP `android_*`)
+
+| Ruta | p50 | payload | nota |
+|---|---|---|---|
+| `adb shell uiautomator dump` + pull | **~2280 ms** | XML ~117 nodos (incluye contenedores) | ruta `android_ui_dump` |
+| `adb exec-out screencap -p` | **~683 ms** | PNG 93 KB | ruta `android_screenshot` |
+| Jam `dump_ui` (accesibilidad) | **~74 ms** (30 n) | JSON filtrado | in-process, ~30× más rápido |
+
+Jam entrega menos nodos (sin decoración/contenedores no accionables), por eso
+los conteos no son 1:1; a igual criterio de nodos la ventaja de latencia se
+mantiene (>10×).

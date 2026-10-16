@@ -1,6 +1,7 @@
 package dev.jev.jam.ui
 
 import android.graphics.Rect
+import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
@@ -27,6 +28,8 @@ interface A11yNode {
     fun parent(): A11yNode?
     /** Ejecuta ACTION_CLICK sobre el nodo nativo (false si no aplica). */
     fun performClick(): Boolean
+    fun performFocus(): Boolean
+    fun setText(text: CharSequence): Boolean
     /** Libera el nodo nativo. El extractor recicla todo lo que obtiene
      * vía [getChild]; la raíz la recicla el llamador (el servicio). */
     fun recycle()
@@ -59,6 +62,13 @@ class RealA11yNode(private val info: AccessibilityNodeInfo) : A11yNode {
         info.getChild(index)?.let(::RealA11yNode)
     override fun parent(): A11yNode? = info.getParent()?.let(::RealA11yNode)
     override fun performClick(): Boolean = info.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    override fun performFocus(): Boolean = info.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+    override fun setText(text: CharSequence): Boolean {
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return info.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
     override fun recycle() = info.recycle()
 }
 

@@ -5,21 +5,22 @@ import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Path
 import android.graphics.Point
-import android.graphics.Rect
 import android.os.Build
-import android.os.Bundle
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Display
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import dev.jev.jam.shell.ShizukuBridge
 import dev.jev.jam.socket.JamError
+import dev.jev.jam.ui.A11yNode
 import dev.jev.jam.ui.ClickAncestor
 import dev.jev.jam.ui.DisplayScale
+import dev.jev.jam.ui.LiveNodeReanchor
+import dev.jev.jam.ui.ReanchorStatus
 import dev.jev.jam.ui.RealA11yNode
 import dev.jev.jam.ui.Selector
 import dev.jev.jam.ui.SelectorResolver
@@ -42,8 +43,8 @@ data class ScreenshotData(val img: String, val w: Int, val h: Int, val via: Stri
 // Anti-ticker (spec tactical-robustness-p1p2 §1): los
 // TYPE_WINDOW_CONTENT_CHANGED son ruido cosmético del sistema Y de la
 // propia app (relojes, animaciones, cursores). No invalidan el snapshot
-// por sí solos: la identidad real del nodo se valida en verifySame al
-// actuar (STALE_SNAPSHOT si de verdad cambió).
+// por sí solos: la identidad real del nodo se valida en reanchorOrThrow
+// al actuar (STALE_SNAPSHOT si de verdad cambió).
 internal fun isVolatileEvent(eventType: Int?): Boolean =
     eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
 
@@ -150,48 +151,24 @@ class JevAccessibilityService : AccessibilityService() {
             ?: throw JamError("nodo fuera del snapshot", "STALE_SNAPSHOT")
     }
 
-    /**
-     * Re-recorre el árbol actual y devuelve el nodo vivo en la posición
-     * BFS `index` (mismo orden que el extractor). El llamador lo recicla.
-     */
-    private fun findLiveNodeByIndex(index: Int): AccessibilityNodeInfo? {
-        val root = rootInActiveWindow ?: return null
-        if (!root.isVisibleToUser) {
+    private fun reanchorOrThrow(expected: UiNode): A11yNode {
+        val idx = expected.id.removePrefix("n_").toIntOrNull()
+            ?: throw JamError("node_id inválido", "VALIDATION_ERROR")
+        val root = rootInActiveWindow
+            ?: throw JamError("el nodo ya no existe", "SELECTOR_NOT_FOUND")
+        val res = try {
+            LiveNodeReanchor.reanchor(RealA11yNode(root), expected, idx)
+        } finally {
             root.recycle()
-            return null
         }
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        val owned = ArrayList<AccessibilityNodeInfo>()
-        queue.add(root)
-        var count = 0
-        var result: AccessibilityNodeInfo? = null
-        while (queue.isNotEmpty() && result == null) {
-            val node = queue.removeFirst()
-            if (count == index) {
-                result = node
-                break
-            }
-            count++
-            for (i in 0 until node.childCount) {
-                val c = node.getChild(i) ?: continue
-                if (!c.isVisibleToUser) {
-                    c.recycle()
-                    continue
-                }
-                owned.add(c)
-                queue.add(c)
-            }
+        val live = res.node
+        if (res.status.found && live != null) return live
+        when (res.status) {
+            ReanchorStatus.NOT_FOUND -> throw JamError("la UI cambió entre dump y acción; re-haz dump_ui", "STALE_SNAPSHOT")
+            ReanchorStatus.AMBIGUOUS -> throw JamError("el nodo se duplicó en pantalla; re-haz dump_ui", "STALE_SNAPSHOT")
+            ReanchorStatus.NO_WINDOW -> throw JamError("el nodo ya no existe", "SELECTOR_NOT_FOUND")
+            else -> throw IllegalStateException("reanchor inconsistente: ${res.status}")
         }
-        for (n in owned) if (n !== result) n.recycle()
-        if (result !== root) root.recycle()
-        return result
-    }
-
-    private fun verifySame(live: AccessibilityNodeInfo, expected: UiNode) {
-        val same = live.text?.toString() == expected.text &&
-            live.viewIdResourceName == expected.resourceId &&
-            live.className?.toString() == expected.className
-        if (!same) throw JamError("la UI cambió entre dump y acción; re-haz dump_ui", "STALE_SNAPSHOT")
     }
 
     fun tapBySelector(sel: Selector): TapResult {
@@ -205,31 +182,39 @@ class JevAccessibilityService : AccessibilityService() {
         tapLiveNode(requireFreshNode(nodeId, snapshotId))
 
     private fun tapLiveNode(node: UiNode): TapResult {
-        val idx = node.id.removePrefix("n_").toIntOrNull()
-            ?: throw JamError("node_id inválido", "VALIDATION_ERROR")
-        val live = findLiveNodeByIndex(idx)
-            ?: throw JamError("el nodo ya no existe", "SELECTOR_NOT_FOUND")
+        val live = reanchorOrThrow(node)
         try {
-            verifySame(live, node)
-            if (live.isClickable && live.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                return TapResult(node.id, "action_click")
-            }
-            val ancestor = ClickAncestor.find(RealA11yNode(live))
-            if (ancestor != null) {
-                try {
-                    return TapResult(node.id, "click_ancestor")
-                } finally {
+            val via: String
+            if (live.isClickable && live.performClick()) {
+                via = "action_click"
+            } else {
+                val ancestor = ClickAncestor.find(live)
+                if (ancestor != null) {
                     ancestor.recycle()
+                    via = "click_ancestor"
+                } else {
+                    val bs = live.boundsInScreen
+                    if (bs.size != 4) throw JamError("nodo sin bounds", "INTERNAL_ERROR")
+                    val cx = (bs[0] + bs[2]) / 2
+                    val cy = (bs[1] + bs[3]) / 2
+                    val (px, py) = toPhysical(cx, cy)
+                    JevLog.d(TAG, "tap gesto log=$cx,$cy phys=$px,$py")
+                    if (!dispatchTap(px, py)) {
+                        throw JamError("gesto rechazado por el sistema", "INTERNAL_ERROR")
+                    }
+                    via = "gesture"
                 }
             }
-            val b = Rect()
-            live.getBoundsInScreen(b)
-            val (px, py) = toPhysical(b.centerX(), b.centerY())
-            JevLog.d(TAG, "tap gesto log=${b.centerX()},${b.centerY()} phys=$px,$py")
-            if (!dispatchTap(px, py)) {
-                throw JamError("gesto rechazado por el sistema", "INTERNAL_ERROR")
+            if (node.editable || live.isEditable) {
+                try {
+                    if (!live.performFocus()) {
+                        JevLog.d(TAG, "performFocus rechazado tras $via")
+                    }
+                } catch (t: Throwable) {
+                    JevLog.d(TAG, "performFocus lanzó: ${t.message}")
+                }
             }
-            return TapResult(node.id, "gesture")
+            return TapResult(node.id, via)
         } finally {
             live.recycle()
             uiDirty = true
@@ -238,21 +223,12 @@ class JevAccessibilityService : AccessibilityService() {
 
     fun typeNode(nodeId: String, snapshotId: Long, text: String): Int {
         val expected = requireFreshNode(nodeId, snapshotId)
-        val idx = nodeId.removePrefix("n_").toIntOrNull()
-            ?: throw JamError("node_id inválido", "VALIDATION_ERROR")
-        val live = findLiveNodeByIndex(idx)
-            ?: throw JamError("el nodo ya no existe", "SELECTOR_NOT_FOUND")
+        val live = reanchorOrThrow(expected)
         try {
-            verifySame(live, expected)
             if (!live.isFocused) {
                 throw JamError("el nodo no tiene foco; haz tap antes", "NOT_FOCUSED")
             }
-            val args = Bundle().apply {
-                putCharSequence(
-                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text
-                )
-            }
-            if (!live.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+            if (!live.setText(text)) {
                 throw JamError("ACTION_SET_TEXT rechazado", "INTERNAL_ERROR")
             }
             return text.length
@@ -355,8 +331,7 @@ class JevAccessibilityService : AccessibilityService() {
         }
         val bmp = takeScreenshotBlocking()
         try {
-            val fmt = if (format == "webp") Bitmap.CompressFormat.WEBP_LOSSY
-            else Bitmap.CompressFormat.PNG
+            val fmt = webpOrPng(format)
             val out = ByteArrayOutputStream()
             bmp.compress(fmt, quality.coerceIn(1, 100), out)
             val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
@@ -365,18 +340,32 @@ class JevAccessibilityService : AccessibilityService() {
                     "imagen excede 4 MiB; usa format=webp, quality=80", "PAYLOAD_TOO_LARGE"
                 )
             }
-            return ScreenshotData(b64, bmp.width, bmp.height, "takeScreenshot")
+            val via = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) "screencap" else "takeScreenshot"
+            return ScreenshotData(b64, bmp.width, bmp.height, via)
         } finally {
             if (!bmp.isRecycled) bmp.recycle()
         }
     }
 
+    /**
+     * WEBP_LOSSY es API 30+; en API 29 se usa WEBP (deprecado). Referenciar
+     * WEBP_LOSSY en API 29 lanza NoSuchFieldError (Error, no JamError), así
+     * que la referencia vive aislada y solo se ejecuta en API 30+.
+     */
+    private fun webpOrPng(format: String): Bitmap.CompressFormat = when {
+        format != "webp" -> Bitmap.CompressFormat.PNG
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> webpLossy()
+        else -> webpLegacy()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun webpLegacy(): Bitmap.CompressFormat = Bitmap.CompressFormat.WEBP
+
+    private fun webpLossy(): Bitmap.CompressFormat = Bitmap.CompressFormat.WEBP_LOSSY
+
     private fun takeScreenshotBlocking(): Bitmap {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            throw JamError(
-                "takeScreenshot requiere API 30+ (fallback screencap = Fase 3c)",
-                "INTERNAL_ERROR"
-            )
+            return screencapBlocking()
         }
         val latch = CountDownLatch(1)
         var bitmap: Bitmap? = null
@@ -418,6 +407,26 @@ class JevAccessibilityService : AccessibilityService() {
         }
         error?.let { throw it }
         return bitmap ?: throw JamError("bitmap nulo", "INTERNAL_ERROR")
+    }
+
+    private fun screencapBlocking(): Bitmap {
+        val r = ShizukuBridge.exec(
+            listOf("sh", "-c", "screencap -p | base64"), timeoutMs = SCREENSHOT_TIMEOUT_MS
+        )
+        if (r.exitCode != 0) {
+            throw JamError("screencap falló (exit ${r.exitCode}): ${r.stderr.take(200)}", "INTERNAL_ERROR")
+        }
+        val b64 = r.stdout.filter { !it.isWhitespace() }
+        if (b64.isEmpty()) {
+            throw JamError("captura vacía o superficie protegida (screencap)", "SECURE_SURFACE")
+        }
+        val raw = try {
+            Base64.decode(b64, Base64.DEFAULT)
+        } catch (t: IllegalArgumentException) {
+            throw JamError("captura vacía o superficie protegida (screencap)", "SECURE_SURFACE")
+        }
+        return BitmapFactory.decodeByteArray(raw, 0, raw.size)
+            ?: throw JamError("captura vacía o superficie protegida (screencap)", "SECURE_SURFACE")
     }
 
     // ---- gestos ----

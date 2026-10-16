@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -142,6 +143,62 @@ func TestFingerprintEmptyWhenAllVolatile(t *testing.T) {
 	}
 }
 
+func TestP5SecretNeverLeaks(t *testing.T) {
+	secret := "hunter2-s3cr3t"
+	d := dumpWith(
+		map[string]any{"id": "n1", "class": "android.widget.EditText",
+			"text": secret, "content_desc": "", "resource_id": "",
+			"clickable": false, "editable": true, "focused": true,
+			"scrollable": false, "visible": true, "password": true,
+			"bounds": []any{0, 0, 100, 50}},
+		map[string]any{"id": "n2", "class": "android.widget.EditText",
+			"text": secret, "content_desc": "Contraseña", "resource_id": "com.example.app:id/password",
+			"clickable": false, "editable": true, "focused": false,
+			"scrollable": false, "visible": true,
+			"bounds": []any{0, 0, 100, 50}},
+		node("n3", "android.widget.Button", "Enviar", true, false, ""),
+	)
+	st := Normalize(d, MaxCandidates, 800, 480)
+
+	if st.Focused == nil {
+		t.Fatalf("debe haber campo enfocado")
+	}
+	fv := st.Focused.AsView()
+	if fv["kind"] != "password" || fv["holds"] != PassMask || fv["label"] == secret {
+		t.Fatalf("focused_field no debe filtrar el secreto: %v", fv)
+	}
+	render := FormatState(st)
+	if strings.Contains(render, secret) {
+		t.Fatalf("render no debe contener el secreto: %q", render)
+	}
+	rows, _ := BuildTable(st.Candidates, 480, 800)
+	for _, fr := range SerializeTable(rows) {
+		blob, _ := json.Marshal(fr)
+		if strings.Contains(string(blob), secret) {
+			t.Fatalf("tabla no debe contener el secreto: %s", blob)
+		}
+	}
+	for _, c := range st.Candidates {
+		if c.SafeText() == secret || strings.Contains(c.Compact(), secret) {
+			t.Fatalf("candidates no debe contener el secreto: %+v", c)
+		}
+	}
+}
+
+func TestP5SecretLabelFallback(t *testing.T) {
+	c := Candidate{ID: "", Cls: "EditText", Text: "x", Secret: true}
+	if got := c.Compact(); !strings.Contains(got, SecretMask) {
+		t.Fatalf("sin etiqueta derivable debe usar %q: %q", SecretMask, got)
+	}
+	if c.SafeText() != SecretMask {
+		t.Fatalf("SafeText sin etiqueta debe ser %q: %q", SecretMask, c.SafeText())
+	}
+	c2 := Candidate{ID: "n9", Cls: "EditText", Text: "x", Desc: "Contraseña", Secret: true}
+	if got := c2.Compact(); !strings.Contains(got, "Contraseña") || strings.Contains(got, "\"x\"") {
+		t.Fatalf("debe usar content_desc como etiqueta: %q", got)
+	}
+}
+
 func TestFormatCandidateLabel(t *testing.T) {
 	cases := map[string]string{
 		"9":      "9 [digit nine]",
@@ -160,6 +217,28 @@ func TestFormatCandidateLabel(t *testing.T) {
 	for in, want := range cases {
 		if got := FormatCandidateLabel(in); got != want {
 			t.Fatalf("FormatCandidateLabel(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestSanitizeModelLabel(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"vacio", "", ""},
+		{"estable", "OK", "OK"},
+		{"lf", "a\nb", "ab"},
+		{"crlf", "a\r\nb", "ab"},
+		{"tab", "a\tb", "ab"},
+		{"zwsp", "a\u200bb", "ab"},
+		{"zwnj_espacio", "a\u200e b", "a b"},
+		{"espacios_multiples", "a   b", "a b"},
+		{"recorte", "9  ", "9"},
+		{"trunca_ascii", strings.Repeat("a", 100), strings.Repeat("a", 80)},
+		{"trunca_runas_multibyte", strings.Repeat("€", 100), strings.Repeat("€", 80)},
+		{"nbsp_intacto", "a\u00a0\u00a0b", "a\u00a0\u00a0b"},
+	}
+	for _, c := range cases {
+		if got := SanitizeModelLabel(c.in); got != c.want {
+			t.Fatalf("%s: SanitizeModelLabel(%q)=%q want %q", c.name, c.in, got, c.want)
 		}
 	}
 }

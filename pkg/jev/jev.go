@@ -79,6 +79,9 @@ type Answer struct {
 	P          float64
 	Confidence float64
 	Raw        map[string]any
+	// Probs: distribución choice completa que ya validó ValidateChoice.
+	// nil en noul/score y en el stub {mock:true}. Solo lectura.
+	Probs map[string]float64
 }
 
 func stubPick(q map[string]any) Answer {
@@ -228,7 +231,7 @@ func normAnswer(name string, q, ans map[string]any) (Answer, error) {
 		if err != nil {
 			return Answer{}, err
 		}
-		return Answer{Kind: "choice", Key: key, P: probs[key], Confidence: conf, Raw: ans}, nil
+		return Answer{Kind: "choice", Key: key, P: probs[key], Confidence: conf, Raw: ans, Probs: probs}, nil
 	case "noul":
 		p := 0.0
 		if v, ok := toFloat(ans["noul"]); ok {
@@ -253,13 +256,31 @@ func normAnswer(name string, q, ans map[string]any) (Answer, error) {
 	return Answer{}, &JevError{Msg: name + ": tipo de pregunta desconocido"}
 }
 
+// endpointURL override inyectable SOLO para tests (httptest).
+// No hay env var: S1 solo puede ir al endpoint declarado (AGENTS §2/§3).
+var endpointURL = Endpoint
+
+const maxAttempts = 2 // 1 original + 1 retry
+
+// envelopeEmptyMsg string forense CONGELADO: sobrevive en logs/*.jsonl
+// como "TRANSPORT:envelope S1 no-JSON" y en los greps de diagnóstico.
+// NO reescribir ni reenvolver.
+const envelopeEmptyMsg = "envelope S1 no-JSON"
+
+// sleepBeforeRetry duerme solo entre intentos; el último no duerme.
+func sleepBeforeRetry(attempt int) {
+	if attempt < maxAttempts-1 {
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 func postJSON(payload map[string]any) (map[string]any, error) {
 	key := os.Getenv("OPENROUTER_API_KEY")
 	var last error
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), Timeout)
 		body, _ := json.Marshal(payload)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, Endpoint, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
 		if err != nil {
 			cancel()
 			return nil, err
@@ -269,22 +290,32 @@ func postJSON(payload map[string]any) (map[string]any, error) {
 		req.Header.Set("HTTP-Referer", "https://github.com/jev-android-mcp")
 		req.Header.Set("X-Title", "jam-loop")
 		resp, err := http.DefaultClient.Do(req)
-		cancel()
 		if err != nil {
+			cancel()
 			last = err
-			time.Sleep(500 * time.Millisecond)
+			sleepBeforeRetry(attempt)
 			continue
 		}
 		var data map[string]any
 		decErr := json.NewDecoder(resp.Body).Decode(&data)
 		_ = resp.Body.Close()
+		cancel() // el body ya está leído; cancelar aquí no lo trunca
+		// El status decide ANTES que el decode: un 4xx/5xx con body vacío
+		// es "red S1 http N", no un envelope vacío, y NO se reintenta.
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return nil, &JevError{Msg: fmt.Sprintf("red S1 http %d", resp.StatusCode)}
 		}
-		if decErr != nil {
-			return nil, &JevError{Msg: "envelope S1 no-JSON"}
+		// Envelope vacío = decode fallido, "null" o "{}".
+		if decErr != nil || len(data) == 0 {
+			last = &JevError{Msg: envelopeEmptyMsg}
+			sleepBeforeRetry(attempt)
+			continue
 		}
 		return data, nil
+	}
+	// El último fallo manda: conserva el string EXACTO del envelope vacío.
+	if je, ok := last.(*JevError); ok && je.Msg == envelopeEmptyMsg {
+		return nil, &JevError{Msg: envelopeEmptyMsg}
 	}
 	return nil, &JevError{Msg: fmt.Sprintf("red S1 falló tras retry: %v", last)}
 }
@@ -353,19 +384,46 @@ func UsageTokens(usage map[string]any) (int, int, *float64) {
 // SerialRow fila serializada [idx,class_short,zone,flags,label].
 type SerialRow = []any
 
-// AskDecision single-pass S1: 1 llamada -> {action,target,needs_system_2,conf}.
-func AskDecision(goal string, table []SerialRow, snapshotID int64, opts AskDecisionOpts) (map[string]any, map[string]any, error) {
+// serialRowIdx extrae el índice de tabla (col 0) de una fila serializada.
+func serialRowIdx(v any) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int64:
+		return int(t), true
+	case float64:
+		return int(t), true
+	}
+	return 0, false
+}
+
+// serialTable copia la tabla saneando labels y marcando `tried` las filas ya
+// probadas (aditivo; no muta la entrada ni SerializeTable).
+func serialTable(table []SerialRow, triedIdx map[int]bool) []SerialRow {
 	serial := make([]SerialRow, 0, len(table))
 	for _, r := range table {
 		cp := make(SerialRow, len(r))
 		copy(cp, r)
 		if len(cp) > 4 {
 			if s, ok := cp[4].(string); ok {
-				cp[4] = normalizer.FormatCandidateLabel(s)
+				cp[4] = normalizer.FormatCandidateLabel(normalizer.SanitizeModelLabel(s))
+			}
+		}
+		if len(cp) > 3 && len(r) > 0 && len(triedIdx) > 0 {
+			if idx, ok := serialRowIdx(r[0]); ok && triedIdx[idx] {
+				if f, ok := cp[3].(string); ok {
+					cp[3] = normalizer.AddFlag(f, normalizer.TriedFlag)
+				}
 			}
 		}
 		serial = append(serial, cp)
 	}
+	return serial
+}
+
+// AskDecision single-pass S1: 1 llamada -> {action,target,needs_system_2,conf}.
+func AskDecision(goal string, table []SerialRow, snapshotID int64, opts AskDecisionOpts) (map[string]any, map[string]any, error) {
+	serial := serialTable(table, opts.TriedIdx)
 	screen := opts.ScreenGoal
 	if screen == "" {
 		screen = goal
@@ -455,6 +513,9 @@ type AskDecisionOpts struct {
 	ScreenGoal     string
 	FocusedField   map[string]any
 	FirstResult    any
+	// TriedIdx índices de tabla ya probados en este fingerprint; sus filas van
+	// al modelo con el flag `tried` (aditivo; SerializeTable intacto).
+	TriedIdx map[int]bool
 }
 
 var _ = errors.New

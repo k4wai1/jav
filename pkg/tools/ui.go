@@ -6,6 +6,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/k4wai1/jav/pkg/jam"
+	"github.com/k4wai1/jav/pkg/uitrack"
 )
 
 // Handlers ui/ (equiv. tools/ui.py). Sin post-snapshot; tap_node/type_text
@@ -44,6 +45,10 @@ func hTapNode(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult
 	})
 	if ok, _ := env["ok"].(bool); ok {
 		ev := env["evidence"].(map[string]any)
+		if id, _ := ev["node_id"].(string); id != "" {
+			nodeID = id
+		}
+		uitrack.MarkTried(nodeID, -1)
 		env = jam.OK(true, map[string]any{"node_id": ev["node_id"], "via": ev["via"]},
 			"verifica el efecto con read_screen")
 	}
@@ -67,6 +72,10 @@ func hTypeText(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 		if chars == nil {
 			chars = 0
 		}
+		if id, _ := ev["node_id"].(string); id != "" {
+			nodeID = id
+		}
+		uitrack.MarkTried(nodeID, -1)
 		env = jam.OK(true, map[string]any{"chars": chars, "snapshot_id": snap},
 			"verifica el efecto con read_screen")
 	}

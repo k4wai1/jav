@@ -16,12 +16,23 @@ class FakeA11yNode(
     override val boundsInScreen: List<Int> = listOf(0, 0, 10, 10),
     private val children: List<FakeA11yNode> = emptyList(),
     private val parentNode: FakeA11yNode? = null,
-    private val clickResult: Boolean = false
+    private val clickResult: Boolean = false,
+    private val focusResult: Boolean = true,
+    private val setTextResult: Boolean = true
 ) : A11yNode {
     var recycled = false
         private set
 
     var clickAttempts = 0
+        private set
+
+    var focusAttempts = 0
+        private set
+
+    var setTextAttempts = 0
+        private set
+
+    var lastSetText: CharSequence? = null
         private set
 
     override val childCount: Int get() = children.size
@@ -30,6 +41,17 @@ class FakeA11yNode(
     override fun performClick(): Boolean {
         clickAttempts++
         return clickResult
+    }
+
+    override fun performFocus(): Boolean {
+        focusAttempts++
+        return focusResult
+    }
+
+    override fun setText(text: CharSequence): Boolean {
+        setTextAttempts++
+        lastSetText = text
+        return setTextResult
     }
 
     override fun recycle() {

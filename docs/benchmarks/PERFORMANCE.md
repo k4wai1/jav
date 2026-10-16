@@ -89,7 +89,33 @@ Fuentes: `docs/BUILD.md §9` (medición manual WS `127.0.0.1:38472`) +
 `INTENT_UNRESOLVED`. Costo $0 (sin LLM). Detalle tabular en
 `docs/TESTING.md §10`.
 
-## 5. Costos (modelo vigente)
+## 5. Ronda sintética 2026-10-15 (A10 API 29, APK P4/P5/P6 + fix WebP)
+
+Fuente: `docs/TESTING.md §12` (crudo) + `docs/BUILD.md §16`. Sin LLM,
+`n=20–30` por método, WS loopback con token del `.env`.
+
+| Método | p50 | max |
+|---|---|---|
+| `get_foreground` | **26 ms** | 38 ms |
+| `dump_ui` (30 n) | **74 ms** | 102 ms |
+| `screenshot` webp q80 | **1037 ms** | 1041 ms |
+| `screenshot` png q80 | **1101 ms** | 1119 ms |
+| `get_device_info` / `get_memory` / `get_storage` / `get_battery` | **7–12 ms** | ≤21 ms |
+| `get_cpu` (delta `/proc/stat`) | **131 ms** | 137 ms |
+
+Escalado medido cross-app (8 apps, 14–117 nodos): **`~15 ms + ~1.4 ms/nodo`**
+(117 n → 183 ms; ≤150 n ≤300 ms ✔), mejor que el `~2 ms/nodo` de §1.
+Comparativa de ruta: `dump_ui` accesibilidad **74 ms** vs `uiautomator dump`
+vía ADB **~2280 ms** (**~30×**); `screenshot` Jam **1037 ms/20 KB webp** vs
+`adb screencap` **683 ms/93 KB png** (Jam paga serialización+base64 a cambio de
+menos bytes y una sola conexión).
+
+**Mejoras cerradas en la ronda:** `screenshot{format:webp}` dejó de devolver
+`INTERNAL_ERROR` (era `WEBP_LOSSY`, API 30+, sobre API 29) → `{ok, via:"screencap"}`;
+`tap_node` sin dump interno (P4) y memoria `[tried]` evitan re-percibir; secretos
+fuera de `candidates` (P5). Detalle de causa/efecto en `docs/BUILD.md §15` y `§16`.
+
+## 6. Costos (modelo vigente)
 
 - S1 Jev: **`$0.042` in / `$0.00` out por MTok** (normativo).
 - S2: tasa configurable vía env (`GLM_RATE_IN` / `GLM_RATE_OUT`), default =
@@ -97,7 +123,7 @@ Fuentes: `docs/BUILD.md §9` (medición manual WS `127.0.0.1:38472`) +
 - Por corrida: **<$0.003** (detalle por tarea en `docs/benchmarks/TASK_HISTORY.md`).
 - Cada llamada S1/S2 loguea `[COST]` + campo `cost` por paso en el forense.
 
-## 6. Cómo reproducir (sin inventar bancos)
+## 7. Cómo reproducir (sin inventar bancos)
 
 ```bash
 make build          # binario dist/jav-linux-amd64 (cmd/jav, stdio)
