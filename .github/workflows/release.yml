@@ -31,7 +31,7 @@ jobs:
           yes | "$SDMGR" --sdk_root="$SDK_ROOT" --licenses > /dev/null
           "$SDMGR" --sdk_root="$SDK_ROOT" --install "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Build Jam companion APK (debug)
+      - name: Build Jav companion APK (debug)
         working-directory: android-app
         run: ./gradlew :app:assembleDebug --console=plain
 

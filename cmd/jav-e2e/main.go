@@ -20,7 +20,7 @@
 //     con settings_get y se escribe EL MISMO valor con confirm:true
 //     (no-op); verificación posterior con settings_get. Sin cambio neto.
 //   - PII: la tabla solo publica herramienta, resultado, code y
-//     latencia_ms. Javás contenido (nombres, teléfonos, textos, hashes
+//     latencia_ms. Jamás contenido (nombres, teléfonos, textos, hashes
 //     crudos van solo como conteos/códigos).
 //
 // Salida: tabla markdown a stdout (+ copia en logs/ si existe).

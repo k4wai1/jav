@@ -231,7 +231,7 @@
 - [x] `socket/AuthStore.kt`: token AES-GCM/256 en `AndroidKeyStore`
   (alias `jam_token_key`), `ws_token_enc` (`iv||ct` Base64), **migración
   suave** del plano `ws_token` (mismo valor; `.env` sigue válido).
-- [x] `socket/TlsCertStore.kt`: cert X.509v3 autofirmado `CN=jam.local`
+- [x] `socket/TlsCertStore.kt`: cert X.509v3 autofirmado `CN=jav.local`
   (RSA-2048, 10 años) con BC **local** (sin registro JCA global); PKCS#12
   cifrado en `filesDir`; `sslContext()`/`fingerprintSha256()`.
   `TlsCertStoreTest.kt` (5).
@@ -257,6 +257,25 @@
 - [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jav-mcp/`,
   docs y hardening finales.
 
+### Release v1.2.0 — cierre y publicación (2026-10-16)
+- [x] `tools/list` compacto + fichas de 7 secciones bajo demanda
+  (`android://tool/{name}`, `android://tools/<group>`, `android://tools/catalog`);
+  `FullToolDocs` conserva el contrato cognitivo íntegro.
+- [x] Costo silencioso por llamada (`JAV_DEBUG_COST=1` para trazar) + resumen de
+  sesión `SessionSummary()` en `evidence.cost` (`device_status`/`resolve_element`).
+- [x] Identidad de cert unificada (`CN=jav.local`) y gazapos post-rename
+  (`Javás`→`Jamás`).
+- [x] Icono 1000×1000 + mipmaps + header con logo + colores semánticos
+  `values`/`values-night`; `versionName 1.2.0` / `versionCode 2`.
+- [x] Poda documental (`docs/specs/archive/`), tabla de estado en `AGENTS.md` §0
+  y `README.md` reescrito.
+- [x] Go: `gofmt`/`vet` limpios, `go test` verde (salvo el preexistente
+  `pkg/normalizer`, dependiente de `logs/`), `make build`, **`audit-mcp` 12/12**
+  (`token-budget-startup` ≈ **1631 tokens ≤ 3000**, ~81 % de ahorro).
+- [ ] **Pendiente en hardware**: `./gradlew :app:testDebugUnitTest :app:assembleDebug`
+  (88/88) + e2e en vivo `e03638e5`. No ejecutable en el entorno del agente
+  (sin JDK/SDK, dispositivo no conectado); ver `docs/BUILD.md §22`.
+
 ## Próxima tarea (director v5 vigente; loop congelado)
 
 1. `@judge`: cierre formal v5 — `uv run pytest -q` (148 en verde) +
@@ -280,7 +299,7 @@
   `JamWs token_sha256=<8 hex> len=<n>` (nunca el token en claro). Antes de
   un release, rotar cualquier token históricamente expuesto.
 - Backlog 2b: **cerrado 2026-10-16** (Fase 2b, `docs/BUILD.md §21`): WSS +
-  certificado self-signed (`CN=jam.local`, RSA-2048, PKCS#12 cifrado en
+  certificado self-signed (`CN=jav.local`, RSA-2048, PKCS#12 cifrado en
   `AndroidKeyStore`) en la IP tailnet (`100.64.0.0/10`, nunca `0.0.0.0`),
   token cifrado AES-GCM en `AndroidKeyStore` (migración suave desde el
   plano), lockout 5 fallos/60 s→5 min y pinning TOFU en Go

@@ -37,7 +37,7 @@ func TestPinnedTLSConfigTOFU(t *testing.T) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "jam.local"},
+		Subject:      pkix.Name{CommonName: "jav.local"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 	}

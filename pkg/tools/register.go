@@ -8,68 +8,47 @@ import (
 )
 
 // Registro de las 38 tools (35 equiv. server.py + resolve_element + get_audit
-// + adb_shell). Nombre, descripción ES de 5 secciones y JSONSchema idénticos a
-// Python (required = sin default).
+// + adb_shell). Nombre, JSONSchema (required = sin default) y handler.
+//
+// v1.2.0 (eficiencia de tokens): se eliminan los `title` redundantes por
+// propiedad (cada clave ya lleva su nombre) y la descripción completa de 7
+// secciones se sirve bajo demanda por Resource (catalog.go / resources.go).
+// En tools/list viaja solo la descripción compacta de CompactDesc.
 
-// --- Constructores de schema (espejo exacto de FastMCP) ---
-
-func titleOf(prop string) string {
-	titles := map[string]string{
-		"filter": "Filter", "package": "Package", "text": "Text",
-		"node_id": "Node Id", "snapshot_id": "Snapshot Id",
-		"direction": "Direction", "timeout_ms": "Timeout Ms",
-		"fmt": "Fmt", "quality": "Quality", "detail": "Detail",
-		"namespace": "Namespace", "key": "Key", "value": "Value",
-		"confirm": "Confirm", "url": "Url", "action": "Action",
-		"uri": "Uri", "mime": "Mime", "extras": "Extras",
-		"hours": "Hours", "window": "Window", "query": "Query",
-		"limit": "Limit", "offset": "Offset", "with_phone": "With Phone",
-		"display_name": "Display Name", "phone": "Phone", "email": "Email",
-		"time_min": "Time Min", "time_max": "Time Max",
-		"calendar_id": "Calendar Id", "include_location": "Include Location",
-		"title": "Title", "start_ms": "Start Ms", "end_ms": "End Ms",
-		"description": "Description", "camera": "Camera", "max_age_s": "Max Age S",
-		"screen_goal_en": "Screen Goal En", "tau": "Tau",
-		"since_seq": "Since Seq", "cmd": "Cmd",
-	}
-	if t, ok := titles[prop]; ok {
-		return t
-	}
-	return prop
-}
+// --- Constructores de schema (espejo de FastMCP, sin `title` por propiedad) ---
 
 func strProp(prop string, def string) map[string]any {
-	return map[string]any{"title": titleOf(prop), "type": "string", "default": def}
+	return map[string]any{"type": "string", "default": def}
 }
 
 func strReq(prop string) map[string]any {
-	return map[string]any{"title": titleOf(prop), "type": "string"}
+	return map[string]any{"type": "string"}
 }
 
 func intProp(prop string, def int) map[string]any {
-	return map[string]any{"title": titleOf(prop), "type": "integer", "default": def}
+	return map[string]any{"type": "integer", "default": def}
 }
 
 func intReq(prop string) map[string]any {
-	return map[string]any{"title": titleOf(prop), "type": "integer"}
+	return map[string]any{"type": "integer"}
 }
 
 func numProp(prop string, def float64) map[string]any {
-	return map[string]any{"title": titleOf(prop), "type": "number", "default": def}
+	return map[string]any{"type": "number", "default": def}
 }
 
 func boolProp(prop string, def bool) map[string]any {
-	return map[string]any{"title": titleOf(prop), "type": "boolean", "default": def}
+	return map[string]any{"type": "boolean", "default": def}
 }
 
 func nullableStrProp(prop string) map[string]any {
-	return map[string]any{"title": titleOf(prop),
+	return map[string]any{
 		"anyOf":   []any{map[string]any{"type": "string"}, map[string]any{"type": "null"}},
 		"default": nil}
 }
 
 func extrasProp() map[string]any {
-	return map[string]any{"title": "Extras",
+	return map[string]any{
 		"anyOf": []any{
 			map[string]any{"additionalProperties": true, "type": "object"},
 			map[string]any{"type": "null"},
@@ -104,7 +83,7 @@ const dDeviceStatus = `Estado de la conexion con Jav.
 
 Descripcion: Scopes del token, version de la app y app/activity en foreground.
 Parametros: Ninguno.
-Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, foreground{package, activity}}.
+Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, foreground{package, activity}, cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
 Permisos/Grants: conexion Jav + accesibilidad para foreground; scope read.
 Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false.
 Cuándo NO usar: NO usar para un dato concreto → usa la tool nativa (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO cachear el foreground → re-lee con get_foreground tras cada mutación.
@@ -184,7 +163,7 @@ const dResolveElement = `Resuelve por S1 Jev el elemento de la pantalla que casa
 
 Descripcion: Dumpea el estado actual, lo normaliza a la tabla vigente y pregunta a S1 Jev (una Choice sobre indices + NONE) cual fila corresponde a la micro-intencion de ESTA pantalla. No ejecuta nada: devuelve el node_id resuelto listo para tap_node. Es el resolver ciego del Director externo (OpenCode/Claude/Cursor) expuesto por stdio.
 Parametros: screen_goal_en (str): micro-intencion EN de la pantalla actual, ej. "Tap the Search button" (obligatoria); tau (number): umbral de confianza 0..1 (default 0.70); por debajo -> fallback.
-Retorno: {ok, verified, evidence, hint}; evidence en exito = {idx, node_id, conf, snapshot_id, fallback_required:false, cost_usd, usage}; en Fallback Soberano = {fallback_required:true, reason, recovery_instruction, snapshot_id, top_candidates[], conf?, cost_usd?} con ok:false (no es error fatal: el Director decide). node_id es el id listo para tap_node con el snapshot_id devuelto.
+Retorno: {ok, verified, evidence, hint}; evidence en exito = {idx, node_id, conf, snapshot_id, fallback_required:false, cost_usd, usage, cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}; en Fallback Soberano = {fallback_required:true, reason, recovery_instruction, snapshot_id, top_candidates[], conf?, cost_usd?, cost{...}} con ok:false (no es error fatal: el Director decide). node_id es el id listo para tap_node con el snapshot_id devuelto.
 Permisos/Grants: scope read + accesibilidad; requiere OPENROUTER_API_KEY (S1 solo acepta esa key). Sin key -> fallback honesto S1_UNAVAILABLE (nunca idx inventado).
 Errores/gotchas: sin key S1 -> fallback S1_UNAVAILABLE; red -> S1_NETWORK; NONE -> NO_TARGET con top_candidates; conf<tau -> LOW_CONF; choice fuera de tabla o conf no finita -> S1_HALLUCINATION; valida tau en 0..1. No devuelve snapshot nuevo salvo el del evidence: pasalo a tap_node.
 Cuándo NO usar: NO usar para leer la pantalla → read_screen; NO usar para ejecutar → tap_node/type_text; NO reintentar a ciegas si fallback_required → examina candidates/render y ejecuta directo; NO llamar sin OPENROUTER_API_KEY esperando idx util (devuelve fallback).
@@ -489,10 +468,12 @@ type toolDef struct {
 	h        Handler
 }
 
-// RegisterAll registra las 38 tools en el servidor.
+// RegisterAll registra las 38 tools en el servidor. En `tools/list` viaja
+// solo la descripción compacta (CompactDesc, catálogo.go); la ficha completa
+// de 7 secciones se sirve bajo demanda por Resource (android://tool/<name>).
 func RegisterAll(s *server.MCPServer) {
 	for _, d := range toolDefs {
-		t, h := defTool(d.name, d.desc, d.required, d.props, d.h)
+		t, h := defTool(d.name, CompactDesc(d.name), d.required, d.props, d.h)
 		s.AddTool(t, h)
 	}
 }

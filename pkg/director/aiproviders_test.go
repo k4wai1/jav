@@ -1,6 +1,7 @@
 package director
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -54,5 +55,33 @@ func TestResolveWithoutS1KeyFails(t *testing.T) {
 	}
 	if called {
 		t.Fatalf("el ask no debe llamarse sin key (cero mutaciones)")
+	}
+}
+
+// v1.2.0: una resolución S1 exitosa acumula en el resumen global de sesión
+// (evidence.cost), sin imprimir nada por llamada.
+func TestResolveElementAccumulatesSessionCost(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "clave-s1-de-test")
+	os.Unsetenv("JEV_RATE_IN")
+	os.Unsetenv("JEV_RATE_OUT")
+	cost.ResetSession()
+	ask := func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
+		return map[string]jev.Answer{"target": {Kind: "choice", Key: "0", Confidence: 0.95}},
+			map[string]any{"prompt_tokens": 1_000_000}, nil
+	}
+	serial := []jev.SerialRow{{0, "Button", "top-left", "click", "ok"}}
+	out, err := ResolveElement("Tap the ok row", serial, 9, "com.example", nil, ask, cost.NewTracker("r"), "r")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("debe resolver: %v", out)
+	}
+	s := cost.SessionSummary()
+	if s["calls"].(int) != 1 {
+		t.Fatalf("calls: %v", s)
+	}
+	if s["total_cost_usd"].(float64) != 0.042 {
+		t.Fatalf("1 MTok S1 in = 0.042 USD: %v", s)
 	}
 }

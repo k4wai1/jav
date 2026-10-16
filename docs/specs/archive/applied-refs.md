@@ -1,3 +1,5 @@
+> ARCHIVED — Referencia histórica no normativa.
+
 # applied-refs — plan de aplicación de `refs/android-jev` + `refs/mobile-jev` al loop `run_goal`
 
 > Estado: **plan @architect 2026-10-05, solo `docs/`**. Implementa `@coder`,

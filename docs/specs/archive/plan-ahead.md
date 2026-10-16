@@ -1,3 +1,5 @@
+> ARCHIVED — Referencia histórica no normativa.
+
 # plan-ahead v4 — S2-compilador + fast-path S1 + tabla con ancla espacial
 
 > Estado: **contrato v4 2026-10-05 (borrador `@architect`)**. Redacta

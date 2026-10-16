@@ -423,7 +423,7 @@ Desde `mcp-server/`:
 2. Por pantalla: `resolve_element("<micro EN de ESTA pantalla>")` citado
    verbatim (p.ej. `"Click the search icon"`, `"Tap the Share button"`,
    `"Tap the Copy link row"`) → `{idx, conf}` → `tap_idx` → `read` de
-   verificación. Javás el goal global en el resolver.
+   verificación. Jamás el goal global en el resolver.
 3. Tras copiar: `get_clipboard` → forma `https?://` verificada
    (`clipboard_len/sha256/via` en forense). Vacío → `CLIPBOARD_EMPTY`: el
    director informa y reintenta el tap de copiar, no inventa URL.

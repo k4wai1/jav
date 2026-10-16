@@ -4,9 +4,10 @@
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kwai1)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-> **English first, español después.** This is the definitive README. It replaces
-> `README.en.md` / `README.es.md` (removed). Live detail: `PLAN.md`,
-> `ARCHITECTURE.md`, `PROTOCOL.md`, `docs/TESTING.md`, `docs/specs/ecosystem.md`.
+<p align="center"><img src="docs/assets/icon.png" width="140" alt="Jav logo" /></p>
+
+> **English first, español después.** Normative detail lives in `AGENTS.md`,
+> `PROTOCOL.md`, `ARCHITECTURE.md`, `PLAN.md` and `docs/specs/`.
 
 ---
 
@@ -16,181 +17,123 @@
 
 **Jav is a full-control Android MCP runtime without root.** An on-device app
 (**Jav**, `dev.k4wai1.jav`) exposes the screen via `AccessibilityService` and
-privileged actions via **Shizuku** (started by the user) to a Go MCP runtime
-on the PC (`jav` binary, `cmd/jav`, stdio). The **Director is the external
-client** (OpenCode/operator, never part of Jav): it sees each screen and
-drives one atomic tool per step; Jav runs no loops and no internal S2.
-Tactical judgment comes from **S1 Jev** (discriminative, single-pass, no free
-text, blind `resolve_element`) through a single general entrypoint per step:
+privileged actions via **Shizuku** (started by the user) to a Go MCP server on
+the PC (`jav`, `cmd/jav`, stdio).
 
-```python
-resolve_element(screen_goal_en: str)   # e.g. resolve_element("Tap the Copy link row")
-```
+Two clearly separated roles:
 
-- **Generic core, zero hardcoded apps.** No package names, contacts, texts or
-  flows in the core. Specifics travel at runtime (external Director or S2).
-- **Three lanes:** native APIs (OS before fingers) · director-client v5
-  (complex goals: the external Director directs, Jev resolves, Jav executes) ·
-  historical autonomous `run_goal` (frozen, not the active path).
-- **Secure by design.** Non-root app, `su` forbidden, `shell` gated by
-  irreversible denylist + interactive grant, bearer token + scopes on every
-  bind, explicit confirm on critical actions, JSONL forensics per run.
+| | **Jav** (this repo) | **Director** (external, not part of Jav) |
+|---|---|---|
+| What | Go MCP server (`cmd/jav`) + Android app `dev.k4wai1.jav` | OpenCode / Claude / Cursor / operator |
+| Does | exposes 38 atomic MCP tools, runs no loops and no internal planner | reads each screen, picks one atomic tool per step, verifies the effect |
+| Tactical help | serves **`resolve_element`** (blind S1 Jev resolver) | decides goals, gates, and approves previews |
 
-## Architecture in 10 lines
-
-1. Jav serves 2 WS listeners: loopback `ws://127.0.0.1:38472` + tailnet-IP WSS.
-2. `hello` with bearer token + scopes (`read` / `ui` / `shell` / `admin`).
-3. Perception = accessibility tree (`dump_ui`, ≤500 nodes, ~2 ms/node).
-4. Jav normalizes and prunes (system decor filtered) → table `0..253` + `NONE`.
-5. S1 Jev resolves 1 element (`resolve_element`, blind to the global goal) + `conf`.
-6. The external Director (OpenCode/operator) decides one atomic primitive per step; Jav never loops nor plans internally.
-7. Atomic mutation (`tap_node` / `type_text` / `open_app`) + post verification.
-8. OS clipboard before fingers (`get` via host `dumpsys`, `set` via Jav API).
-9. Audited costs (`[COST]` + `CostTracker`) and forensics `logs/run-<ts>.jsonl`.
-10. No key → honest `{mock: true}` stub; options are never invented.
-
-```
-PC (Debian, Go, MCP stdio)                 Phone (Jav, non-root)
-┌─ jav (cmd/jav): device/app/ui/native ─┐  ┌─ ForegroundService: 2×WS ─┐
-│ atomic tools + resolve_element + cost  │─WS──▶│ Accessibility: tree+gest. │
-│ normalizer, guards, logs (no loops)    │◀─WS──│ Shizuku: am/monkey/screen│
-└────────────────────────────────────────┘  └───────────────────────────┘
-  Director = EXTERNAL client (OpenCode) ──▶ jav (no S2/live loops inside)
-  adb forward tcp:38472 │  WSS tailnet (opt-in, TOFU pinning)
-```
-
-## Tools — 38 total (6 Jev + 32 director/native)
-
-Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only
-with real post-verification, never on "command sent".
-
-**6 — UI atomic tools (driven step by step by the external Director; historical `loop.run_goal` frozen, not the active path):**
-
-| Tool | What it does |
-|---|---|
-| `read_screen` | `dump_ui` + normalizer + table + `snapshot_id` + `first_result` / `zone` / `focused_field` |
-| `tap_node` | `ACTION_CLICK` first if clickable, `dispatchGesture` fallback; reports `via`; requires fresh `snapshot_id` |
-| `type_text` | `ACTION_SET_TEXT`, falling back to `ACTION_PASTE` (`ClipboardManager` + `performPaste`) when a WebView/input rejects it; requires explicit focus or `NOT_FOCUSED`; reports `via` |
-| `scroll` | Scroll at position / node |
-| `press_back` | Back key |
-| `open_app` | Bootstrap only in the loop; Shizuku `am start`, fallback `monkey` |
-
-**32 — director / native / diagnostics:**
-
-| Group | Tools |
-|---|---|
-| resolver S1 (1) | `resolve_element` (blind resolver: `screen_goal_en` + `tau`; returns `idx`/`node_id`/`conf`/`snapshot_id` or the Sovereign fallback) |
-| device / diag (8) | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, prefer `tap_node`) |
-| telemetry N0 (5) | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
-| settings / intents N0 (4) | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
-| clipboard (1) | `get_clipboard_device` (Jav foreground; host prefers `dumpsys`) |
-| usage N1 (1) | `get_app_usage` |
-| PII N1 (4) | `list_contacts`, `add_contact`, `list_events`, `create_event` |
-| notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
-| location / camera N1 (2) | `get_location`, `take_photo` (FGS + always confirm) |
-| audit (1) | `get_audit` (device ring buffer, 500 entries; `limit` 1–200 + `since_seq`; only `args_sha256`/metadata, never cleartext; scope admin) |
-| shell (1) | `adb_shell` (Shizuku UID shell; rate 5/s + irreversible denylist + interactive grant 1 cmd/5 min/30 min; scope admin; `{planned:true}` for irreversible without `confirm`) |
-
-Example payloads (English):
-
-```json
-{"goal": "List the alarms in the clock app"}
-{"snapshot_id": 42, "node_id": 17}
-{"text": "Buy milk", "slot": "message_body"}
-{"url": "https://example.com/s/abc", "package": ""}
-```
-
-Native lanes: **N0** needs no new grants · **N1** needs user grants
-(advertised in `hello.caps`) · **N2** (Shizuku/`shell` on-device) live, gated
-by irreversible denylist + interactive grant.
-
-## Real runs with numbers (summary)
-
-> Benchmarks own the numbers: [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md)
-> (per-tool latencies on real hardware) and
-> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md)
-> (closed tasks with wall/cost/forensics). This table only summarizes.
-
-| Area | Figure (measured) |
-|---|---|
-| Perception `dump_ui` | ~2 ms/node (13n/40 ms, 66n/106 ms, 124n/264 ms; ~1 s worst @500) |
-| tap (`ACTION_CLICK` first) | ~70 ms (`avg_tap_ms` 69.7–84.6) |
-| S1 Jev | ~1.6 s (`avg_s1_ms` 1589.5) |
-| S2 DeepSeek-direct (historical, retired) | ~1.9 s/call vs flash ~22 s/call |
-| N0 native (Go e2e) | ~50–190 ms/tool (media 173 ms) |
-| Intent 1-hop `open_url` + `package` | ~0.13 s (`latency_ms` 130.3) |
-| Closed tasks | messaging-A SENT ~84.9 s (~$0.0038); messaging-B SENT ~22 s (~$0.0023); Fossify 5/5 ~38 s (~$0.0006); YT→Brave honest BLOCK (~$0.0011) |
-| Cost ceiling | **<$0.003** per run |
-
-Benches: TECNO KJ5 (API 33, Wi-Fi) + A10 USB (Android 10, 720×1440).
-Host: Debian 13, Celeron 847. `dump_ui` 16× faster than `uiautomator dump`
-(4353 ms). Full tables in `docs/benchmarks/`; forensics in `logs/` (Go) plus
-historical `mcp-server/logs/` (frozen Python harness).
-
-Runtime is 100% Go (`go test ./...`, `make build`); the Python `mcp-server`
-harness is frozen history, not an active component.
-
-## Current status + roadmap
-
-- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 38 tools,
-  `go test ./...` green); Phases 0–4 green; v5 director-client vigente
-  (**Director = external OpenCode/operator**, Jav = thin server with no loops
-  and no internal S2: `resolve_element` blind resolver + `set_clipboard` +
-  historical `loop.py` frozen); native lane N0/N1 live, N2 live via Shizuku;
-  38/38 docstrings at the 5-section standard.
-- **Roadmap:** formal A10 suite close (battery + calculator + clipboard
-  round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
-  forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals).
-  Done: Phase 6 (`shell` denylist + interactive grant + 500-audit + kill
-  switch + N2 live) and tailnet WSS 2b (Keystore token + lockout + TOFU
-  pinning). Live tracker: `PLAN.md`. Name: **Jav** = project/runtime +
-  `dev.k4wai1.jav`; **Jev** = tactical backend (`JEV_MODEL`); identity
-  consolidated (`docs/specs/ecosystem.md` §4). Historical Python harness
-  (`mcp-server`, 148 pytest green at freeze) kept only as forensics reference.
+Jav never loops, never plans and never invents coordinates. The Director holds
+the loop; Jav holds the device.
 
 ## Quickstart
 
 ```bash
-# 1. Install the APK and enable accessibility (once, on the phone)
-adb install -r android-app/app/build/outputs/apk/debug/app-debug.apk
-# Settings → Accessibility → enable Jav; generate the token in the app (QR).
+# 1. Install the Go server (PC)
+curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
+#    or: VERSION=v1.2.0 sh install.sh
 
-# 2. The USER starts Shizuku (the app only requests the API_V23 runtime permission)
-# Install the official moe.shizuku.privileged.api, start it, authorize Jav.
+# 2. Install the companion APK (Releases) and enable accessibility (once)
+#    download jav-companion.apk from the latest GitHub Release, then:
+adb install -r jav-companion.apk
+#    Settings → Accessibility → enable Jav; copy the token shown in the app.
 
-# 3. Forward + environment (on the PC)
+# 3. Start Shizuku (the USER starts it; the app only requests API_V23)
+
+# 4. Forward + environment (PC)
 adb forward tcp:38472 tcp:38472
-cp .env.example .env   # edit: JAV_TOKEN, OPENROUTER_API_KEY, models (chmod 600)
+cp .env.example .env   # edit JAV_TOKEN, OPENROUTER_API_KEY, models (chmod 600)
 
-# 4. Checks without Android Studio
-go build ./... && go vet ./... && go test ./...   # Go suite green
-cd android-app && ./gradlew :app:testDebugUnitTest
-
-# 5. Director step by step (the only active path; the Director is external):
-# per screen, read_screen → resolve_element("<micro EN of THIS screen>")
-# → tap_node / type_text / open_app → verification read → get/set_clipboard
-# → forensics in logs/run-<ts>.jsonl. See docs/specs/director-client.md §9.4.
-#
-# Historical frozen loop (reference only, not runtime):
-# mcp-server/ + uv + pytest (148 green at freeze).
+# 5. Point your Director (OpenCode/Claude/Cursor) at `jav` over stdio.
 ```
+
+From source instead of Releases:
+
+```bash
+make build                 # dist/jav-linux-amd64
+cd android-app && ./gradlew :app:assembleDebug
+```
+
+## Tools — 38, in 4 groups
+
+Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only with
+real post-verification, never on "command sent". `tools/list` carries a compact
+1–2 line description per tool; the full 7-section spec loads **on demand** as an
+MCP Resource (`android://tool/<name>`, `android://tools/<group>`, index
+`android://tools/catalog`). This keeps startup at **~1.6k tokens** instead of
+~8.8k.
+
+| Group | Tools |
+|---|---|
+| **state** | `device_status`, `get_foreground`, `list_packages`, `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info`, `get_audit` |
+| **ui** | `read_screen`, `tap_node`, `tap_text`, `type_text`, `scroll`, `press_back`, `press_home`, `wait_for_text`, `open_app`, `close_app`, `screenshot` |
+| **native** | `settings_get`, `settings_put`, `open_url`, `send_intent`, `get_clipboard_device`, `get_app_usage`, `list_contacts`, `add_contact`, `list_events`, `create_event`, `list_notifications`, `reply_notification`, `media_state`, `media_control`, `get_location`, `take_photo`, `adb_shell` |
+| **resolve** | `resolve_element` (blind S1 resolver: `screen_goal_en` + `tau` → `idx`/`node_id`/`conf`/`snapshot_id` or the Sovereign fallback) |
+
+Lanes: **N0** native, no new grants · **N1** native with user grants
+(advertised in `hello.caps`) · **N2** Shizuku/`shell`, gated by the irreversible
+denylist + interactive grant (1 cmd / 5 min / 30 min).
+
+Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
+`reply_notification`, `media_control`, `take_photo`, `adb_shell`) never run on
+first call: they return `{planned:true, preview, hint}` with `verified:false`
+and only execute after `confirm:true`.
+
+## What changed in v1.2.0
+
+- **~80% fewer startup tokens.** 38 compact descriptions in `tools/list` +
+  full 7-section specs on demand as Resources (`android://tool/<name>`);
+  compacted `initialize` instructions (≤220 words). New `audit-mcp` check
+  `token-budget-startup` certifies the budget.
+- **Per-session cost summary, no per-call spam.** `pkg/cost` is silent by
+  default (`JAV_DEBUG_COST=1` to trace) and accumulates
+  `{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}` delivered in
+  `evidence.cost` of `device_status` / `resolve_element`.
+- **Identity consolidated** as **`Jav`** / `dev.k4wai1.jav` (v1.0.0), with the
+  self-signed TLS cert unified to `CN=jav.local`.
+- **Phase 2b** (WSS tailnet + cert + token in Keystore + lockout) and
+  **Phase 6** (audit ring 500 + Kill Switch + shell grant/denylist + N2) shipped.
+- **New icon (1000×1000) and native UI polish**: launcher mipmaps, header logo,
+  semantic `values`/`values-night` colors — zero new dependencies.
+- **Docs cleanup**: historical specs moved to `docs/specs/archive/`; live
+  contract in `docs/specs/`.
+
+## Real runs with numbers (summary)
+
+> Benchmarks own the numbers:
+> [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md) (per-tool
+> latencies on real hardware) and
+> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md) (closed
+> tasks with wall/cost/forensics). This table only summarizes.
+
+| Area | Figure (measured) |
+|---|---|
+| Perception `dump_ui` | ~2 ms/node (13n/40 ms, 66n/106 ms, 124n/264 ms; ~1 s worst @500) |
+| tap (`ACTION_CLICK` first) | ~70 ms |
+| S1 Jev | ~1.6 s |
+| N0 native (Go e2e) | ~50–190 ms/tool |
+| Cost ceiling | **<$0.003** per run |
+
+Host: Debian, Go, MCP stdio; `dump_ui` is ~16× faster than `uiautomator dump`.
 
 ## Security
 
-- **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back,
-  grantless `open_app`) · `shell` (grant-gated, irreversible denylist +
-  `confirm`) · `admin` (token/audit). Token mandatory even on
-  loopback; lockout 5 fails/60 s → 5 min; 4 MiB frame; 50 req/s (shell 5/s).
-- **Confirm:** sending/communicating, buying/paying, deleting,
-  account/permission changes, `shell`/adb are critical: without
-  `confirm: true` they are planned without executing (`planned: true` +
-  `preview` + `needs_confirm`); with it, execution + audit. `forbidden?`
-  patterns are opt-in per goal, never global.
-- **Forensics:** `logs/run-<ts>.jsonl` per step (phase, snapshot, `conf` /
-  `tau`, `wire`, `cost`, `via`, hashes; never raw text when sensitive) plus
-  fail-fast `run_signature` (2 equal deaths → do not relaunch).
-- **Kill switch:** quick-settings tile + notification action (revoke tokens,
-  stop server). Push/pull only under `/sdcard/Download/jav-mcp/`.
+- **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back, grantless
+  `open_app`) · `shell` (grant-gated, irreversible denylist + `confirm`) ·
+  `admin` (token/audit/settings). Token mandatory on every bind (loopback
+  included); lockout 5 fails/60 s → 5 min; 4 MiB frame; 50 req/s (shell 5/s).
+- **Confirm:** messaging, paying, deleting, account/permission, photo, media
+  stop and settings writes are critical: without `confirm:true` they are planned
+  without executing (`planned:true` + `preview`).
+- **Forensics:** `logs/run-<ts>.jsonl` per step (never raw sensitive text) plus
+  fail-fast `run_signature`.
+- **Kill switch:** Quick Settings tile + notification action (revoke tokens,
+  stop the server). Push/pull only under `/sdcard/Download/jav-mcp/`.
 
 ## 👨‍💻 Developer
 
@@ -199,8 +142,8 @@ cd android-app && ./gradlew :app:testDebugUnitTest
 
 ## 📜 License
 
-This project is licensed under the **GNU General Public License v3.0** —
-see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU General Public License v3.0** — see the
+[LICENSE](LICENSE) file for details.
 
 ---
 
@@ -208,183 +151,75 @@ see the [LICENSE](LICENSE) file for details.
 
 ## Qué es Jav
 
-**Jav es un runtime MCP de control integral de Android sin root.** Una app
-en el dispositivo (**Jav**, `dev.k4wai1.jav`) expone la pantalla por
-`AccessibilityService` y las acciones privilegiadas por **Shizuku**
-(lo arranca el usuario) a un runtime MCP Go en el PC (binario `jav`,
-`cmd/jav`, stdio). El **Director es el cliente externo**
-(OpenCode/operador, nunca parte de Jav): ve cada pantalla y dirige una
-herramienta atómica por paso; Jav no corre bucles ni S2 interno.
-El juicio táctico lo aporta **S1 Jev** (discriminativo, single-pass, sin
-texto libre, `resolve_element` ciego) con un único punto de entrada general
-por paso:
+**Jav es un runtime MCP de control integral de Android sin root.** Una app en el
+dispositivo (**Jav**, `dev.k4wai1.jav`) expone la pantalla por
+`AccessibilityService` y las acciones privilegiadas por **Shizuku** (lo arranca
+el usuario) a un servidor MCP Go en el PC (`jav`, `cmd/jav`, stdio).
 
-```python
-resolve_element(screen_goal_en: str)   # p. ej. resolve_element("Tap the Copy link row")
-```
+Dos roles separados:
 
-- **Core genérico, cero apps prefijadas.** Sin paquetes, contactos, textos ni
-  flujos en el core. Lo específico viaja en runtime (Director externo o S2).
-- **Tres carriles:** APIs nativas (el SO antes que los dedos) ·
-  director-cliente v5 (metas complejas: el Director externo dirige, Jev resuelve,
-  Jav ejecuta) · `run_goal` autónomo histórico (congelado, no la vía activa).
-- **Seguro por diseño.** App sin root, `su` prohibido, `shell` con denylist
-  de irreversibles + grant interactivo, token bearer + scopes en cada bind,
-  confirmación explícita en críticas, forense JSONL por corrida.
+| | **Jav** (este repo) | **Director** (externo, no es parte de Jav) |
+|---|---|---|
+| Qué es | servidor MCP Go (`cmd/jav`) + app Android `dev.k4wai1.jav` | OpenCode / Claude / Cursor / operador |
+| Hace | expone 38 tools MCP atómicas; sin bucles ni planificador interno | lee cada pantalla, elige una tool atómica por paso, verifica el efecto |
+| Ayuda táctica | sirve **`resolve_element`** (resolver ciego S1 Jev) | fija metas, compuertas y aprueba previews |
 
-## Arquitectura en 10 líneas
-
-1. Jav sirve 2 listeners WS: loopback `ws://127.0.0.1:38472` + WSS a IP tailnet.
-2. `hello` con token bearer + scopes (`read` / `ui` / `shell` / `admin`).
-3. Percepción = árbol de accesibilidad (`dump_ui`, ≤500 nodos, ~2 ms/nodo).
-4. Jav normaliza y poda (decoración fuera) → tabla `0..253` + `NONE`.
-5. S1 Jev resuelve 1 elemento (`resolve_element`, ciego al goal global) + `conf`.
-6. El Director externo (OpenCode/operador) decide una primitiva atómica por paso; Jav no loopea ni planifica dentro.
-7. Mutación atómica (`tap_node` / `type_text` / `open_app`) + verificación posterior.
-8. Clipboard del SO antes que dedos (`get` por `dumpsys` host, `set` por API Jav).
-9. Costos auditados (`[COST]` + `CostTracker`) y forense `logs/run-<ts>.jsonl`.
-10. Sin key → stub honesto `{mock: true}`; nunca se inventan opciones.
-
-```
-PC (Debian, Go, MCP stdio)                 Teléfono (Jav, sin root)
-┌─ jav (cmd/jav): device/app/ui/nativo ─┐  ┌─ ForegroundService: 2×WS ─┐
-│ tools atómicas + resolve_element+costo │─WS──▶│ Accesibilidad: árbol+gest│
-│ normalizer, guards, logs (sin bucles)  │◀─WS──│ Shizuku: am/monkey/pant. │
-└────────────────────────────────────────┘  └───────────────────────────┘
-  Director = cliente EXTERNO (OpenCode) ──▶ jav (sin S2 ni bucles dentro)
-  adb forward tcp:38472 │  WSS tailnet (opt-in, pinning TOFU)
-```
-
-## Herramientas — 38 en total (6 Jev + 32 director/nativo)
-
-Toda tool devuelve `{ok, verified, evidence, hint}`. `verified: true` solo con
-verificación real posterior, nunca por "comando enviado".
-
-**6 — herramientas UI atómicas (las dirige paso a paso el Director externo; `loop.run_goal` histórico congelado, no la vía activa):**
-
-| Tool | Qué hace |
-|---|---|
-| `read_screen` | `dump_ui` + normalizer + tabla + `snapshot_id` + `first_result` / `zone` / `focused_field` |
-| `tap_node` | `ACTION_CLICK` primero si clickable, fallback `dispatchGesture`; reporta `via`; exige `snapshot_id` fresco |
-| `type_text` | `ACTION_SET_TEXT`, con fallback `ACTION_PASTE` (`ClipboardManager` + `performPaste`) si un WebView/input lo rechaza; exige foco explícito o `NOT_FOCUSED`; reporta `via` |
-| `scroll` | Scroll en posición / nodo |
-| `press_back` | Tecla atrás |
-| `open_app` | Solo bootstrap en el bucle; `am start` por Shizuku, fallback `monkey` |
-
-**32 — director / nativo / diagnóstico:**
-
-| Grupo | Tools |
-|---|---|
-| resolver S1 (1) | `resolve_element` (resolver ciego: `screen_goal_en` + `tau`; devuelve `idx`/`node_id`/`conf`/`snapshot_id` o el fallback Soberano) |
-| device / diag (8) | `device_status`, `list_packages`, `get_foreground`, `close_app`, `press_home`, `wait_for_text`, `screenshot`, `tap_text` (legacy, preferir `tap_node`) |
-| telemetría N0 (5) | `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info` |
-| settings / intents N0 (4) | `settings_get`, `settings_put` (System; Secure/Global = N2), `open_url`, `send_intent` |
-| clipboard (1) | `get_clipboard_device` (Jav en foreground; el host prefiere `dumpsys`) |
-| usage N1 (1) | `get_app_usage` |
-| PII N1 (4) | `list_contacts`, `add_contact`, `list_events`, `create_event` |
-| notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
-| ubicación / cámara N1 (2) | `get_location`, `take_photo` (FGS + siempre confirm) |
-| audit (1) | `get_audit` (ring en dispositivo, 500 entradas; `limit` 1–200 + `since_seq`; solo `args_sha256`/metadatos, nunca en claro; scope admin) |
-| shell (1) | `adb_shell` (shell UID shell vía Shizuku; rate 5/s + denylist de irreversibles + grant interactivo 1 cmd/5 min/30 min; scope admin; `{planned:true}` para irreversible sin `confirm`) |
-
-Payloads ejemplo (en inglés):
-
-```json
-{"goal": "List the alarms in the clock app"}
-{"snapshot_id": 42, "node_id": 17}
-{"text": "Buy milk", "slot": "message_body"}
-{"url": "https://example.com/s/abc", "package": ""}
-```
-
-Carriles nativos: **N0** sin permisos nuevos · **N1** con grants del usuario
-(anunciados en `hello.caps`) · **N2** (Shizuku/`shell` on-device) vivo, con
-denylist de irreversibles + grant interactivo.
-
-## Pruebas reales con números (resumen)
-
-> Los benchmarks mandan: [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md)
-> (latencias por herramienta en hardware real) y
-> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md)
-> (tareas cerradas con tiempo/costo/forense). Esta tabla solo resume.
-
-| Área | Cifra (medida) |
-|---|---|
-| Percepción `dump_ui` | ~2 ms/nodo (13n/40 ms, 66n/106 ms, 124n/264 ms; ~1 s peor @500) |
-| tap (`ACTION_CLICK` primero) | ~70 ms (`avg_tap_ms` 69.7–84.6) |
-| S1 Jev | ~1.6 s (`avg_s1_ms` 1589.5) |
-| S2 DeepSeek-direct (histórico, retirado) | ~1.9 s/llamada vs flash ~22 s/llamada |
-| Nativo N0 (e2e Go) | ~50–190 ms/tool (media 173 ms) |
-| Intent 1-salto `open_url` + `package` | ~0.13 s (`latency_ms` 130.3) |
-| Tareas cerradas | mensajería-A SENT ~84.9 s (~$0.0038); mensajería-B SENT ~22 s (~$0.0023); Fossify 5/5 ~38 s (~$0.0006); YT→Brave BLOQUEO honesto (~$0.0011) |
-| Techo de costo | **<$0.003** por corrida |
-
-Bancos: TECNO KJ5 (API 33, Wi-Fi) + A10 USB (Android 10, 720×1440).
-Host: Debian 13, Celeron 847. `dump_ui` 16× más rápido que `uiautomator dump`
-(4353 ms). Tablas completas en `docs/benchmarks/`; forense en `logs/` (Go) más
-histórico `mcp-server/logs/` (harness Python congelado).
-
-Runtime 100% Go (`go test ./...`, `make build`); el harness Python
-`mcp-server` es historia congelada, no un componente activo.
-
-## Estado actual + roadmap
-
-- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 38 tools,
-  `go test ./...` verde); Fases 0–4 verdes; v5 director-cliente vigente
-  (**Director = OpenCode/operador externo**, Jav = servidor delgado sin bucles
-  ni S2 interno: `resolve_element` ciego + `set_clipboard` + `loop.py`
-  histórico congelado); carril nativo N0/N1 vivo, N2 vivo;
-  38/38 docstrings al estándar de 5 secciones.
-- **Roadmap:** cierre formal suite A10 (batería + calculadora + clipboard
-  round-trip) → P1 (firma anti-ticker, `assertFresh`, forense wire+timings) →
-  P2 (ranking por relevancia + recalibrar `TAU` con ≥20 goals). Hecho: Fase 6
-  (`shell` con denylist + grant interactivo + audit 500 + kill switch + N2
-  vivo) y WSS tailnet 2b (token en Keystore + lockout + pinning TOFU).
-  Tracker vivo: `PLAN.md`. Nombre: **Jav** = proyecto/runtime +
-  `dev.k4wai1.jav`; **Jev** = backend táctico (`JEV_MODEL`); identidad
-  consolidada (`docs/specs/ecosystem.md` §4).
+Jav no loopea, no planifica y nunca inventa coordenadas. El bucle lo lleva el
+Director; el dispositivo lo lleva Jav.
 
 ## Quickstart
 
 ```bash
-# 1. Instala el APK y habilita accesibilidad (una vez, en el teléfono)
-adb install -r android-app/app/build/outputs/apk/debug/app-debug.apk
-# Ajustes → Accesibilidad → activa Jav; genera el token en la app (QR).
+# 1. Instala el servidor Go (PC)
+curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
+#    o: VERSION=v1.2.0 sh install.sh
 
-# 2. Shizuku lo arranca el USUARIO (la app solo pide el permiso runtime API_V23)
-# Instala moe.shizuku.privileged.api oficial, arráncalo, autoriza a Jav.
+# 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
+#    descarga jav-companion.apk del último Release y:
+adb install -r jav-companion.apk
+#    Ajustes → Accesibilidad → activa Jav; copia el token que muestra la app.
 
-# 3. Forward + entorno (en el PC)
+# 3. Shizuku lo arranca el USUARIO (la app solo pide el permiso runtime API_V23)
+
+# 4. Forward + entorno (PC)
 adb forward tcp:38472 tcp:38472
-cp .env.example .env   # edita: JAV_TOKEN, OPENROUTER_API_KEY, modelos (chmod 600)
+cp .env.example .env   # edita JAV_TOKEN, OPENROUTER_API_KEY, modelos (chmod 600)
 
-# 4. Chequeos sin Android Studio
-go build ./... && go vet ./... && go test ./...   # suite Go verde
-cd android-app && ./gradlew :app:testDebugUnitTest
-
-# 5. Director paso a paso (única vía activa; el Director es externo): por pantalla,
-# read_screen → resolve_element("<micro EN de ESTA pantalla>")
-# → tap_node / type_text / open_app → read de verificación → get/set_clipboard
-# → forense en logs/run-<ts>.jsonl. Ver docs/specs/director-client.md §9.4.
-#
-# Bucle histórico congelado (solo referencia, no runtime):
-# mcp-server/ + uv + pytest (148 en verde al congelar).
+# 5. Apunta tu Director (OpenCode/Claude/Cursor) a `jav` por stdio.
 ```
 
-## Seguridad
+## Herramientas — 38 en 4 grupos
 
-- **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back,
-  `open_app` sin grant) · `shell` (con grant, denylist de irreversibles +
-  `confirm`) · `admin` (token/audit). Token obligatorio incluso en
-  loopback; lockout 5 fallos/60 s → 5 min; frame 4 MiB; 50 req/s (shell 5/s).
-- **Confirm:** enviar/comunicar, comprar/pagar, borrar, cuenta/permisos,
-  `shell`/adb son críticas: sin `confirm: true` se planean sin ejecutar
-  (`planned: true` + `preview` + `needs_confirm`); con él, ejecución +
-  auditoría. Patrones `forbidden?` opt-in por goal, nunca globales.
-- **Forense:** `logs/run-<ts>.jsonl` por paso (fase, snapshot, `conf`/`tau`,
-  `wire`, `cost`, `via`, hashes; texto crudo jamás si sensible) + firma
-  `run_signature` fail-fast (2 muertes iguales → no relanzar).
-- **Kill switch:** tile de ajustes rápidos + acción en notificación (revoca
-  tokens, detiene servidor). Push/pull solo bajo `/sdcard/Download/jav-mcp/`.
+Toda tool devuelve `{ok, verified, evidence, hint}`. `tools/list` lleva una
+descripción compacta de 1–2 líneas; la ficha completa de 7 secciones se carga
+**bajo demanda** como Resource MCP (`android://tool/<name>`,
+`android://tools/<group>`, índice `android://tools/catalog`).
+
+| Grupo | Tools |
+|---|---|
+| **state** | `device_status`, `get_foreground`, `list_packages`, `get_battery`, `get_memory`, `get_storage`, `get_cpu`, `get_device_info`, `get_audit` |
+| **ui** | `read_screen`, `tap_node`, `tap_text`, `type_text`, `scroll`, `press_back`, `press_home`, `wait_for_text`, `open_app`, `close_app`, `screenshot` |
+| **native** | `settings_get`, `settings_put`, `open_url`, `send_intent`, `get_clipboard_device`, `get_app_usage`, `list_contacts`, `add_contact`, `list_events`, `create_event`, `list_notifications`, `reply_notification`, `media_state`, `media_control`, `get_location`, `take_photo`, `adb_shell` |
+| **resolve** | `resolve_element` |
+
+Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
+usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
+interactivo (1 cmd / 5 min / 30 min).
+
+## Qué cambió en v1.2.0
+
+- **~80% menos tokens de arranque**: descripciones compactas en `tools/list` +
+  fichas completas bajo demanda como Resources; instructions ≤220 palabras.
+- **Resumen de costo por sesión sin spam**: `pkg/cost` silencioso por defecto
+  (`JAV_DEBUG_COST=1` para trazar) y `evidence.cost` con
+  `{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}` en `device_status` /
+  `resolve_element`.
+- **Identidad consolidada** (`Jav` / `dev.k4wai1.jav`) y cert TLS unificado a
+  `CN=jav.local`.
+- **Fase 2b** (WSS tailnet + cert + token en Keystore + lockout) y **Fase 6**
+  (audit ring 500 + Kill Switch + shell grant/denylist + N2).
+- **Icono nuevo (1000×1000) y pulido visual nativo** sin dependencias nuevas.
+- **Poda documental**: specs históricos a `docs/specs/archive/`.
 
 ## 👨‍💻 Desarrollador
 
@@ -393,5 +228,5 @@ cd android-app && ./gradlew :app:testDebugUnitTest
 
 ## 📜 Licencia
 
-Este proyecto está bajo la **GNU General Public License v3.0** — ver el
-archivo [LICENSE](LICENSE) para el texto completo.
+Este proyecto está bajo la **GNU General Public License v3.0** — ver el archivo
+[LICENSE](LICENSE) para el texto completo.

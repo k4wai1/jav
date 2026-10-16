@@ -1,3 +1,5 @@
+> ARCHIVED — Referencia histórica no normativa.
+
 # generic-dual-tier — agente simple 100% general (S1 Jev + S2 GLM 5.3)
 
 > Estado: **contrato vigente v3 2026-10-05**. Redacta `@architect`,

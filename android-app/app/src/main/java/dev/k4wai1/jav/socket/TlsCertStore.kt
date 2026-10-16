@@ -33,7 +33,7 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 
 /**
  * Fase 2b (AGENTS.md §3.1/§3.2/§5.3, ARCHITECTURE §2.1/§2.4): certificado
- * X.509v3 autofirmado (`CN=jam.local`, RSA-2048, 10 años) para el listener
+ * X.509v3 autofirmado (`CN=jav.local`, RSA-2048, 10 años) para el listener
  * WSS del tailnet.
  *
  * Gotcha §5.3: **nunca** `Security.addProvider` global. BouncyCastle se
@@ -50,7 +50,7 @@ object TlsCertStore {
     private const val ALIAS = "jam_tls_key"
     private const val IV_LEN = 12
     private const val TAG_BITS = 128
-    private const val CN = "jam.local"
+    private const val CN = "jav.local"
     private const val VALIDITY_DAYS = 3650L
     private const val P12_PASS = "jam-tls"
 

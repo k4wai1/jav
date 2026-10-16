@@ -7,44 +7,65 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Guía §2: las 35 tools llevan §6 (Cuándo NO + alternativa exacta) y
-// §7 (Ejemplo genérico). Sin literales de dominio.
+// Guía §2: las 38 tools llevan §6 (Cuándo NO + alternativa exacta) y
+// §7 (Ejemplo genérico). Sin literales de dominio. El contrato cognitivo
+// completo vive en FullToolDocs (catalog.go) y viaja bajo demanda por
+// Resource; la verificación recorre el mapa completo (38 fichas).
 
-var allDescs = []string{
-	dDeviceStatus, dListPackages, dGetForeground, dOpenApp, dCloseApp,
-	dReadScreen, dTapText, dTapNode, dTypeText, dScroll, dPressBack,
-	dPressHome, dWaitForText, dScreenshot, dGetAudit, dAdbShell, dGetBattery, dGetMemory,
-	dGetStorage, dGetCPU, dGetDeviceInfo, dSettingsGet, dSettingsPut,
-	dOpenURL, dSendIntent, dGetClipboardDevice, dGetAppUsage,
-	dListContacts, dAddContact, dListEvents, dCreateEvent,
-	dListNotifications, dReplyNotification, dMediaState, dMediaControl,
-	dGetLocation, dTakePhoto,
+var affordNeedles = []string{
+	"Descripcion:", "Parametros:", "Retorno:",
+	"Permisos/Grants:", "Errores/gotchas:",
+	"Cuándo NO usar", "Ejemplo", "→",
 }
 
 func TestAllDescriptionsHaveSections6And7(t *testing.T) {
-	if len(allDescs) != 37 {
-		t.Fatalf("se esperan 37 descripciones, hay %d", len(allDescs))
+	if len(FullToolDocs) != 38 {
+		t.Fatalf("se esperan 38 fichas completas, hay %d", len(FullToolDocs))
 	}
-	for i, d := range allDescs {
-		if !strings.Contains(d, "Cuándo NO usar") {
-			t.Fatalf("desc %d sin §6", i)
+	for name, d := range FullToolDocs {
+		for _, n := range affordNeedles {
+			if !strings.Contains(d, n) {
+				t.Fatalf("%s sin %q", name, n)
+			}
 		}
-		if !strings.Contains(d, "Ejemplo") {
-			t.Fatalf("desc %d sin §7", i)
+	}
+}
+
+func TestCompactDescriptions(t *testing.T) {
+	if len(toolDefs) != 38 {
+		t.Fatalf("38 tools, hay %d", len(toolDefs))
+	}
+	for _, d := range toolDefs {
+		c := CompactDesc(d.name)
+		if !strings.HasPrefix(c, "["+GroupOf(d.name)+"]") {
+			t.Fatalf("%s sin prefijo [grupo]: %q", d.name, c)
 		}
-		if !strings.Contains(d, "→") {
-			t.Fatalf("desc %d sin alternativa (→)", i)
+		for _, n := range []string{"Retorno:", "{ok", "verified", "evidence", "hint",
+			"Spec: android://tool/" + d.name} {
+			if !strings.Contains(c, n) {
+				t.Fatalf("%s compacta sin %q", d.name, n)
+			}
+		}
+		if SensitiveTools[d.name] {
+			for _, n := range []string{"planned:true", "preview", "confirm"} {
+				if !strings.Contains(c, n) {
+					t.Fatalf("%s sensible compacta sin %q", d.name, n)
+				}
+			}
 		}
 	}
 }
 
 func TestDescriptionsWithoutDomainLiterals(t *testing.T) {
-	for i, d := range allDescs {
+	for name, d := range FullToolDocs {
 		low := strings.ToLower(d)
+		// `OPENROUTER_API_KEY` es un identificador de entorno legítimo (no un
+		// nombre de app ni un secreto embebido): se neutraliza antes de barrer.
+		low = strings.ReplaceAll(low, "openrouter_api_key", "")
 		for _, lit := range []string{"whatsapp", "contact_name", "verify_chat",
 			"wrong_chat", "api_key", "gmail", "telegram"} {
 			if strings.Contains(low, lit) {
-				t.Fatalf("desc %d con literal de dominio %q", i, lit)
+				t.Fatalf("%s con literal de dominio %q", name, lit)
 			}
 		}
 	}

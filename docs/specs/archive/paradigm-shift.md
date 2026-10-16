@@ -1,3 +1,5 @@
+> ARCHIVED — Referencia histórica no normativa.
+
 # paradigm-shift — los 3 giros de visión (2026-10-06)
 
 > Estado: **nota `@architect` 2026-10-07, solo `docs/`**. No es contrato

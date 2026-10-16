@@ -1,4 +1,4 @@
-VERSION ?= 0.1.0
+VERSION ?= 1.2.0
 LDFLAGS = -s -w -X main.version=$(VERSION)
 BIN = dist/jav-linux-amd64
 
@@ -24,10 +24,11 @@ vet:
 # Auditoría nativa Go (reemplaza scripts/tools-list-diff.py, eliminado por
 # muerto: importaba jev_mcp.server, purgado en 65b424e; la referencia viva
 # es PROTOCOL.md + register.go verificado en vivo por stdio).
-# 1) 37 tools vs PROTOCOL (nombres/schema/retornos/affordances),
-# 2) stdout puro JSON-RPC (logs a stderr), 3) initialize con instructions,
-# errores isError:true + hint (=recovery_instruction), escritura sensible
-# con confirm:true y {planned:true, preview} sin él.
+# 1) 38 tools vs PROTOCOL (nombres/schema/retornos/affordances),
+# 2) stdout puro JSON-RPC (logs a stderr), 3) initialize con instructions
+# (≤220 palabras), errores isError:true + hint (=recovery_instruction),
+# escritura sensible con confirm:true y {planned:true, preview} sin él,
+# y token-budget-startup (carga instructions+desc ≤3000 tokens).
 audit-mcp: build
 	go run ./cmd/audit-mcp --bin $(BIN)
 

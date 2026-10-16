@@ -8,7 +8,7 @@
 
 - RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback, WS claro).
   Listener B (opt-in, Fase 2b): `wss://<ip-tailnet>:38472` (WSS obligatorio;
-  cert self-signed `CN=jam.local`, pinning TOFU por SHA-256).
+  cert self-signed `CN=jav.local`, pinning TOFU por SHA-256).
 - Mensajes de texto, **una línea JSON por frame**. Frame máximo **4 MiB**
   (un PNG 720×1640 en base64 supera 1 MiB).
 - Rate limit: 50 req/s global, 5/s para `shell`.

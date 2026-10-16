@@ -1,3 +1,5 @@
+> ARCHIVED — Referencia histórica no normativa.
+
 # fossify-random — 5 tareas humanas no-destructivas (temporal)
 
 > Estado: **informe de run 2026-10-07, temporal**. Lo redacta `@coder` como

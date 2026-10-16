@@ -104,6 +104,36 @@ type Tracker struct {
 	Lines   []string
 }
 
+// Acumulador global de sesión/tarea (thread-safe). Recoge TODO el gasto del
+// proceso (S1+S2) para entregar un resumen limpio en evidence.cost al final
+// de cada tarea/consulta, sin ensuciar stderr llamada a llamada (v1.2.0).
+var (
+	sessionMu    sync.Mutex
+	sessionJev   float64
+	sessionS2    float64
+	sessionCalls int
+)
+
+// SessionSummary devuelve el acumulado global:
+// {jev_cost_usd, s2_cost_usd, total_cost_usd, calls}.
+func SessionSummary() map[string]any {
+	sessionMu.Lock()
+	defer sessionMu.Unlock()
+	return map[string]any{
+		"jev_cost_usd":   sessionJev,
+		"s2_cost_usd":    sessionS2,
+		"total_cost_usd": sessionJev + sessionS2,
+		"calls":          sessionCalls,
+	}
+}
+
+// ResetSession limpia el acumulador global (aislamiento entre corridas/tests).
+func ResetSession() {
+	sessionMu.Lock()
+	sessionJev, sessionS2, sessionCalls = 0, 0, 0
+	sessionMu.Unlock()
+}
+
 // NewTracker crea un tracker por corrida.
 func NewTracker(runID string) *Tracker { return &Tracker{RunID: runID} }
 
@@ -138,8 +168,22 @@ func (t *Tracker) Track(model string, inTok, outTok int, step *int, tier string,
 		model, inTok, outTok, usd, stepStr, t.RunID, source)
 	t.Lines = append(t.Lines, line)
 	t.mu.Unlock()
-	// A stderr, nunca a stdout (spec §3.2).
-	fmt.Fprintln(os.Stderr, line)
+
+	// Acumulador global de sesión (resumen al final, no spam por llamada).
+	sessionMu.Lock()
+	if tier == "s1" {
+		sessionJev += usd
+	} else {
+		sessionS2 += usd
+	}
+	sessionCalls++
+	sessionMu.Unlock()
+
+	// v1.2.0: silencioso por defecto (el resumen va en evidence.cost). Solo
+	// se emite a stderr bajo JAV_DEBUG_COST=1. Nunca a stdout (spec §3.2).
+	if os.Getenv("JAV_DEBUG_COST") == "1" {
+		fmt.Fprintln(os.Stderr, line)
+	}
 	return usd
 }
 

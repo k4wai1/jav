@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Colores semánticos modo oscuro (jam-ui-redesign §2). -->
+<resources>
+    <color name="status_ok">#81C784</color>
+    <color name="status_warn">#FFB74D</color>
+    <color name="status_fail">#EF9A9A</color>
+    <color name="card_bg_fill">#0DFFFFFF</color>
+    <color name="card_stroke">#33FFFFFF</color>
+    <color name="divider_color">#1FFFFFFF</color>
+</resources>

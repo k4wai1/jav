@@ -1,3 +1,5 @@
+> ARCHIVED — Referencia histórica no normativa.
+
 # tasks-generic v2 — contrato Dual-Tier genérico (core vs plugins-ejemplo)
 
 > Contrato Fase 4–5 (PLAN.md). Redacta `@architect`, implementa `@coder`,

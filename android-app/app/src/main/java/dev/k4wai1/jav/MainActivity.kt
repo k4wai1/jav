@@ -115,7 +115,7 @@ class MainActivity : AppCompatActivity() {
         val on = JevForegroundService.serverOn
         val tvState = findViewById<TextView>(R.id.tvServerState)
         tvState.text = if (on) "● ON" else "● DETENIDO"
-        tvState.setTextColor(if (on) COL_GREEN else COL_RED)
+        tvState.setTextColor(if (on) colOk else colFail)
         findViewById<TextView>(R.id.tvServerBind).text =
             "ws://127.0.0.1:" + JevForegroundService.PORT + "/"
         // Fase 2b: listener WSS del tailnet (solo si hay IP 100.64/10).
@@ -150,7 +150,7 @@ class MainActivity : AppCompatActivity() {
         val a11y = isAccessibilityOn()
         val tvA11y = findViewById<TextView>(R.id.tvPermA11y)
         tvA11y.text = if (a11y) "● Accesibilidad: OK" else "● Accesibilidad: APAGADA (ACCESSIBILITY_DISABLED)"
-        tvA11y.setTextColor(if (a11y) COL_GREEN else COL_AMBER)
+        tvA11y.setTextColor(if (a11y) colOk else colWarn)
         findViewById<Button>(R.id.btnA11ySettings).visibility =
             if (a11y) View.GONE else View.VISIBLE
 
@@ -165,9 +165,9 @@ class MainActivity : AppCompatActivity() {
         }
         tvSh.setTextColor(
             when {
-                granted -> COL_GREEN
-                !running -> COL_AMBER
-                else -> COL_RED
+                granted -> colOk
+                !running -> colWarn
+                else -> colFail
             }
         )
         findViewById<Button>(R.id.btnShizuku).visibility =
@@ -179,9 +179,9 @@ class MainActivity : AppCompatActivity() {
         tvBat.text = batText
         tvBat.setTextColor(
             when (batOk) {
-                true -> COL_GREEN
-                false -> COL_AMBER
-                null -> COL_AMBER
+                true -> colOk
+                false -> colWarn
+                null -> colWarn
             }
         )
         findViewById<Button>(R.id.btnBattery).visibility =
@@ -389,9 +389,10 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "JamUi"
         private const val REQ_READ = 41
         private val HHMMSS = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        // Puntos de estado legibles en claro/oscuro.
-        private const val COL_GREEN = 0xFF2E7D32.toInt()
-        private const val COL_RED = 0xFFC62828.toInt()
-        private const val COL_AMBER = 0xFFEF6C00.toInt()
     }
+
+    // Colores semánticos desde res/values(-night)/colors.xml (claro/oscuro).
+    private val colOk: Int get() = ContextCompat.getColor(this, R.color.status_ok)
+    private val colWarn: Int get() = ContextCompat.getColor(this, R.color.status_warn)
+    private val colFail: Int get() = ContextCompat.getColor(this, R.color.status_fail)
 }

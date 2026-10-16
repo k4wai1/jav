@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/k4wai1/jav/pkg/cost"
 	"github.com/k4wai1/jav/pkg/jam"
 )
 
@@ -26,6 +27,7 @@ func hDeviceStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	_ = t0
 	return result(jam.OK(true, map[string]any{
 		"scopes": c.Scopes, "app_version": c.AppVersion, "foreground": fg,
+		"cost": cost.SessionSummary(),
 	}, ""))
 }
 

@@ -6,6 +6,16 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
+## Estado Operativo Actual (v1.2.0)
+
+| Área | Estado |
+| --- | --- |
+| Identidad | App **`Jav`**, paquete `dev.k4wai1.jav`; repo `github.com/k4wai1/jav` |
+| Binario MCP | `cmd/jav` (Go, stdio JSON-RPC puro; logs solo a stderr) |
+| Catálogo | **38 tools** en 4 grupos (`state`, `ui`, `native`, `resolve`) + fichas de 7 secciones bajo demanda (`android://tool/<name>`, `android://tools/<group>`, índice `android://tools/catalog`) |
+| Seguridad | Token **AES-GCM/Keystore** · Lockout **5/60 s → 5 min** · **WSS tailnet** TOFU · **Audit Ring 500** · **Kill Switch** (QS tile + notificación) · **Shell Grant 1 cmd/5 min/30 min + denylist** |
+| GUI (Android) | Icono 1000×1000 + launcher mipmaps + header con logo; colores semánticos `values`/`values-night` |
+
 ## 1. Filosofía
 
 - **Jev decide, no ejecuta.** Interpreta estados, elige acciones, verifica.
@@ -377,3 +387,29 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    re-generar token y romper `.env`). `logs/run-*.jsonl`,
    `pkg/normalizer/testdata/` y `mcp-server/` conservan el nombre viejo como
    evidencia forense (no se reescriben).
+
+**2026-10-16 — v1.2.0: eficiencia de tokens, costo silencioso, icono/UI y poda documental:**
+
+1. **`tools/list` compacto + fichas bajo demanda:** las 38 tools conservan su
+   nombre/schema y pasan a una descripción de 1-2 líneas
+   (`CompactDesc`, `pkg/tools/catalog.go`). El contrato cognitivo de 7 secciones
+   se conserva íntegro en `FullToolDocs` y se sirve bajo demanda por Resource
+   (`android://tool/{name}`, `android://tools/<group>`, `android://tools/catalog`).
+   Se retiran los `title` redundantes por propiedad del schema. La carga
+   cognitiva de arranque (instructions + descripciones) baja de ~8.8k a ~1.6k
+   tokens; `cmd/audit-mcp` añade el check `token-budget-startup` (≤3000 tokens de
+   carga) y `initialize-instructions` se acota a ≤220 palabras. 12/12 PASS.
+2. **CostTracker silencioso:** `pkg/cost.Track` deja de imprimir a stderr por
+   llamada (solo bajo `JAV_DEBUG_COST=1`) y acumula un resumen global de sesión
+   (`SessionSummary()` → `{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}`)
+   que viaja en `evidence.cost` de `device_status` y `resolve_element`.
+3. **Identidad de certificado unificada** a `CN=jav.local` (código, tests y
+   docs), y barrido de gazapos post-rename (`Javás` → `Jamás`).
+4. **Icono 1000×1000** (`docs/assets/icon.png`) + mipmaps de launcher
+   (`ic_launcher[_round]` mdpi..xxxhdpi), `android:icon`/`android:roundIcon` en
+   el manifest, header con logo y colores semánticos
+   `values`/`values-night` (+ `dimens.xml`) sin dependencias nuevas.
+   `versionName 1.2.0` / `versionCode 2`.
+5. **Poda documental:** specs históricos movidos a `docs/specs/archive/`
+   (marcados `> ARCHIVED`); vigentes en `docs/specs/`. Tabla de estado en este
+   archivo y `README.md` reescrito (Quickstart, 4 grupos, `What changed in v1.2.0`).

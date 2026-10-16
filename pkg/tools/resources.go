@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -151,4 +153,87 @@ func RegisterExtras(s *server.MCPServer) {
 		func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 			return promptResult(promptSendVerified)
 		})
+}
+
+// --- Catálogo de tools bajo demanda (eficiencia de tokens, v1.2.0) ---
+//
+// En `tools/list` viaja solo la descripción compacta de cada tool; la ficha
+// completa de 7 secciones se sirve aquí, bajo demanda, para no inyectar
+// ~10k tokens en cada arranque. No hay pérdida de contrato: FullToolDocs
+// conserva íntegra cada ficha y la auditoría la verifica por estos Resources.
+
+const catalogNote = "Ficha completa (7 secciones) bajo demanda: android://tool/<name> o android://tools/<group>."
+
+func hToolsCatalog(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	groups := map[string][]string{}
+	for _, g := range ToolGroups {
+		names := ToolsInGroup(g)
+		if names == nil {
+			names = []string{}
+		}
+		groups[g] = names
+	}
+	doc := map[string]any{
+		"count":         len(toolDefs),
+		"groups":        groups,
+		"spec_template": "android://tool/{name}",
+		"note":          catalogNote,
+	}
+	raw, _ := json.Marshal(doc)
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{URI: req.Params.URI, MIMEType: "application/json", Text: string(raw)},
+	}, nil
+}
+
+func hToolsGroup(group string, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	names := ToolsInGroup(group)
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Grupo %s (%d tools)\n\n%s\n", group, len(names), catalogNote)
+	for _, name := range names {
+		fmt.Fprintf(&b, "\n## %s\n\n%s\n", name, FullToolDocs[name])
+	}
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{URI: req.Params.URI, MIMEType: "text/markdown", Text: b.String()},
+	}, nil
+}
+
+func hToolSpec(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	name, _ := req.Params.Arguments["name"].(string)
+	if name == "" {
+		name = strings.TrimPrefix(req.Params.URI, "android://tool/")
+	}
+	doc, ok := FullToolDocs[name]
+	if !ok {
+		return nil, fmt.Errorf("tool desconocida: %q", name)
+	}
+	text := fmt.Sprintf("# %s\n\nGrupo: %s\n\n%s\n", name, GroupOf(name), doc)
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{URI: req.Params.URI, MIMEType: "text/markdown", Text: text},
+	}, nil
+}
+
+// RegisterSpecResources publica el índice del catálogo (android://tools/catalog),
+// las fichas agrupadas (android://tools/<group>) y la lectura individual por
+// plantilla (android://tool/{name}). Carga bajo demanda del contrato cognitivo.
+func RegisterSpecResources(s *server.MCPServer) {
+	s.AddResource(
+		mcp.NewResource("android://tools/catalog", "tools_catalog",
+			mcp.WithResourceDescription("Índice de las 38 tools en 4 grupos (state, ui, native, resolve) + plantilla de fichas bajo demanda android://tool/{name}."),
+			mcp.WithMIMEType("application/json")),
+		hToolsCatalog)
+	for _, g := range ToolGroups {
+		group := g
+		s.AddResource(
+			mcp.NewResource("android://tools/"+group, "tools_"+group,
+				mcp.WithResourceDescription("Fichas completas de 7 secciones de las tools del grupo "+group+" (contrato cognitivo bajo demanda)."),
+				mcp.WithMIMEType("text/markdown")),
+			func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+				return hToolsGroup(group, req)
+			})
+	}
+	s.AddResourceTemplate(
+		mcp.NewResourceTemplate("android://tool/{name}", "tool_spec",
+			mcp.WithTemplateDescription("Ficha completa de 7 secciones de una tool (Descripcion, Parametros, Retorno, Permisos/Grants, Errores/gotchas, Cuándo NO usar, Ejemplo)."),
+			mcp.WithTemplateMIMEType("text/markdown")),
+		hToolSpec)
 }

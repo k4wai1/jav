@@ -228,8 +228,18 @@ func main() {
 			"name": "open_app", "arguments": map[string]any{"package": "no-es-paquete"}}},
 		{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{
 			"name": "type_text", "arguments": map[string]any{"node_id": "", "snapshot_id": 1, "text": "x"}}},
+		// v1.2.0: fichas completas bajo demanda por Resource (el contrato de
+		// 7 secciones ya no viaja en tools/list, sino en android://tools/<group>
+		// y android://tool/<name>). Se leen los 4 grupos + el índice + la lista
+		// de plantillas para certificarlo en vivo.
+		{"jsonrpc": "2.0", "id": 6, "method": "resources/read", "params": map[string]any{"uri": "android://tools/catalog"}},
+		{"jsonrpc": "2.0", "id": 7, "method": "resources/read", "params": map[string]any{"uri": "android://tools/state"}},
+		{"jsonrpc": "2.0", "id": 8, "method": "resources/read", "params": map[string]any{"uri": "android://tools/ui"}},
+		{"jsonrpc": "2.0", "id": 9, "method": "resources/read", "params": map[string]any{"uri": "android://tools/native"}},
+		{"jsonrpc": "2.0", "id": 10, "method": "resources/read", "params": map[string]any{"uri": "android://tools/resolve"}},
+		{"jsonrpc": "2.0", "id": 11, "method": "resources/templates/list", "params": map[string]any{}},
 	}
-	// Streaming deliberado: mantenemos el stdin ABIERTO hasta reunir las 5
+	// Streaming deliberado: mantenemos el stdin ABIERTO hasta reunir las 11
 	// respuestas. Cerrar el pipe (EOF) dispara el shutdown de ServeStdio y
 	// las tool calls en vuelo (id 3/4/5) pueden no alcanzar a escribirse
 	// (race que hacía flaky error-isError-id{3,4,5}). Un cliente MCP real
@@ -256,7 +266,8 @@ func main() {
 			}
 		}
 	}()
-	want := map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true}
+	want := map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true,
+		"6": true, "7": true, "8": true, "9": true, "10": true, "11": true}
 	allSeen := make(chan struct{})
 	scanDone := make(chan struct{})
 	go func() {
@@ -296,6 +307,7 @@ func main() {
 	// --- CHECK 2a: stdout puro JSON-RPC ---
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	byID := map[string]map[string]any{}
+	rawLenByID := map[string]int{}
 	nonJSON := []string{}
 	for _, ln := range lines {
 		ln = strings.TrimSpace(ln)
@@ -318,6 +330,7 @@ func main() {
 		idStr := fmt.Sprint(rawID)
 		// mcp-go puede devolver id como número o string según eco; normaliza
 		byID[idStr] = m
+		rawLenByID[idStr] = len(ln)
 	}
 	emit("stdout-puro-jsonrpc", len(nonJSON) == 0,
 		fmt.Sprintf("%d líneas stdout, %d no-JSON", len(lines), len(nonJSON)))
@@ -340,8 +353,8 @@ func main() {
 		}
 	}
 	words := len(strings.Fields(instructions))
-	emit("initialize-instructions", instructions != "" && len(missing) == 0 && words <= 400,
-		fmt.Sprintf("%d palabras, faltan=%v", words, missing))
+	emit("initialize-instructions", instructions != "" && len(missing) == 0 && words <= 220,
+		fmt.Sprintf("%d palabras (<=220), faltan=%v", words, missing))
 
 	// --- CHECK 1: tools/list vs tabla esperada ---
 	got := map[string]map[string]any{}
@@ -424,34 +437,111 @@ func main() {
 	emit("tools-schema", len(schemaDiffs) == 0,
 		fmt.Sprintf("%d diffs %v", len(schemaDiffs), firstN(schemaDiffs, 5)))
 
-	// --- CHECK 1b: affordances + retornos en descripciones ---
+	// --- CHECK 1b: descripciones compactas en tools/list + fichas completas
+	// de 7 secciones bajo demanda en Resources (v1.2.0). tools/list ya no
+	// inyecta el contrato cognitivo completo: aquí se certifica que cada tool
+	// lleva su descripción compacta (grupo, retorno, Spec, y gates si es
+	// sensible) y que las 38 fichas completas siguen íntegras en
+	// android://tools/<group> (mismos FullToolDocs que sirve el servidor).
 	affordFails := []string{}
+
+	// grupo por tool: se lee del índice android://tools/catalog (id 6).
+	groupOf := map[string]string{}
+	catRaw := resourceText(byID, "6")
+	var cat struct {
+		Count  int                 `json:"count"`
+		Groups map[string][]string `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(catRaw), &cat); err != nil || cat.Count != 38 {
+		affordFails = append(affordFails, fmt.Sprintf("catalog ilegible count=%d err=%v", cat.Count, err))
+	}
+	for g, names := range cat.Groups {
+		for _, n := range names {
+			groupOf[n] = g
+		}
+	}
+	if len(groupOf) != 38 {
+		affordFails = append(affordFails, fmt.Sprintf("catalog cubre %d tools (esperadas 38)", len(groupOf)))
+	}
+
+	// descripción compacta viva de tools/list.
 	for name := range expected {
 		g, ok := got[name]
 		if !ok {
 			continue
 		}
 		d, _ := g["description"].(string)
-		for _, n := range affordNeedles {
-			if !strings.Contains(d, n) {
-				affordFails = append(affordFails, fmt.Sprintf("%s sin %q", name, n))
-			}
+		want := []string{"Retorno:", "{ok", "verified", "evidence", "hint",
+			"Spec: android://tool/" + name}
+		if gr := groupOf[name]; gr != "" {
+			want = append(want, "["+gr+"]")
 		}
-		for _, n := range []string{"{ok", "verified", "evidence", "hint"} {
+		for _, n := range want {
 			if !strings.Contains(d, n) {
-				affordFails = append(affordFails, fmt.Sprintf("%s retorno sin %q", name, n))
+				affordFails = append(affordFails, fmt.Sprintf("%s compacta sin %q", name, n))
 			}
 		}
 		if sensitive[name] {
 			for _, n := range []string{"planned:true", "preview", "confirm"} {
 				if !strings.Contains(d, n) {
-					affordFails = append(affordFails, fmt.Sprintf("%s sensible sin %q", name, n))
+					affordFails = append(affordFails, fmt.Sprintf("%s sensible compacta sin %q", name, n))
 				}
 			}
 		}
 	}
+
+	// fichas completas en los 4 Resources de grupo: se reconstruye el mapa
+	// name→ficha y se exigen las 7 secciones (affordNeedles) en cada una.
+	fullDoc := map[string]string{}
+	for _, id := range []string{"7", "8", "9", "10"} {
+		for _, part := range strings.Split(resourceText(byID, id), "\n## ") {
+			part = strings.TrimSpace(part)
+			if part == "" || strings.HasPrefix(part, "#") {
+				continue
+			}
+			lines := strings.SplitN(part, "\n", 2)
+			name := strings.TrimSpace(lines[0])
+			body := ""
+			if len(lines) > 1 {
+				body = lines[1]
+			}
+			fullDoc[name] = body
+		}
+	}
+	if len(fullDoc) != 38 {
+		affordFails = append(affordFails, fmt.Sprintf("resources cubren %d fichas (esperadas 38)", len(fullDoc)))
+	}
+	for name := range expected {
+		body, ok := fullDoc[name]
+		if !ok {
+			affordFails = append(affordFails, name+" sin ficha completa en Resources")
+			continue
+		}
+		for _, n := range affordNeedles {
+			if !strings.Contains(body, n) {
+				affordFails = append(affordFails, fmt.Sprintf("%s ficha sin %q", name, n))
+			}
+		}
+	}
+
+	// plantilla individual android://tool/{name} (para consultar gotchas/ejemplos).
+	tmplOK := false
+	if r, ok := byID["11"]["result"].(map[string]any); ok {
+		if arr, ok := r["resourceTemplates"].([]any); ok {
+			for _, t := range arr {
+				if m, ok := t.(map[string]any); ok {
+					if u, _ := m["uriTemplate"].(string); u == "android://tool/{name}" {
+						tmplOK = true
+					}
+				}
+			}
+		}
+	}
+	if !tmplOK {
+		affordFails = append(affordFails, "sin plantilla android://tool/{name}")
+	}
 	emit("tools-affordances", len(affordFails) == 0,
-		fmt.Sprintf("%d fallos %v", len(affordFails), firstN(affordFails, 5)))
+		fmt.Sprintf("compactas 38 + fichas 38 + plantilla; %d fallos %v", len(affordFails), firstN(affordFails, 5)))
 
 	// --- CHECK 1c: cobertura PROTOCOL.md ---
 	protoRaw, err := os.ReadFile(proto)
@@ -605,6 +695,32 @@ func main() {
 	emit("confirm-sensible", len(sensFails) == 0,
 		fmt.Sprintf("sensibles=%d fallos=%v", countConfirm(), firstN(sensFails, 5)))
 
+	// --- CHECK 4: presupuesto de tokens de arranque (v1.2.0) ---
+	// Payload de arranque = initialize (instructions) + tools/list. Se mide en
+	// dos planos:
+	//  - carga cognitiva (prosa que se inyecta al modelo): instructions +
+	//    Σ descripciones. Es lo optimizado (antes ~8.8k tokens): objetivo ≤3000.
+	//  - respuestas JSON completas (incluye el esquema MCP fijo, no reducible
+	//    sin romper el contrato): se reporta el tamaño real para trazabilidad.
+	sumDesc := 0
+	for name := range got {
+		d, _ := got[name]["description"].(string)
+		sumDesc += len(d)
+	}
+	payloadBytes := len(instructions) + sumDesc
+	payloadTokens := payloadBytes / 4
+	startupBytes := rawLenByID["1"] + rawLenByID["2"]
+	startupTokens := startupBytes / 4
+	const baselinePayloadTokens = 8800 // medido pre-v1.2.0 (instructions + 38 fichas completas)
+	saved := baselinePayloadTokens - payloadTokens
+	pct := 0
+	if baselinePayloadTokens > 0 {
+		pct = saved * 100 / baselinePayloadTokens
+	}
+	emit("token-budget-startup", payloadBytes > 0 && payloadTokens <= 3000,
+		fmt.Sprintf("carga instr+desc bytes=%d tokens~%d (<=3000); respuestas init+list bytes=%d tokens~%d; ahorro~%d tokens (~%d%%)",
+			payloadBytes, payloadTokens, startupBytes, startupTokens, saved, pct))
+
 	// --- resumen ---
 	fail := 0
 	for _, r := range results {
@@ -641,4 +757,24 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// resourceText concatena el campo text de las contents de la respuesta
+// resources/read con el id dado (vacío si no existe o no parsea).
+func resourceText(byID map[string]map[string]any, id string) string {
+	r, _ := byID[id]["result"].(map[string]any)
+	if r == nil {
+		return ""
+	}
+	arr, _ := r["contents"].([]any)
+	var b strings.Builder
+	for _, c := range arr {
+		if m, ok := c.(map[string]any); ok {
+			if t, ok := m["text"].(string); ok {
+				b.WriteString(t)
+				b.WriteByte('\n')
+			}
+		}
+	}
+	return b.String()
 }

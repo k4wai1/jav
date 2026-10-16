@@ -784,7 +784,7 @@ tailnet, con token cifrado en reposo y pinning TOFU en el cliente Go.
   mismo valor y se borra el plano → el `.env` del operador sigue válido.
   `regenerateToken` guarda cifrado.
 - `socket/TlsCertStore.kt`: `TlsCertStore` (AndroidKeyStore) + `TlsCertFactory`
-  (JVM puro). Cert **X.509v3 autofirmado** `CN=jam.local`, RSA-2048, 10 años,
+  (JVM puro). Cert **X.509v3 autofirmado** `CN=jav.local`, RSA-2048, 10 años,
   con BouncyCastle **local** (nunca registro JCA global, AGENTS §5.3);
   PKCS#12 cifrado en `filesDir` (`jam_tls.p12.enc`); expone `sslContext()`
   y `fingerprintSha256()`. `TlsCertStoreTest.kt` (5 tests).
@@ -833,3 +833,67 @@ probaron en vivo**; se cubren por tests JVM del `TlsCertFactory`, por el test
 Go del pinning y por la prueba de que el camino AES de `AndroidKeyStore`
 funciona (migración del token). Bindear el WSS a la LAN violaría AGENTS §3.1
 (nunca fuera del tailnet), así que no se forzó.
+
+---
+
+## 22. v1.2.0 — tools/list compacto, costo silencioso, icono/UI y poda documental
+
+Build de cierre de release. Cambios de código y de documento, con verificación
+Go completa en esta máquina y **límite honesto** en el lado Android (sin JDK/SDK
+en el entorno del agente, ver más abajo).
+
+**Go (`pkg/tools`, `pkg/cost`, `cmd/jav`, `cmd/audit-mcp`)**
+- `catalog.go` (nuevo): clasificación de las 38 tools en 4 grupos
+  (`state` 9, `ui` 11, `native` 17, `resolve` 1), `FullToolDocs` (ficha de 7
+  secciones íntegra por tool) y `CompactDesc` (1-2 líneas para `tools/list`).
+- `resources.go`: `RegisterSpecResources` publica `android://tools/catalog`
+  (índice JSON), `android://tools/<group>` (fichas completas) y la plantilla
+  `android://tool/{name}` (ficha individual).
+- `register.go`: se retiran los `title` redundantes por propiedad del schema;
+  `tools/list` viaja con `CompactDesc`.
+- `cmd/jav/main.go`: `instructions` compactado a **218 palabras** (tokens
+  obligatorios intactos) + línea de specs bajo demanda; `version = "1.2.0"`.
+- `pkg/cost/cost.go`: `Track` **silencioso** por defecto (`JAV_DEBUG_COST=1`
+  para trazar) + acumulador global `SessionSummary()`
+  (`{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}`); `pkg/tools` lo
+  adjunta en `evidence.cost` de `device_status` y `resolve_element`.
+- `cmd/audit-mcp/main.go`: `tools-affordances` ahora certifica la descripción
+  compacta en vivo + las 38 fichas completas leídas por Resource + la
+  plantilla; **nuevo check `token-budget-startup`**.
+
+**Verificación (Go)**
+```
+gofmt -l cmd/ pkg/                                   # vacío
+go vet ./...                                         # 0
+go test ./...                                        # verde salvo el
+                                                     #   preexistente pkg/normalizer
+                                                     #   (depende de logs/run-*.jsonl,
+                                                     #   gitignored: sin fixtures)
+make build                                           # dist/jav-linux-amd64
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 12/12 PASS
+```
+`token-budget-startup`: carga cognitiva (instructions + 38 descripciones)
+**6525 bytes ≈ 1631 tokens** (≤3000), frente a ~8800 tokens previos
+(**~81 % de ahorro**). Respuestas JSON completas `initialize + tools/list`:
+15078 bytes (incluye el esquema MCP fijo, no reducible sin romper el contrato).
+`tools-count-38` y `tools-affordances` en verde.
+
+**Android (`android-app`)**
+- Icono `docs/assets/icon.png` (1000×1000) + mipmaps `ic_launcher[_round]`
+  (mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192, round con máscara
+  circular y alfa). `android:icon`/`android:roundIcon` en el manifest.
+- `values`/`values-night` `colors.xml` (`status_ok|warn|fail`, `card_bg_fill`,
+  `card_stroke`, `divider_color`), `dimens.xml`, `card_bg.xml` semántico,
+  header con logo en `activity_main.xml`, `MainActivity.kt` con
+  `ContextCompat.getColor(...)`. `versionName 1.2.0` / `versionCode 2`.
+- Comprobaciones locales: 9/9 XML bien formados, mipmaps presentes,
+  gate `su` (AGENTS §2.2) **sin hits nuevos** (1 preexistente:
+  `shell/ShizukuBridge.kt:118`, falso positivo `Re**su**lt`).
+
+**Límite honesto:** este entorno de agente **no tiene JDK ni Android SDK**
+(`java`, `gradle`, `~/Android/Sdk` ausentes) y el dispositivo `e03638e5` no está
+conectado por USB, por lo que **no se pudo** ejecutar
+`./gradlew :app:testDebugUnitTest :app:assembleDebug` ni el e2e en vivo. Los
+cambios Android quedan validados por revisión estática (XML + recursos) y por el
+workflow de release (JDK 17 temurin en CI). Pendiente de certificar en hardware
+real (`e03638e5`) antes/junto al tag `v1.2.0`.

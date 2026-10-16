@@ -163,7 +163,7 @@ Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
 Cierre del backlog 2b. Token del operador cifrado en reposo (AES-GCM/256 en
 `AndroidKeyStore`, con migración suave desde el `ws_token` plano), lockout
 5 fallos/60 s → 5 min por `origin`, certificado X.509v3 autofirmado
-(`CN=jam.local`, RSA-2048, BouncyCastle local) servido en un 2.º listener
+(`CN=jav.local`, RSA-2048, BouncyCastle local) servido en un 2.º listener
 **WSS** atado a la IP tailnet (`100.64.0.0/10`, `ConnectivityManager.NetworkCallback`),
 y pinning TOFU en el cliente Go (`JAV_CERT_FINGERPRINT`, tiempo constante,
 `CERT_MISMATCH` honesto).

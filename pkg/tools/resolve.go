@@ -70,6 +70,7 @@ func hResolveElement(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		ev["reason"] = out["reason"]
 		ev["recovery_instruction"] = out["recovery_instruction"]
 		ev["snapshot_id"] = out["snapshot_id"]
+		ev["cost"] = cost.SessionSummary()
 		for _, k := range []string{"conf", "top_candidates", "cost_usd", "usage"} {
 			if v, ok := out[k]; ok {
 				ev[k] = v
@@ -92,6 +93,7 @@ func hResolveElement(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	ev := map[string]any{
 		"idx": out["idx"], "node_id": nodeID, "conf": out["conf"],
 		"snapshot_id": out["snapshot_id"], "fallback_required": false,
+		"cost": cost.SessionSummary(),
 	}
 	for _, k := range []string{"cost_usd", "usage", "mock"} {
 		if v, ok := out[k]; ok {
