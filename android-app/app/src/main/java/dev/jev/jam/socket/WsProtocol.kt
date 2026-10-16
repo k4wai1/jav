@@ -94,6 +94,13 @@ data class ScreenshotParams(val format: String = "png", val quality: Int = 80)
 data class SetClipboardParams(val text: String = "")
 
 /**
+ * Params de `get_audit` (Fase 6a). `limit` se acota a 1..200 en el
+ * dispatcher; `since_seq` devuelve solo entradas con seq mayor.
+ */
+@Serializable
+data class AuditParams(val limit: Int = 50, val since_seq: Long = 0)
+
+/**
  * Params del catálogo native-apis (docs/specs/native-apis.md §§1–13).
  * N0 sin params nuevos salvo filtros; N1 con grants de usuario;
  * N2 (`detail=fine`, `settings_put` secure/global) lo rechaza el

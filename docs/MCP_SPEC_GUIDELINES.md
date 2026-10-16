@@ -13,7 +13,7 @@
 > Fuentes normativas leídas para v1:
 >
 > - Servidor Go (raíz del repo): `cmd/jav/main.go` (stdio, logs solo a
->   stderr), `pkg/tools/register.go` (36 tools, descripciones ES de
+>   stderr), `pkg/tools/register.go` (37 tools, descripciones ES de
 >   5 secciones verbatim de Python), `pkg/tools/helpers.go` + `ui.go`
 >   (validación client-side, envolvente, `readScreenState` sin
 >   post-snapshot), `pkg/jam/jam.go` (`hintFor`, `Dial` + `hello`,
@@ -151,7 +151,7 @@ part of the contract (see the per-tool Errors section for the catalog).
 
 ### 2.1 Estado actual y delta normativo
 
-Las 36 tools ya tienen 5 secciones (Descripcion / Parametros / Retorno /
+Las 37 tools ya tienen 5 secciones (Descripcion / Parametros / Retorno /
 Permisos-Grants / Errores-gotchas), idénticas Python ≡ Go (la 36.ª,
 `resolve_element`, es Go-only: expone el resolver ciego de S1). Este
 estándar **no las reescribe**: define el **delta exigible** a partir de

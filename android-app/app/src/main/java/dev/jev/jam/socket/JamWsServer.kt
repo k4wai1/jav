@@ -82,7 +82,7 @@ class JamWsServer(
             return
         }
         if (req.method == "hello") {
-            val (scopes, frame) = dispatcher.hello(req)
+            val (scopes, frame) = dispatcher.hello(req, originOf(conn))
             if (scopes != null) authedScopes[conn] = scopes
             conn.send(frame)
             return
@@ -98,10 +98,21 @@ class JamWsServer(
             return
         }
         try {
-            conn.send(dispatcher.dispatch(req, scopes))
+            conn.send(dispatcher.dispatch(req, scopes, originOf(conn)))
         } catch (t: Throwable) {
             JevLog.e(TAG, "dispatch falló", t)
             conn.send(errResponse(req.id, "error interno", "INTERNAL_ERROR"))
+        }
+    }
+
+    /** Origen sanitizado para el audit: `loopback` o IP (sin puerto efímero). */
+    private fun originOf(conn: WebSocket): String {
+        return try {
+            val addr = conn.remoteSocketAddress ?: return "?"
+            if (addr.address?.isLoopbackAddress == true) "loopback"
+            else addr.address?.hostAddress ?: "?"
+        } catch (t: Throwable) {
+            "?"
         }
     }
 

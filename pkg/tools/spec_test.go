@@ -13,7 +13,7 @@ import (
 var allDescs = []string{
 	dDeviceStatus, dListPackages, dGetForeground, dOpenApp, dCloseApp,
 	dReadScreen, dTapText, dTapNode, dTypeText, dScroll, dPressBack,
-	dPressHome, dWaitForText, dScreenshot, dGetBattery, dGetMemory,
+	dPressHome, dWaitForText, dScreenshot, dGetAudit, dGetBattery, dGetMemory,
 	dGetStorage, dGetCPU, dGetDeviceInfo, dSettingsGet, dSettingsPut,
 	dOpenURL, dSendIntent, dGetClipboardDevice, dGetAppUsage,
 	dListContacts, dAddContact, dListEvents, dCreateEvent,
@@ -22,8 +22,8 @@ var allDescs = []string{
 }
 
 func TestAllDescriptionsHaveSections6And7(t *testing.T) {
-	if len(allDescs) != 35 {
-		t.Fatalf("se esperan 35 descripciones, hay %d", len(allDescs))
+	if len(allDescs) != 36 {
+		t.Fatalf("se esperan 36 descripciones, hay %d", len(allDescs))
 	}
 	for i, d := range allDescs {
 		if !strings.Contains(d, "Cuándo NO usar") {

@@ -345,4 +345,10 @@ func (c *Client) Scroll(direction string, nodeID string) (map[string]any, *JamEr
 	return c.Call("scroll", p)
 }
 
+// GetAudit consulta el ring buffer de auditoría del dispositivo (Fase 6a):
+// limit 1..200 (default 50), since_seq filtra seq > since_seq.
+func (c *Client) GetAudit(limit int, sinceSeq int64) (map[string]any, *JamError) {
+	return c.Call("get_audit", map[string]any{"limit": limit, "since_seq": sinceSeq})
+}
+
 var _ = fmt.Sprint

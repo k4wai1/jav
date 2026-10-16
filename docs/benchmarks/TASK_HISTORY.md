@@ -95,3 +95,36 @@ Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
 `go test ./...` verde · `./gradlew :app:testDebugUnitTest` **59/59** ·
 `go run ./cmd/audit-mcp` **11/11** (`tools-count-36`).
 
+
+## 7. Fase 6a 2026-10-16 en A10 USB — `get_audit` (37.ª tool) + Kill Switch
+
+Auditoría en dispositivo y parada dura del servidor (AGENTS §3.8). Sin LLM,
+sin Shizuku, sin acciones destructivas (a11y apagada). El Kill Switch **no**
+se dispara aquí: rotaría el token del operador a mitad de sesión.
+
+| Paso (WS directo, `adb forward tcp:38472`) | Resultado | Evidencia |
+|---|---|---|
+| `hello{protocol_version:1, token}` | `ok:true`, `scopes ["read","ui","admin"]` | respuesta plano (sin `id`) |
+| `get_battery` / `get_device_info` | `ok:true` (carril nativo N0) | tool MCP |
+| `get_foreground` (a11y apagada) | `ok:false` `ACCESSIBILITY_DISABLED` (honesto) | tool MCP |
+| `get_audit{limit:50, since_seq:0}` | `total_buffered 4`, `returned 4` | ring en vivo |
+
+Entradas devueltas (`args_sha256` = 16 hex, `origin` `loopback`):
+
+| seq | method | scope | result |
+|---|---|---|---|
+| 1 | `hello` | `auth` | `OK` |
+| 2 | `get_battery` | `n0` | `OK` |
+| 3 | `get_device_info` | `n0` | `OK` |
+| 4 | `get_foreground` | `read` | `ACCESSIBILITY_DISABLED` |
+
+Sanity: el token no aparece en el JSON de `get_audit` y los 4 `args_sha256`
+miden 16; `get_audit` **no** se auto-incluye (se registra tras responder).
+Kill Switch: tile registrado con `BIND_QUICK_SETTINGS_TILE` (`dumpsys
+package`) y notificación `id=1` con `actions=1` → `"Kill Switch"`
+`PendingIntent startService` (`dumpsys notification`); disparo en vivo
+queda como prueba manual del operador.
+
+Verificación de suites tras el hito: `gofmt -l cmd/ pkg/` vacío ·
+`go test ./...` verde · `./gradlew :app:testDebugUnitTest` **64/64** ·
+`go run ./cmd/audit-mcp --bin dist/jav-linux-amd64` **11/11** (`tools-count-37`).

@@ -186,9 +186,26 @@
   Suite A10 (batería + calculadora + clipboard round-trip) pendiente de
   cierre formal por `@judge` antes de dar v5 por cerrada.
 
+### Fase 6a — Audit ring 500 + Kill Switch + 37.ª tool `get_audit` (2026-10-16, banco A10 `e03638e5`)
+- [x] `socket/AuditLog.kt` (JVM puro, ring **500**, `args_sha256` = 16 hex,
+  `origin` = `loopback`|IP); `CommandDispatcher`/`JamWsServer` registran cada
+  `hello`/`dispatch` con `scopeOf` (`read|ui|n0|n1|auth|admin`); WS **`get_audit`**
+  (`limit` 1..200, `since_seq`) → `{total_buffered, returned, entries[]}`;
+  `hello.scopes` += `admin`. `AuditLogTest.kt` (+5 → Kotlin **64/64**).
+- [x] Kill Switch: `ACTION_KILL_SWITCH` (rota token + audita `kill_switch` +
+  `revokeAll` + `shutdown` + `stopSelf`), botón en la notificación y
+  `JamKillSwitchTile` (QS, `BIND_QUICK_SETTINGS_TILE`, `exported=true`).
+- [x] 37.ª tool `get_audit` (`pkg/tools/audit.go`, `pkg/jam.GetAudit`);
+  `cmd/audit-mcp` `tools-count-37` **11/11**; `cmd/jav-e2e` + caso live.
+  Verificado en vivo: ring con `hello`/n0/read, sin fuga de token, hashes 16 hex.
+  `BUILD.md §19`, `TASK_HISTORY §7`.
+- [ ] Pendiente honesto: **disparo del Kill Switch en vivo** lo ejecuta el
+  operador (rota el token de la sesión); cierre formal de Fase 6a por `@judge`.
+
 ### Fase 6 — Shell con seguridad cerrada + hardening
 - [ ] `shell` solo con denylist, grant (1 cmd SHA-256 exacto / 5 min / 30 min,
-  bloqueo 60 s), audit ring 500 (`get_audit`), kill switch (tile + notificación).
+  bloqueo 60 s). *(Planificado; `shell` sigue `METHOD_NOT_ALLOWED`.)*
+  **`get_audit` (ring 500) y Kill Switch: hechos en Fase 6a (2026-10-16).**
 - [ ] Grupo `adb` opt-in, push/pull solo bajo `/sdcard/Download/jev-mcp/`,
   docs y hardening finales.
 

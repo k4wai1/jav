@@ -1,6 +1,6 @@
 // Harness e2e jav (spec docs/specs/ai-providers.md, tarea @coder §2).
 //
-// Lanza `jav` stdio como subproceso y recorre las 36 tools contra el
+// Lanza `jav` stdio como subproceso y recorre las 37 tools contra el
 // teléfono + initialize + resources + prompts. Sin keys propias, 100%
 // genérico: ningún paquete concreto, ningún literal de dominio.
 //
@@ -371,6 +371,8 @@ func main() {
 	add("get_foreground", "tras navegación", env, ms, cerr, "dónde quedamos")
 	env, ms, cerr = call("resolve_element", map[string]any{"screen_goal_en": ""}, T)
 	add("resolve_element", "goal vacío", env, ms, cerr, "VALIDATION_ERROR sin gastar saldo ni tocar UI")
+	env, ms, cerr = call("get_audit", map[string]any{"limit": 5, "since_seq": 0}, T)
+	add("get_audit", "ring 500", env, ms, cerr, "entradas con args_sha256 (solo metadatos, sin PII)")
 
 	// 11. open_app / close_app: validación por defecto; real opt-in.
 	env, ms, cerr = call("open_app", map[string]any{"package": "no-es-paquete"}, T)

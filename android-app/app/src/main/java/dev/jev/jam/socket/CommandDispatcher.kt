@@ -39,21 +39,26 @@ class CommandDispatcher(private val appContext: Context) {
         }
     }
 
-    fun hello(req: WsRequest): Pair<Set<String>?, String> {
+    fun hello(req: WsRequest, origin: String = "loopback"): Pair<Set<String>?, String> {
         val p = try {
             JamJson.decodeFromJsonElement(HelloParams.serializer(), req.params)
         } catch (t: Throwable) {
+            audit("hello", req, "VALIDATION_ERROR", origin)
             return null to errResponse(req.id, "hello inválido", "VALIDATION_ERROR")
         }
         if (p.protocol_version != PROTOCOL_VERSION) {
+            audit("hello", req, "PROTOCOL_MISMATCH", origin)
             return null to errResponse(
                 req.id, "protocol_version debe ser $PROTOCOL_VERSION", "PROTOCOL_MISMATCH"
             )
         }
         if (!AuthStore.verify(p.token, token)) {
+            audit("hello", req, "UNAUTHORIZED", origin)
             return null to errResponse(req.id, "token inválido", "UNAUTHORIZED")
         }
-        val scopes = setOf("read", "ui")
+        // El token bearer único es la credencial del operador: habilita
+        // además `admin` (audit, rotar token, settings) por PROTOCOL §3.
+        val scopes = setOf("read", "ui", "admin")
         val acc = JevAccessibilityService.instance != null
         val shizuku = try {
             Shizuku.pingBinder()
@@ -87,13 +92,16 @@ class CommandDispatcher(private val appContext: Context) {
                 )
             )
         )
+        audit("hello", req, "OK", origin)
         return scopes to frame
     }
 
-    fun dispatch(req: WsRequest, scopes: Set<String>): String {
+    fun dispatch(req: WsRequest, scopes: Set<String>, origin: String = "loopback"): String {
         count(req.method)
-        return try {
-            val frame = when (req.method) {
+        var code: String
+        var frame: String
+        try {
+            frame = when (req.method) {
                 "dump_ui" -> dumpUi(req)
                 "tap" -> tap(req)
                 "tap_node" -> tapNode(req)
@@ -107,6 +115,8 @@ class CommandDispatcher(private val appContext: Context) {
                 "force_stop" -> forceStop(req)
                 "screenshot" -> screenshot(req)
                 "set_clipboard" -> setClipboard(req)
+                // Fase 6a: audit ring consultable (scope admin).
+                "get_audit" -> getAudit(req)
                 // Catálogo native-apis N0 (sin permisos nuevos), scope read/ui.
                 "get_battery" -> okResponse(req.id, NativeDevice.getBattery(appContext))
                 "get_memory" -> okResponse(req.id, NativeDevice.getMemory(appContext))
@@ -135,11 +145,42 @@ class CommandDispatcher(private val appContext: Context) {
                 )
                 else -> throw JamError("método desconocido: ${req.method}", "METHOD_NOT_ALLOWED")
             }
-            note(req.method, "OK")
-            frame
+            code = "OK"
         } catch (e: JamError) {
-            note(req.method, e.code)
-            errResponse(req.id, e.message ?: "error", e.code)
+            code = e.code
+            frame = errResponse(req.id, e.message ?: "error", e.code)
+        }
+        note(req.method, code)
+        audit(req.method, req, code, origin)
+        return frame
+    }
+
+    /**
+     * Fase 6a: consulta el ring buffer. `limit` acotado a 1..200,
+     * `since_seq` < 0 se trata como 0. Devuelve el subconjunto con
+     * `seq > since_seq`, más reciente al final.
+     */
+    private fun getAudit(req: WsRequest): String {
+        val p = decodeParams<AuditParams>(req)
+        val limit = p.limit.coerceIn(1, 200)
+        val since = if (p.since_seq < 0L) 0L else p.since_seq
+        val entries = AuditLog.list(limit, since)
+        return okResponse(req.id, buildJsonObject {
+            put("total_buffered", AuditLog.size())
+            put("returned", entries.size)
+            put(
+                "entries",
+                JamJson.encodeToJsonElement(ListSerializer(AuditEntry.serializer()), entries)
+            )
+        })
+    }
+
+    /** Registro de audit sin exponer params en claro (solo SHA-256). */
+    private fun audit(method: String, req: WsRequest, code: String, origin: String) {
+        try {
+            AuditLog.record(method, scopeOf(method), req.params.toString(), code, origin)
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "audit falló", t)
         }
     }
 
@@ -446,6 +487,26 @@ class CommandDispatcher(private val appContext: Context) {
             "get_device_info", "settings_get", "open_url", "send_intent",
             "get_clipboard"
         )
+
+        /** Lecturas puras (sin efecto): scope `read` en el audit. */
+        private val READ_METHODS = setOf(
+            "dump_ui", "wait_for_node", "get_foreground", "screenshot"
+        )
+
+        /**
+         * Scope de una entrada de audit (AGENTS.md §3.8):
+         * read|ui|n0|n1|auth|admin. `hello` es auth; `get_audit`/`shell`/
+         * `kill_switch` son admin.
+         */
+        fun scopeOf(method: String): String = when {
+            method == "hello" -> "auth"
+            method == "get_audit" || method == "shell" || method == "kill_switch" -> "admin"
+            method in READ_METHODS -> "read"
+            method in UI_METHODS -> "ui"
+            method in N1_METHODS -> "n1"
+            method in N0_METHODS -> "n0"
+            else -> "read"
+        }
 
         private fun count(method: String) {
             when (method) {

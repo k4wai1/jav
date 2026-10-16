@@ -633,3 +633,69 @@ make build                                           # dist/jav-linux-amd64
 go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 11/11 PASS (tools-count-36)
 ```
 APK reinstalada en `e03638e5` (Accesibilidad re-enlazada, Shizuku vivo).
+
+## 19. Fase 6a — audit ring 500 + Kill Switch + tool #37 `get_audit` (2026-10-16)
+
+Primer bloque de Fase 6 (AGENTS §3.8 / ARCHITECTURE §9): auditoría en
+dispositivo consultable y parada dura del servidor. Banco `e03638e5`
+(Android 10 / API 29, USB).
+
+**Qué cambió**
+- **Kotlin `socket/AuditLog.kt`** (puro JVM, `object`): ring de
+  `MAX_ENTRIES=500` sobre `ArrayDeque` con lock. `AuditEntry` serializable
+  `{seq, ts, method, scope, args_sha256, result, origin}`; `args_sha256` =
+  primeros **16 hex** del SHA-256 de `params.toString()` (jamás el texto en
+  claro). API: `record/list(limit, sinceSeq)/clear/size`.
+- **`CommandDispatcher`**: `hello(req, origin)` y `dispatch(req, scopes,
+  origin)` propagan el origen y registran cada intento (OK o `code`) con
+  `scopeOf(method)` (`read|ui|n0|n1|auth|admin`). Set `read` para lecturas
+  puras (`dump_ui`/`wait_for_node`/`get_foreground`/`screenshot`). Nuevo
+  método WS **`get_audit`** (`limit` 1..200, `since_seq`) → `{total_buffered,
+  returned, entries[]}`. El token bearer único habilita además `admin` en
+  `hello.scopes`.
+- **`JamWsServer`**: `originOf(conn)` sanitiza a `loopback` o IP (sin puerto).
+- **Kill Switch** (`service/JevForegroundService.kt`):
+  `ACTION_KILL_SWITCH="dev.jev.jam.action.KILL_SWITCH"` en `onStartCommand`;
+  `triggerKillSwitch(ctx)` rota el token (`AuthStore.regenerateToken`),
+  registra `kill_switch` (scope admin) y `revokeAll()` + `shutdown()` +
+  `stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()`. Botón "Kill
+  Switch" en la notificación (`PendingIntent.getService`,
+  `FLAG_IMMUTABLE`).
+- **`service/JamKillSwitchTile.kt`** (`TileService`, API 24+): refleja
+  `serverOn` (`STATE_ACTIVE`/`LABEL "Jam ON|OFF"`) y dispara el kill en
+  `onClick`. Manifest: `BIND_QUICK_SETTINGS_TILE` + `exported="true"` +
+  `QS_TILE`; icono propio `res/drawable/ic_jam_kill.xml` (sin depender de
+  recursos de sistema ocultos).
+- **Go tool #37 `get_audit`**: `pkg/jam.GetAudit(limit, sinceSeq)`,
+  `pkg/tools/audit.go` (clamp 1..200, `since_seq<0`→0), `register.go`
+  (`titleOf "since_seq"`), docstring de 7 secciones. Contadores a **37**
+  (`register_test`, `spec_test`, `cmd/audit-mcp tools-count-37`,
+  `cmd/jav-e2e` + `get_audit` live), README/ARCHITECTURE/MCP_SPEC_GUIDELINES.
+
+**Verificación**
+```
+gofmt -l cmd/ pkg/                                   # vacío
+go test ./...                                        # verde (pkg/tools 37)
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug  # 64/64
+make build                                           # dist/jav-linux-amd64
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64    # 11/11 PASS (tools-count-37)
+```
+Gate `su` (AGENTS §2.2): `grep -rn 'su -c\|exec(.*su\|ProcessBuilder(.*su'
+android-app/app/src/` → **1 hit** preexistente (`shell/ShizukuBridge.kt:118`,
+falso positivo `Re**su**lt`); sin hits nuevos.
+
+**En vivo (`get_audit`, WS directo + `adb forward tcp:38472`)**: tras
+`hello` + `get_battery`/`get_device_info`/`get_foreground` (a11y apagada):
+```
+seq=1 hello        scope=auth result=OK   origin=loopback args_sha256=16 hex
+seq=2 get_battery  scope=n0   result=OK   origin=loopback
+seq=3 get_device_info scope=n0 result=OK  origin=loopback
+seq=4 get_foreground scope=read result=ACCESSIBILITY_DISABLED origin=loopback
+```
+Sin fuga: el token no aparece en el JSON y todos los `args_sha256` miden 16.
+`get_audit` no se auto-incluye (se registra tras responder). Kill Switch
+verificado por composición: tile registrado con `BIND_QUICK_SETTINGS_TILE`
+(`dumpsys package`) y notificación `id=1` con `actions=1` → `"Kill Switch"`
+`PendingIntent startService` (`dumpsys notification`). **No se disparó en
+vivo** a propósito: rotaría el token del operador a mitad de sesión; queda
+como prueba manual del operador (tile o botón de notificación).

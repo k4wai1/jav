@@ -96,7 +96,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `get_foreground` | `{}` | `{package, activity}` | read |
 | `list_packages` | `{filter?}` | `{packages[]}` (package visibility) | read |
 | `shell` | `{command, confirm?}` | **Hasta Fase 6: `METHOD_NOT_ALLOWED` explícito** (`shell` gateado; ver §8) | shell, **con grant** |
-| `get_audit` | `{limit?}` | `{entries[]}` (ring buffer, 500 entradas) | admin |
+| `get_audit` | `{limit?: int=50 (1..200), since_seq?: int=0}` | `{total_buffered, returned, entries[]}` con cada entry `{seq, ts, method, scope, args_sha256 (16 hex SHA-256), result, origin}` (ring buffer, 500 entradas; nunca args en claro) | admin |
 
 **Flujo de grant de `shell`:** la request **bloquea hasta 60 s**.
 Aprobación "1 comando" → ejecuta solo si `SHA-256(command)` coincide

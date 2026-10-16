@@ -312,3 +312,23 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    el shutdown de `ServeStdio` y podía perder las tool calls en vuelo; hacía
    flaky `error-isError-id{3,4,5}`). 15/15 estable. `README.md`, `cmd/jav-e2e`
    y `dist/` sincronizados a 36 tools.
+
+**2026-10-16 — Fase 6a: audit ring 500 + Kill Switch + 37.ª tool `get_audit`:**
+
+1. **Audit en dispositivo** (`AGENTS §3.8`): `socket/AuditLog.kt` (puro JVM,
+   ring **500** entradas, `ArrayDeque`+lock). `AuditEntry = {seq, ts, method,
+   scope, args_sha256, result, origin}`; `args_sha256` = **16 hex** del
+   SHA-256 de `params.toString()` (**nunca** args/token en claro); `origin`
+   = `loopback` | IP. `CommandDispatcher.hello/dispatch` reciben `origin` y
+   registran cada intento (OK o `code`) con `scopeOf` =
+   `read|ui|n0|n1|auth|admin`. Método WS **`get_audit`** (`limit` 1..200
+   default 50, `since_seq` default 0) → `{total_buffered, returned,
+   entries[]}`. El token bearer único habilita `admin` en `hello.scopes`.
+2. **Kill Switch** (`AGENTS §3.8`):
+   `ACTION_KILL_SWITCH="dev.jev.jam.action.KILL_SWITCH"`; rota token
+   (`AuthStore.regenerateToken`), audita `kill_switch`, `revokeAll()` +
+   `shutdown()` + `stopForeground(REMOVE)` + `stopSelf()`. Botón en la
+   notificación (`PendingIntent.getService`, `FLAG_IMMUTABLE`) y
+   `service/JamKillSwitchTile.kt` (`TileService`, `BIND_QUICK_SETTINGS_TILE`,
+   `exported=true`). El árbol pasa de 36 a **37 tools**; `cmd/audit-mcp`
+   verifica `tools-count-37` (11/11 PASS). Kotlin **64/64**.

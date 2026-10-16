@@ -2,11 +2,16 @@ package dev.jev.jam.service
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import dev.jev.jam.R
+import dev.jev.jam.socket.AuditLog
 import dev.jev.jam.socket.AuthStore
 import dev.jev.jam.socket.CommandDispatcher
 import dev.jev.jam.socket.JamWsServer
@@ -15,6 +20,9 @@ import dev.jev.jam.util.JevLog
 /**
  * Fase 2: hospeda el servidor WebSocket loopback. Vive mientras el
  * proceso viva; START_STICKY para que el sistema lo recupere.
+ *
+ * Fase 6a: Kill Switch (acción en notificación + Quick Settings Tile,
+ * AGENTS.md §3.8): revoca tokens, detiene el servidor y para el FGS.
  */
 class JevForegroundService : Service() {
 
@@ -43,7 +51,13 @@ class JevForegroundService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_KILL_SWITCH) {
+            killSwitch()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         try {
@@ -57,11 +71,41 @@ class JevForegroundService : Service() {
         super.onDestroy()
     }
 
+    /** Revoca tokens, audita, desconecta clientes y detiene el servidor/FGS. */
+    private fun killSwitch() {
+        JevLog.i(TAG, "Kill Switch disparado")
+        killSwitchLocal(applicationContext)
+        try {
+            server?.revokeAll()
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "revokeAll falló", t)
+        }
+        try {
+            server?.shutdown()
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "shutdown falló", t)
+        }
+        server = null
+        serverOn = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun buildNotification(text: String) = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle("Jam")
         .setContentText(text)
         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
         .setOngoing(true)
+        .addAction(
+            R.drawable.ic_jam_kill,
+            "Kill Switch",
+            PendingIntent.getService(
+                this,
+                0,
+                Intent(this, JevForegroundService::class.java).setAction(ACTION_KILL_SWITCH),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        )
         .build()
 
     private fun ensureChannel() {
@@ -85,6 +129,9 @@ class JevForegroundService : Service() {
         private const val NOTIFICATION_ID = 1
         const val PORT = 38472
 
+        /** Fase 6a: acción de Kill Switch (notificación + QS tile). */
+        const val ACTION_KILL_SWITCH = "dev.jev.jam.action.KILL_SWITCH"
+
         @Volatile
         var serverOn: Boolean = false
             private set
@@ -107,6 +154,42 @@ class JevForegroundService : Service() {
         /** Tarjeta 3: tras regenerar, desconexión UNAUTHORIZED limpia. */
         fun revokeClients() {
             instance?.server?.revokeAll()
+        }
+
+        /**
+         * Fase 6a: Kill Switch desde notificación o QS tile. Si el
+         * servicio vive, delega en su `onStartCommand`; si no, aplica
+         * igualmente el efecto local (token nuevo + audit).
+         */
+        fun triggerKillSwitch(ctx: Context) {
+            val svc = instance
+            if (svc == null) {
+                killSwitchLocal(ctx)
+                return
+            }
+            try {
+                ContextCompat.startForegroundService(
+                    svc,
+                    Intent(svc, JevForegroundService::class.java).setAction(ACTION_KILL_SWITCH)
+                )
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "kill switch no arrancó", t)
+                killSwitchLocal(ctx)
+            }
+        }
+
+        /** Efecto local: rota el token y deja constancia en el audit ring. */
+        private fun killSwitchLocal(ctx: Context) {
+            try {
+                AuthStore.regenerateToken(ctx)
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "regenerate token falló", t)
+            }
+            try {
+                AuditLog.record("kill_switch", "admin", "", "OK", "local")
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "audit kill_switch falló", t)
+            }
         }
     }
 }

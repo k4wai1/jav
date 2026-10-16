@@ -21,8 +21,8 @@ del core conoce apps, paquetes, contactos, textos o flujos concretos: lo
 específico lo aporta el runtime (el Director externo o S2 por conocimiento
 general). El **Director es el cliente externo** (OpenCode/operador, nunca
 parte de Jav): es el único planificador; **Jav es un servidor MCP Go delgado
-(`cmd/jav` stdio, `pkg/tools`, sin bucles y sin S2 interno)** que expone 36
-tools atómicas (incl. `resolve_element` ciego). Tres carriles conviven, del más
+(`cmd/jav` stdio, `pkg/tools`, sin bucles y sin S2 interno)** que expone 37
+tools atómicas (incl. `resolve_element` ciego y `get_audit`). Tres carriles conviven, del más
 determinista al más semántico:
 
 1. **Carril nativo (APIs directas, sin Jev, sin UI).** Jam responde por
@@ -71,7 +71,7 @@ Arquitectura **Dual-Tier** histórica del carril 3 (congelada; detalle en §6):
 | 13 | **director-client v5 (2026-10-07)** | Director-cliente: OpenCode/operador dirige, **Jev = resolver ciego** (1 `Choice` de micro-intención EN, anti-poisoning), **`loop.py` congelado** para el SENT simple. Atajos nativos en 1 salto (SO antes que dedos). Detalle en `docs/specs/director-client.md` |
 | 14 | **Carril nativo N0/N1 (2026-10-07)** | Telemetría (batería/RAM/storage/CPU/device), `settings` System get/put, intents/`open_url`, clipboard, usage, contactos, calendario, notificaciones/media (honesto), ubicación, cámara. **N2 = `METHOD_NOT_ALLOWED` hasta Fase 6.** Detalle en `docs/specs/native-apis.md` |
 | 15 | **Escala física en gestos (2026-10-07)** | `DisplayScale`: `bounds` de `dump_ui` siguen en **espacio lógico** de accesibilidad; solo `dispatchGesture` proyecta a **píxeles físicos del panel**. Medido en banco: lógico 360×720 (`wm size override`) vs panel 720×1440 → factor **2.0** por eje (identidad si no hay override) |
-| 16 | Separación de tools | De las **36 tools MCP** expuestas: **6** son primitivas del bucle Jev (`read_screen`, `tap_node`, `type_text`, `scroll`, `press_back`, `open_app`-bootstrap); **30** sirven al director / carril nativo / diagnóstico (§7). Incluye `resolve_element` (resolver ciego S1, 36.ª, 2026-10-15) |
+| 16 | Separación de tools | De las **37 tools MCP** expuestas: **6** son primitivas del bucle Jev (`read_screen`, `tap_node`, `type_text`, `scroll`, `press_back`, `open_app`-bootstrap); **31** sirven al director / carril nativo / diagnóstico (§7). Incluye `resolve_element` (resolver ciego S1, 36.ª, 2026-10-15) y `get_audit` (ring de auditoría, 37.ª, 2026-10-16) |
 
 ## 3. Verdad del terreno (medido 2026-09-30…10-07)
 
@@ -293,11 +293,11 @@ dedos antes que APIs). v5 la sustituye para metas complejas:
 - **Podador "agresivo = 20" RECHAZADO sin medir:** `MAX_TABLE = 254` intacto;
   `EXPERIMENT-TABLE-20` queda como experimento pendiente (v4 §9.5).
 
-## 7. Árbol de herramientas MCP (36 tools, runtime Go)
+## 7. Árbol de herramientas MCP (37 tools, runtime Go)
 
 **Separación por carril (decisión §2.16):** 6 tools son atómicas de UI
 (dirigidas paso a paso por el **Director externo**, no por un loop interno);
-las otras 30 sirven al director, al carril nativo y al diagnóstico.
+las otras 31 sirven al director, al carril nativo y al diagnóstico.
 Implementación activa: `pkg/tools/` (Go). El histórico Python
 (`mcp-server/src/jev_mcp/tools/`, `director.py`, `loop.py`) está congelado.
 
@@ -305,7 +305,7 @@ Implementación activa: `pkg/tools/` (Go). El histórico Python
 normalizer + tabla + `snapshot_id` + `first_result`/`zone`/`focused_field`),
 `tap_node`, `type_text`, `scroll`, `press_back`, `open_app` (solo bootstrap por el director).
 
-**30 — director / nativo / diagnóstico:**
+**31 — director / nativo / diagnóstico:**
 
 | Grupo | Tools |
 |---|---|
@@ -318,6 +318,7 @@ normalizer + tabla + `snapshot_id` + `first_result`/`zone`/`focused_field`),
 | PII N1 | `list_contacts`, `add_contact`, `list_events`, `create_event` |
 | notif/media N1 | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
 | ubicación/cámara N1 | `get_location`, `take_photo` (FGS + confirm siempre) |
+| audit | `get_audit` (ring en dispositivo de 500 entradas; `limit` 1–200 + `since_seq`; solo `args_sha256`/metadatos, nunca en claro; scope admin) |
 
 Mapeo tool ↔ método (PROTOCOL.md §4/§4.1): `close_app`↔`force_stop`,
 `get_app_state`↔`dump_ui`+normalizar, `get_foreground_app`↔`get_foreground`.
@@ -344,7 +345,7 @@ verificación real posterior, nunca por "comando enviado".
   (`*_UNAVAILABLE` / `METHOD_NOT_ALLOWED`) + hint.
 
 Tools nueva incorporación v5 (§2.13): `resolve_element` (resolver ciego,
-**registrada como tool MCP en 2026-10-15**, 36.ª), `set_clipboard` (Jam
+**registrada como tool MCP en 2026-10-15**, 36.ª), `get_audit` (ring de auditoría de 500 entradas + Kill Switch, **37.ª**, 2026-10-16), `set_clipboard` (Jam
 `ClipboardManager`, sin Shizuku/garant), `get_clipboard`
 (host `dumpsys`). `shell`/`adb_shell`: denylist de irreversibles
 (`rm -rf /`, `pm uninstall` de sistema, `reboot recovery`, `dd`, `wipe`) →

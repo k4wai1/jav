@@ -33,8 +33,8 @@ func TestSchemasMirrorPython(t *testing.T) {
 }
 
 func TestToolDefsCount(t *testing.T) {
-	if len(toolDefs) != 36 {
-		t.Fatalf("tools=%d, se esperan 36", len(toolDefs))
+	if len(toolDefs) != 37 {
+		t.Fatalf("tools=%d, se esperan 37", len(toolDefs))
 	}
 	seen := map[string]bool{}
 	for _, d := range toolDefs {
@@ -45,6 +45,9 @@ func TestToolDefsCount(t *testing.T) {
 	}
 	if !seen["resolve_element"] {
 		t.Fatalf("falta resolve_element")
+	}
+	if !seen["get_audit"] {
+		t.Fatalf("falta get_audit")
 	}
 }
 

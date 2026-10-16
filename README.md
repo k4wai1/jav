@@ -59,7 +59,7 @@ PC (Debian, Go, MCP stdio)                 Phone (Jam, non-root)
   adb forward tcp:38472 │  WSS tailnet (opt-in, TOFU pinning)
 ```
 
-## Tools — 36 total (6 Jev + 30 director/native)
+## Tools — 37 total (6 Jev + 31 director/native)
 
 Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only
 with real post-verification, never on "command sent".
@@ -75,7 +75,7 @@ with real post-verification, never on "command sent".
 | `press_back` | Back key |
 | `open_app` | Bootstrap only in the loop; Shizuku `am start`, fallback `monkey` |
 
-**30 — director / native / diagnostics:**
+**31 — director / native / diagnostics:**
 
 | Group | Tools |
 |---|---|
@@ -88,6 +88,7 @@ with real post-verification, never on "command sent".
 | PII N1 (4) | `list_contacts`, `add_contact`, `list_events`, `create_event` |
 | notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
 | location / camera N1 (2) | `get_location`, `take_photo` (FGS + always confirm) |
+| audit (1) | `get_audit` (device ring buffer, 500 entries; `limit` 1–200 + `since_seq`; only `args_sha256`/metadata, never cleartext; scope admin) |
 
 Example payloads (English):
 
@@ -130,12 +131,12 @@ harness is frozen history, not an active component.
 
 ## Current status + roadmap
 
-- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 36 tools,
+- **Today:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 37 tools,
   `go test ./...` green); Phases 0–4 green; v5 director-client vigente
   (**Director = external OpenCode/operator**, Jav = thin server with no loops
   and no internal S2: `resolve_element` blind resolver + `set_clipboard` +
   historical `loop.py` frozen); native lane N0/N1 live, N2 gated;
-  35/35 docstrings at the 5-section standard.
+  37/37 docstrings at the 5-section standard.
 - **Roadmap:** formal A10 suite close (battery + calculator + clipboard
   round-trip) → P1 (anti-ticker signature, `assertFresh`, wire+timings
   forensics) → P2 (relevance ranking + recalibrate `TAU` with ≥20 goals) →
@@ -259,7 +260,7 @@ PC (Debian, Go, MCP stdio)                 Teléfono (Jam, sin root)
   adb forward tcp:38472 │  WSS tailnet (opt-in, pinning TOFU)
 ```
 
-## Herramientas — 36 en total (6 Jev + 30 director/nativo)
+## Herramientas — 37 en total (6 Jev + 31 director/nativo)
 
 Toda tool devuelve `{ok, verified, evidence, hint}`. `verified: true` solo con
 verificación real posterior, nunca por "comando enviado".
@@ -275,7 +276,7 @@ verificación real posterior, nunca por "comando enviado".
 | `press_back` | Tecla atrás |
 | `open_app` | Solo bootstrap en el bucle; `am start` por Shizuku, fallback `monkey` |
 
-**30 — director / nativo / diagnóstico:**
+**31 — director / nativo / diagnóstico:**
 
 | Grupo | Tools |
 |---|---|
@@ -288,6 +289,7 @@ verificación real posterior, nunca por "comando enviado".
 | PII N1 (4) | `list_contacts`, `add_contact`, `list_events`, `create_event` |
 | notif / media N1 (4) | `list_notifications`, `reply_notification`, `media_state`, `media_control` |
 | ubicación / cámara N1 (2) | `get_location`, `take_photo` (FGS + siempre confirm) |
+| audit (1) | `get_audit` (ring en dispositivo, 500 entradas; `limit` 1–200 + `since_seq`; solo `args_sha256`/metadatos, nunca en claro; scope admin) |
 
 Payloads ejemplo (en inglés):
 
@@ -330,12 +332,12 @@ Runtime 100% Go (`go test ./...`, `make build`); el harness Python
 
 ## Estado actual + roadmap
 
-- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 36 tools,
+- **Hoy:** runtime 100% Go (`cmd/jav` stdio, `pkg/tools` 37 tools,
   `go test ./...` verde); Fases 0–4 verdes; v5 director-cliente vigente
   (**Director = OpenCode/operador externo**, Jav = servidor delgado sin bucles
   ni S2 interno: `resolve_element` ciego + `set_clipboard` + `loop.py`
   histórico congelado); carril nativo N0/N1 vivo, N2 gateado;
-  35/35 docstrings al estándar de 5 secciones.
+  37/37 docstrings al estándar de 5 secciones.
 - **Roadmap:** cierre formal suite A10 (batería + calculadora + clipboard
   round-trip) → P1 (firma anti-ticker, `assertFresh`, forense wire+timings) →
   P2 (ranking por relevancia + recalibrar `TAU` con ≥20 goals) → Fase 6

@@ -7,7 +7,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// Registro de las 36 tools (35 equiv. server.py + resolve_element). Nombre,
+// Registro de las 37 tools (35 equiv. server.py + resolve_element + get_audit). Nombre,
 // descripción ES de 5 secciones y JSONSchema idénticos a Python (required = sin default).
 
 // --- Constructores de schema (espejo exacto de FastMCP) ---
@@ -29,6 +29,7 @@ func titleOf(prop string) string {
 		"title": "Title", "start_ms": "Start Ms", "end_ms": "End Ms",
 		"description": "Description", "camera": "Camera", "max_age_s": "Max Age S",
 		"screen_goal_en": "Screen Goal En", "tau": "Tau",
+		"since_seq": "Since Seq",
 	}
 	if t, ok := titles[prop]; ok {
 		return t
@@ -187,6 +188,16 @@ Permisos/Grants: scope read + accesibilidad; requiere OPENROUTER_API_KEY (S1 sol
 Errores/gotchas: sin key S1 -> fallback S1_UNAVAILABLE; red -> S1_NETWORK; NONE -> NO_TARGET con top_candidates; conf<tau -> LOW_CONF; choice fuera de tabla o conf no finita -> S1_HALLUCINATION; valida tau en 0..1. No devuelve snapshot nuevo salvo el del evidence: pasalo a tap_node.
 Cuándo NO usar: NO usar para leer la pantalla → read_screen; NO usar para ejecutar → tap_node/type_text; NO reintentar a ciegas si fallback_required → examina candidates/render y ejecuta directo; NO llamar sin OPENROUTER_API_KEY esperando idx util (devuelve fallback).
 Ejemplo: resolve_element(screen_goal_en="Tap the Search button", tau=0.70) → {idx:3, node_id:"n_12", conf:0.88, snapshot_id:42}`
+
+const dGetAudit = `Lee el audit log en dispositivo (ring buffer de 500 entradas).
+
+Descripcion: Devuelve las entradas mas recientes del ring de auditoria (metodo, scope, hash de args, resultado, origen, ts). NUNCA incluye argumentos en claro: solo el SHA-256 (16 hex) de los params, para no filtrar tokens ni PII.
+Parametros: limit (int): numero maximo de entradas 1..200 (default 50); since_seq (int): solo entradas con seq mayor (default 0).
+Retorno: {ok, verified, evidence, hint}; evidence = {total_buffered, returned, entries[]}; cada entry = {seq, ts, method, scope, args_sha256, result, origin}. scope in read|ui|n0|n1|auth|admin; origin = "loopback" o IP.
+Permisos/Grants: scope admin; accesibilidad no requerida.
+Errores/gotchas: limit se acota a 1..200 y since_seq negativo se trata como 0; el ring es en memoria y se pierde al morir el proceso; la propia llamada get_audit se registra DESPUES de responder (no se auto-incluye).
+Cuándo NO usar: NO buscar texto de argumentos en las entradas → nunca se guarda en claro (solo hash); NO esperar mas de 500 entradas → el ring es fijo y descarta las mas viejas; NO usar para estado en vivo de la UI → read_screen.
+Ejemplo: get_audit(limit=50, since_seq=0) → {total_buffered, returned, entries:[{seq, ts, method, scope, args_sha256, result, origin}]}`
 
 const dTypeText = `Escribe en un campo ya enfocado (semantica REPLACE).
 
@@ -467,7 +478,7 @@ type toolDef struct {
 	h        Handler
 }
 
-// RegisterAll registra las 36 tools en el servidor.
+// RegisterAll registra las 37 tools en el servidor.
 func RegisterAll(s *server.MCPServer) {
 	for _, d := range toolDefs {
 		t, h := defTool(d.name, d.desc, d.required, d.props, d.h)
@@ -497,6 +508,8 @@ var toolDefs = []toolDef{
 		"fmt": strProp("fmt", "png"), "quality": intProp("quality", 80)}, hScreenshot},
 	{"resolve_element", dResolveElement, []string{"screen_goal_en"}, map[string]any{
 		"screen_goal_en": strReq("screen_goal_en"), "tau": numProp("tau", 0.70)}, hResolveElement},
+	{"get_audit", dGetAudit, nil, map[string]any{
+		"limit": intProp("limit", 50), "since_seq": intProp("since_seq", 0)}, hGetAudit},
 	{"get_battery", dGetBattery, nil, map[string]any{}, hGetBattery},
 	{"get_memory", dGetMemory, nil, map[string]any{}, hGetMemory},
 	{"get_storage", dGetStorage, nil, map[string]any{"detail": strProp("detail", "basic")}, hGetStorage},
