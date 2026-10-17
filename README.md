@@ -291,6 +291,71 @@ interactivo (1 cmd / 5 min / 30 min).
 - **Icono nuevo (1000×1000) y pulido visual nativo** sin dependencias nuevas.
 - **Poda documental**: specs históricos a `docs/specs/archive/`.
 
+## Troubleshooting
+
+### `UNAUTHORIZED` when connecting
+The token is missing or wrong. Run `jav pair <ip> <token>` (or `jav pair` for
+interactive mode). If you already paired, check `~/.config/jav/config.json`
+(must be `0600`). After 5 failed `UNAUTHORIZED` from the same origin the phone
+locks out for 5 min.
+
+### `CONNECTION_FAILED` on loopback
+No `adb forward` active. Run:
+```bash
+adb forward tcp:38472 tcp:38472
+```
+Then `jav pair usb <TOKEN>`.
+
+### `SHIZUKU_UNAVAILABLE`
+Shizuku isn't running. Open the Shizuku app and start it yourself (**Jav never
+starts it**). Without Shizuku the N0 native lane still works, but `open_app` and
+`screenshot` (API 29 fallback) fail.
+
+### `ACCESSIBILITY_DISABLED`
+Enable Jav in Settings → Accessibility. Without it, `read_screen` / `tap_node`
+fail.
+
+### `BUSY: 4001`
+A previous client didn't close cleanly. Wait ~2 min or restart the Jav app.
+v1.2.1's graceful close fixes this; if it persists, open an issue.
+
+### WSS doesn't connect over Tailnet
+Check the phone's address is `100.64.x.x` (Tailscale). Otherwise the WSS
+listener doesn't come up (loopback only). Also verify the pinned fingerprint
+(`cert_fingerprint` in the config) matches the app cert (`CN=jav.local`).
+
+## Troubleshooting (ES)
+
+### `UNAUTHORIZED` al conectar
+Falta el token o es incorrecto. Ejecuta `jav pair <ip> <token>` (o `jav pair` en
+modo interactivo). Si ya vinculaste, revisa `~/.config/jav/config.json` (debe ser
+`0600`). Tras 5 fallos `UNAUTHORIZED` del mismo origen, el teléfono bloquea 5 min.
+
+### `CONNECTION_FAILED` en loopback
+No hay `adb forward` activo. Ejecuta:
+```bash
+adb forward tcp:38472 tcp:38472
+```
+Luego `jav pair usb <TOKEN>`.
+
+### `SHIZUKU_UNAVAILABLE`
+Shizuku no está corriendo. Abre la app Shizuku y arráncalo tú (**Jav nunca lo
+inicia**). Sin Shizuku, el carril nativo N0 sigue vivo, pero `open_app` y
+`screenshot` (fallback API 29) fallan.
+
+### `ACCESSIBILITY_DISABLED`
+Activa Jav en Ajustes → Accesibilidad. Sin esto, `read_screen` / `tap_node`
+fallan.
+
+### `BUSY: 4001`
+Un cliente previo no cerró limpio. Espera ~2 min o reinicia la app Jav. El cierre
+ordenado de v1.2.1 lo corrige; si persiste, abre un issue.
+
+### WSS no conecta por Tailnet
+Verifica que la IP del teléfono sea `100.64.x.x` (Tailscale). Si no, el listener
+WSS no se levanta (solo loopback). Comprueba también que el fingerprint fijado
+(`cert_fingerprint` en la config) coincide con el cert de la app (`CN=jav.local`).
+
 ## 👨‍💻 Desarrollador
 
 **[k4wai1](https://github.com/k4wai1)** — si Jav te ahorró tiempo, considera

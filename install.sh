@@ -82,3 +82,23 @@ case ":$PATH:" in
   *":$DEST:"*) ;;
   *) echo "jav: note: $DEST is not in PATH" >&2 ;;
 esac
+
+# --- Guía post-instalación (usuario nuevo) ---
+cat <<EOF
+
+✓ jav instalado en $DEST/$BIN
+  versión: $VERSION
+
+Próximos pasos:
+  1. Descarga e instala la APK companion:
+     https://github.com/${REPO}/releases/latest/download/jav-companion.apk
+  2. Activa Accesibilidad en el teléfono (Ajustes → Accesibilidad → Jav)
+  3. Arranca Shizuku (lo inicia la app Shizuku; Jav NUNCA lo arranca)
+  4. Copia el token que muestra la app Jav (tarjeta 3)
+  5. Vincula:
+       jav pair <IP-TAILNET-DEL-TELEFONO> <TOKEN>   # por Tailnet (WSS)
+       jav pair usb <TOKEN>                          # por USB (adb forward)
+     o simplemente:  jav pair   (modo interactivo)
+
+Guía completa: https://github.com/${REPO}#quickstart
+EOF

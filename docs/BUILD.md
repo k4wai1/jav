@@ -1002,3 +1002,25 @@ su stdout no rompe `no-stdout-statico` (es su contrato CLI, como `jav-e2e`).
 
 **Verificación:** `gofmt`/`vet` limpios; `go test ./...` verde salvo el
 preexistente `pkg/normalizer` (logs/ gitignored); `audit-mcp` **12/12 PASS**.
+
+## 26. Fase 3 UX — `jav pair` interactivo + installer + troubleshooting (2026-10-16)
+
+**Objetivo:** que un usuario nuevo instale y vincule Jav sin leer 15 archivos.
+
+1. **`jav pair` interactivo** (`cmd/jav/pair.go`): sin args (o solo con la IP)
+   pide por stdin la IP y/o el token (`bufio.Reader`, `os/Stdin`). Solo entra en
+   modo interactivo si stdin es una **terminal** (`isTTY`, `ModeCharDevice`); con
+   stdin pipeado (scripts/CI) imprime el uso y sale **2** (nunca queda colgado por
+   EOF). El modo `<ip> <token> [key]` no cambia. `cmd/audit-mcp` ya excluye
+   `pair.go` de `no-stdout-statico` (stdout es su contrato CLI).
+2. **`install.sh`**: bloque final "Próximos pasos" (APK + accesibilidad +
+   Shizuku + token + `jav pair`, o modo interactivo) hacia **stdout**; los
+   diagnósticos siguen en stderr. `sh -n` OK.
+3. **README**: sección **Troubleshooting** (EN + ES) con `UNAUTHORIZED`,
+   `CONNECTION_FAILED`, `SHIZUKU_UNAVAILABLE`, `ACCESSIBILITY_DISABLED`,
+   `BUSY: 4001` y WSS/Tailnet.
+
+**Verificación:** `gofmt`/`go vet` limpios; `go test ./...` verde salvo el
+preexistente `pkg/normalizer` (logs gitignored); `audit-mcp` **12/12 PASS**;
+`jav pair` probado en no interactivo (piped→uso/exit 2) e interactivo (pty).
+Installer probado con `PREFIX=/tmp/javtest VERSION=v1.2.2` (descarga real + guía).

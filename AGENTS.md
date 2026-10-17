@@ -486,3 +486,15 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `docs/benchmarks/PERFORMANCE.md §9`, `docs/BUILD.md §25`. `make tokens`.
 3. **Fuera de alcance:** C (consolidación 38→24 tools) **no** se implementa sin
    el experimento medido de `docs/specs/tool-consolidation-experiment.md`.
+
+**2026-10-16 — Fase 3 UX: `jav pair` interactivo + installer + troubleshooting:**
+
+1. **`jav pair` interactivo** (`cmd/jav/pair.go`): sin args (o solo la IP) pide
+   por stdin lo que falte (IP y/o token). Solo si stdin es TTY; con stdin
+   pipeado → uso + exit 2 (nunca cuelga por EOF). Modo no interactivo intacto.
+2. **`install.sh`**: bloque "Próximos pasos" al final (APK, accesibilidad,
+   Shizuku, token, `jav pair`) a stdout; diagnósticos a stderr.
+3. **README**: `## Troubleshooting` (EN/ES): `UNAUTHORIZED`, `CONNECTION_FAILED`,
+   `SHIZUKU_UNAVAILABLE`, `ACCESSIBILITY_DISABLED`, `BUSY: 4001`, WSS/Tailnet.
+4. **Sin cambios de contrato MCP**; `audit-mcp` **12/12**; sin dependencias
+   nuevas. Detalle en `docs/BUILD.md §26`.
