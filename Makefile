@@ -1,8 +1,8 @@
-VERSION ?= 1.2.1
+VERSION ?= 1.2.2
 LDFLAGS = -s -w -X main.version=$(VERSION)
 BIN = dist/jav-linux-amd64
 
-.PHONY: build build-all test vet audit-mcp tools-list-diff clean
+.PHONY: build build-all test vet audit-mcp tools-list-diff tokens clean
 
 build:
 	mkdir -p dist
@@ -35,6 +35,11 @@ audit-mcp: build
 # Alias de compatibilidad para el juez final / CI que aún invoque el nombre
 # antiguo: redirige a la auditoría nativa.
 tools-list-diff: audit-mcp
+
+# Presupuesto de tokens de arranque con tokenizer REAL (tiktoken), no bytes/4.
+# Requiere red en el primer uso (descarga del BPE cl100k_base); luego cacheado.
+tokens: build
+	go run ./cmd/jav-tokens --bin $(BIN)
 
 clean:
 	rm -rf dist

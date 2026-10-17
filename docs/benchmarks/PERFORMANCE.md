@@ -168,3 +168,32 @@ con `cert_fingerprint 036898d996256f8e…` (coincide con el prefijo del cert
 `CN=jav.local` de la app, válido hasta 2036). Auditoría del teléfono: todas las
 entradas `origin=100.77.106.123` (IP del VPS), **nunca** loopback; scopes
 mapeados (`auth`/`n0`/`ui`/`read`/`admin`).
+
+## 9. Token budget de arranque medido con cliente real (v1.2.2)
+
+Fuente: `cmd/jav-tokens` (harness stdio, JSON-RPC puro) contra
+`dist/jav-linux-amd64` v1.2.2, **sin dispositivo**: `initialize` + `tools/list` +
+`resources/read`. Tokenizer **real** `tiktoken` (`cl100k_base`, familia GPT-4),
+no la aproximación `bytes/4` de `cmd/audit-mcp`. Reproducir: `make tokens`.
+
+| Plano | Bytes | Tokens (cl100k) |
+|---|---|---|
+| `instructions` (initialize) | 1 721 | **385** (218 palabras) |
+| `tools/list` (38 tools, payload completo) | 13 095 | **3 166** |
+| **carga cognitiva** (instructions + Σ descripciones) | 6 563 | **1 783** |
+| ficha individual `android://tool/read_screen` | 915 | **230** |
+| ficha individual `android://tool/tap_node` | 866 | **233** |
+| **total arranque** (instructions + tools/list) | 14 816 | **3 551** |
+
+**Objetivo ≤3000 tokens → ✅ sobre la carga cognitiva (1 783).** El *total
+arranque* (3 551) es mayor porque incluye el **esquema MCP fijo** (nombres,
+`inputSchema`, `annotations` de las 38 tools), que no es reducible sin romper el
+contrato; `audit-mcp` ya lo documenta como "no reducible".
+
+**Desvío vs `audit-mcp` (bytes/4):** 1 631 → 1 783 = **Δ +9.3 %** (dentro del
+umbral ±20 %). Conclusión: la aproximación `bytes/4` de `audit-mcp` es un proxy
+razonable para la carga cognitiva; **no** hace falta reajustar `CompactDesc`.
+
+**Reproducibilidad:** el primer uso descarga el BPE `cl100k_base` de
+`openaipublic` y lo cachea; las corridas siguientes son offline (~0.6 s).
+`--encoding o200k_base` está disponible pero fuerza otra descarga de red.

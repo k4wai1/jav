@@ -974,3 +974,31 @@ cambios de código Kotlin. `./gradlew :app:testDebugUnitTest` (88/88) y
   hereda el icono sin tocar Kotlin (`out`/build a cargo del CI).
 - Generación de recursos con PIL 12.3 (LANCZOS); inspección visual del montage
   de los 10 mipmaps.
+
+## 25. cmp/jav-tokens — token budget real (Fase 1 de cierre) (2026-10-16)
+
+**Qué es.** Harness CLI que mide el presupuesto de tokens de **arranque** del
+servidor `jav` con un tokenizer **real** (tiktoken), no la aproximación
+`bytes/4` de `cmd/audit-mcp`. Habla JSON-RPC puro por stdio (`initialize` +
+`tools/list` + `resources/read`) y **no necesita dispositivo, token ni red**
+(salvo el primer uso, que descarga el BPE `cl100k_base` y lo cachea).
+
+```
+go run ./cmd/jav-tokens --bin dist/jav-linux-amd64            # cl100k_base
+go run ./cmd/jav-tokens --bin dist/jav-linux-amd64 --tool tap_node
+make tokens                                                   # build + medir
+```
+
+**Resultado (v1.2.2, cl100k_base):** instructions 385 tokens (218 palabras);
+`tools/list` 3 166 (payload completo); **carga cognitiva 1 783 (≤3000 ✅)**;
+ficha `read_screen` 230; `tap_node` 233; total arranque 3 551. **Δ +9.3 %** vs
+`audit-mcp` (1 631) → el proxy `bytes/4` es válido; **no** se reajusta
+`CompactDesc`. Detalle en `docs/benchmarks/PERFORMANCE.md §9`.
+
+**Dependencia:** `github.com/pkoukk/tiktoken-go v0.1.8` (dev-only; solo la enlaza
+`cmd/jav-tokens`, no `cmd/jav`). Indirecta nueva: `github.com/dlclark/regexp2`.
+`cmd/audit-mcp` no escanea `cmd/jav-tokens` (solo `cmd/jav` + `pkg`), por lo que
+su stdout no rompe `no-stdout-statico` (es su contrato CLI, como `jav-e2e`).
+
+**Verificación:** `gofmt`/`vet` limpios; `go test ./...` verde salvo el
+preexistente `pkg/normalizer` (logs/ gitignored); `audit-mcp` **12/12 PASS**.

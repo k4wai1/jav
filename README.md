@@ -67,8 +67,11 @@ Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only with
 real post-verification, never on "command sent". `tools/list` carries a compact
 1–2 line description per tool; the full 7-section spec loads **on demand** as an
 MCP Resource (`android://tool/<name>`, `android://tools/<group>`, index
-`android://tools/catalog`). This keeps startup at **~1.6k tokens** instead of
-~8.8k.
+`android://tools/catalog`). Startup measured with a real tiktoken tokenizer:
+**~1.8k tokens of cognitive load** (instructions + 38 compact descriptions) and
+**~3.5k tokens total** (includes the fixed MCP schema for 38 tools, not reducible
+without consolidating) — so ~8.8k before v1.2.0. See
+[`docs/benchmarks/PERFORMANCE.md §9`](docs/benchmarks/PERFORMANCE.md).
 
 | Group | Tools |
 |---|---|
@@ -227,7 +230,11 @@ jav pair <IP-TAILNET-DEL-TELEFONO> <TOKEN>   # remoto → wss://<ip>:38472/
 Toda tool devuelve `{ok, verified, evidence, hint}`. `tools/list` lleva una
 descripción compacta de 1–2 líneas; la ficha completa de 7 secciones se carga
 **bajo demanda** como Resource MCP (`android://tool/<name>`,
-`android://tools/<group>`, índice `android://tools/catalog`).
+`android://tools/<group>`, índice `android://tools/catalog`). Arranque medido con
+un tokenizer **tiktoken real**: **~1.8k tokens de carga cognitiva** (instructions
++ 38 descripciones compactas) y **~3.5k tokens totales** (incluye el esquema MCP
+fijo de 38 tools, no reducible sin consolidar); antes ~8.8k en v1.2.0. Ver
+[`docs/benchmarks/PERFORMANCE.md §9`](docs/benchmarks/PERFORMANCE.md).
 
 | Grupo | Tools |
 |---|---|

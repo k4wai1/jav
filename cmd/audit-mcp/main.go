@@ -707,8 +707,13 @@ func main() {
 	// dos planos:
 	//  - carga cognitiva (prosa que se inyecta al modelo): instructions +
 	//    Σ descripciones. Es lo optimizado (antes ~8.8k tokens): objetivo ≤3000.
+	//    El objetivo ≤3000 APLICA a la carga cognitiva, no al total con esquema.
 	//  - respuestas JSON completas (incluye el esquema MCP fijo, no reducible
 	//    sin romper el contrato): se reporta el tamaño real para trazabilidad.
+	// Este check usa el proxy bytes/4 (hermético, sin red). La medición real con
+	// tiktoken (cmd/jav-tokens, cl100k_base) da ~+9.3% sobre la carga cognitiva
+	// (v1.2.2: 1 631 → 1 783), dentro del umbral ±20%. Ver PERFORMANCE.md §9 y
+	// BUILD.md §25. No se engancha tiktoken aquí a propósito (hermético > preciso).
 	sumDesc := 0
 	for name := range got {
 		d, _ := got[name]["description"].(string)

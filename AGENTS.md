@@ -468,3 +468,21 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 3. **Bump de versión**: `app/build.gradle.kts` → `versionName 1.2.2` /
    `versionCode 4`; `cmd/jav/main.go` → `version = "1.2.2"`. Sin dependencias
    nuevas ni cambios de contrato.
+
+**2026-10-16 — Fase 1 de cierre: `cmd/jav-tokens` (token budget REAL con tiktoken):**
+
+1. **Certificar B con tokenizer real, no `bytes/4`.** Nuevo harness
+   `cmd/jav-tokens` (JSON-RPC puro por stdio; sin dispositivo/token) mide
+   `initialize` + `tools/list` + una ficha (`resources/read`) con
+   `tiktoken-go` (`cl100k_base`). Medido: instructions **385** tokens,
+   `tools/list` **3 166**, **carga cognitiva 1 783 (≤3000 ✅)**, `read_screen`
+   **230**, `tap_node` **233**, total arranque **3 551**. **Δ +9.3 %** vs
+   `audit-mcp` (1 631, `bytes/4`) → el proxy es válido; **no** se reajusta
+   `CompactDesc` (criterio de desvío ±20 %).
+2. **Dependencia nueva (Go, dev-only):** `github.com/pkoukk/tiktoken-go`
+   (+indirecta `dlclark/regexp2`); la enlaza solo `cmd/jav-tokens`, no
+   `cmd/jav`. `audit-mcp` no escanea `cmd/jav-tokens` → `no-stdout-statico` sigue
+   en verde (stdout es su contrato CLI, como `jav-e2e`). Detalle:
+   `docs/benchmarks/PERFORMANCE.md §9`, `docs/BUILD.md §25`. `make tokens`.
+3. **Fuera de alcance:** C (consolidación 38→24 tools) **no** se implementa sin
+   el experimento medido de `docs/specs/tool-consolidation-experiment.md`.
