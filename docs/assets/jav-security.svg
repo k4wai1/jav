@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="520" viewBox="0 0 1254 520" role="img" aria-label="Jav security by construction">
+  <defs>
+    <marker id="sb" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#90A4AE"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1254" height="520" fill="#FFFFFF"/>
+  <text x="24" y="36" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="14" font-weight="600" fill="#37474F">Jav — security by construction</text>
+  <text x="24" y="54" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#78909C">No root · no 0.0.0.0 · token on every bind · honest errors · irreversible actions double-gated</text>
+
+  <rect x="216" y="120" width="1018" height="392" rx="14" fill="none" stroke="#B0BEC5" stroke-dasharray="6 5"/>
+  <text x="230" y="140" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#78909C">On-device runtime — Jav for Android</text>
+
+  <rect x="40" y="230" width="150" height="54" rx="10" fill="#FFF3E0" stroke="#B0BEC5"/>
+  <text x="115" y="252" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">External client</text>
+  <text x="115" y="270" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">Director · bearer token</text>
+
+  <rect x="240" y="150" width="160" height="58" rx="10" fill="#E3F2FD" stroke="#B0BEC5"/>
+  <text x="320" y="172" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">Tailnet WSS :38472</text>
+  <text x="320" y="189" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">TOFU pin · 100.64/10 only</text>
+  <text x="320" y="202" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">never 0.0.0.0</text>
+
+  <rect x="240" y="330" width="160" height="54" rx="10" fill="#E3F2FD" stroke="#B0BEC5"/>
+  <text x="320" y="352" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">Loopback WS</text>
+  <text x="320" y="370" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">token required here too</text>
+
+  <rect x="460" y="225" width="160" height="58" rx="10" fill="#FCE4EC" stroke="#B0BEC5"/>
+  <text x="540" y="247" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">hello + auth</text>
+  <text x="540" y="264" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">scope check · constant time</text>
+  <text x="540" y="277" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">lockout 5 fails / 60 s → 5 min</text>
+
+  <rect x="660" y="225" width="160" height="58" rx="10" fill="#FCE4EC" stroke="#B0BEC5"/>
+  <text x="740" y="247" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">critical gates</text>
+  <text x="740" y="264" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">preview first</text>
+  <text x="740" y="277" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">confirm:true to execute</text>
+
+  <rect x="860" y="225" width="160" height="58" rx="10" fill="#E0F2F1" stroke="#B0BEC5"/>
+  <text x="940" y="247" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">Jav runtime</text>
+  <text x="940" y="264" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">3 lanes · re-anchor</text>
+  <text x="940" y="277" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">package gate · no su</text>
+
+  <rect x="660" y="380" width="160" height="58" rx="10" fill="#FCE4EC" stroke="#B0BEC5"/>
+  <text x="740" y="402" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">shell policy</text>
+  <text x="740" y="419" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">irreversible denylist</text>
+  <text x="740" y="432" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">grant 1 cmd / 5 / 30 min</text>
+
+  <rect x="860" y="380" width="160" height="58" rx="10" fill="#EDE7F6" stroke="#B0BEC5"/>
+  <text x="940" y="402" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">audit ring 500</text>
+  <text x="940" y="419" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">16-hex arg hashes · origin</text>
+  <text x="940" y="432" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">never raw args or token</text>
+
+  <rect x="1060" y="380" width="160" height="58" rx="10" fill="#FCE4EC" stroke="#B0BEC5"/>
+  <text x="1140" y="402" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">kill switch</text>
+  <text x="1140" y="419" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">QS tile + notification</text>
+  <text x="1140" y="432" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">revokes token · stops server</text>
+
+  <path d="M190,250 C215,250 215,179 232,179" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <path d="M190,264 C215,264 215,357 232,357" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <text x="200" y="222" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">hello frame</text>
+
+  <path d="M320,208 C320,240 400,254 452,254" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <path d="M320,330 C320,290 400,266 452,262" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+
+  <line x1="620" y1="254" x2="652" y2="254" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <line x1="820" y1="254" x2="852" y2="254" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <text x="836" y="246" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">grants</text>
+
+  <line x1="740" y1="283" x2="740" y2="372" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <text x="748" y="330" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">N2 only</text>
+
+  <path d="M820,409 L840,409 L840,270 L852,268" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+
+  <line x1="940" y1="283" x2="940" y2="372" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <text x="948" y="330" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">every call</text>
+
+  <line x1="1060" y1="409" x2="1028" y2="409" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#sb)"/>
+  <text x="1044" y="400" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">panic</text>
+
+  <text x="24" y="498" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#78909C">Shizuku is started by the user and never auto-started by Jav · without it the shell lane fails with SHIZUKU_UNAVAILABLE, honestly.</text>
+</svg>

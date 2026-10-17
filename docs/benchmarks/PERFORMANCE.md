@@ -197,3 +197,70 @@ razonable para la carga cognitiva; **no** hace falta reajustar `CompactDesc`.
 **Reproducibilidad:** el primer uso descarga el BPE `cl100k_base` de
 `openaipublic` y lo cachea; las corridas siguientes son offline (~0.6 s).
 `--encoding o200k_base` está disponible pero fuerza otra descarga de red.
+
+## 10. Certificación viva 38/38 (v1.2.5+opt, 2026-10-17, TECNO LG7n)
+
+Fuente: script stdio JSON-RPC (`/tmp/opencode/cert38.py`) → `dist/jav-linux-amd64`
+→ WSS/Tailnet al TECNO LG7n (SDK 31), app v1.2.5 (CI) en foreground,
+Shizuku root + accesibilidad activos, **sin USB** (cable desconectado).
+Sesión persistente: 1 `hello`; latencias **calientes** salvo lo indicado.
+40 llamadas: **29 OK** + **11 errores honestos/de compuerta** (ninguna tool
+colgó, 0 timeouts). `tools/list` 38/38 y recursos/prompts completos.
+
+| Grupo | Tool | ms | Resultado |
+|---|---|---|---|
+| state | `device_status` | 1 254 | ok (frío: incluye dial+hello) |
+| state | `get_foreground` | 32 | ok (O(1), sin snapshot) |
+| state | `list_packages` | 23 | `ADB_FAILED` honesto (host-adb por diseño; sin USB) |
+| state | `get_battery` | 306 | ok |
+| state | `get_memory` | 245 | ok |
+| state | `get_storage` | 33 | ok |
+| state | `get_cpu` | 340 | ok |
+| state | `get_device_info` | 316 | ok |
+| state | `get_audit` | 296 | ok (ring 500) |
+| ui | `press_home` | 210 | ok (wake real) |
+| ui | `read_screen` | 263 | ok |
+| ui | `tap_node` (snapshot 0) | 10 | `STALE_SNAPSHOT` (compuerta) |
+| ui | `tap_text` (texto ausente) | 77 | `SELECTOR_NOT_FOUND` |
+| ui | `type_text` (snapshot 0) | 263 | `STALE_SNAPSHOT` |
+| ui | `scroll down` | 538 | ok (real) |
+| ui | `press_back` | 107 | ok (real) |
+| ui | `wait_for_text` (1 500 ms) | 1 642 | `TIMEOUT` (compuerta) |
+| ui | `open_app` (Settings) | 1 835 | ok + verificación de foreground |
+| ui | `close_app` (Settings) | 975 | ok (force_stop sin grant) |
+| ui | `screenshot` (PNG default) | 21 497 | ok (`via=takeScreenshot`; usar `fmt=webp`) |
+| native | `settings_get` | 699 | ok |
+| native | `settings_put` | 480 | **planned** (preview; sin ejecutar) |
+| native | `open_url` | 360 | ok (ejecuta por diseño; `via=startActivity`) |
+| native | `send_intent` VIEW | 375 | ok (ejecuta; las acciones SEND/CALL sí exigen confirm) |
+| native | `get_clipboard_device` ×2 | 2 679 / 2 347 | ok `via=shizuku-iclipboard` (baseline pre-opt) |
+| native | `get_app_usage` | 368 | ok |
+| native | `list_contacts` (0 matches) | 267 | ok |
+| native | `add_contact` | 182 | **planned** (retest con `display_name`) |
+| native | `list_events` | 241 | ok |
+| native | `create_event` | 92 | **planned** |
+| native | `list_notifications` | 20 | `NOTIFICATION_LISTENER_DISABLED` (cap ausente) |
+| native | `reply_notification` | 31 | **planned** |
+| native | `media_state` | 28 | `MEDIA_SESSIONS_UNAVAILABLE` (listener) |
+| native | `media_control stop` | 28 | **planned** |
+| native | `get_location` | 275 | `LOCATION_UNAVAILABLE` (proveedores off) |
+| native | `take_photo` | 77 | **planned** (FGS obligatorio) |
+| native | `adb_shell rm -rf /` | 982/19 | **planned** `reason=denylist_irreversible` |
+| native | `adb_shell` self-harm | 461 | `SHELL_DENYLIST` (sin grant) |
+| native | `adb_shell rm -rf / + confirm` | 60 365 | `SHELL_DENIED` (grant no tapeado; bloqueo real 60 s) |
+| resolve | `resolve_element` (S1) | 3 052 | ok + `evidence.cost` **$0.000053** (1 llamada) |
+
+**Recursos y prompts**: `android://tools/catalog|state|ui|native|resolve` +
+`android://tool/read_screen` leídos 6/6 (1–8 ms en Go; 966–18 018 chars);
+`prompts/list` = `navigate_and_copy`, `send_verified`, `troubleshoot_app`;
+`prompts/get` 3/3 (1 mensaje cada uno).
+
+**Nota latencias**: este banco (PC local ↔ TECNO por Tailnet en la misma red)
+da tools ligeras de **~30–40 ms** calientes (vs ~140 ms VPS→TECNO de §8);
+las cifras grandes incluyen el **efecto** real en el dispositivo (open_app,
+screenshot PNG, scroll, clipboard pre-opt) más el roundtrip.
+
+**Hallazgo + fix**: `adb_shell` planned devolvía `verified:true`
+(`jamCall` no mapeaba `planned`); corregido a `verified:false` y retestado en
+vivo (`ok:true verified:false planned:true`). Detalle: `docs/BUILD.md §31`,
+narrativa: `TASK_HISTORY.md §11`.

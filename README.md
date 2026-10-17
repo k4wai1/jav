@@ -1,76 +1,117 @@
-# Jav 🛠️ — full-control Android MCP runtime, no root
+<div align="center">
 
-[![Moe Counter](https://count.getloli.com/get/@jav-k4wai1?name=jav-k4wai1&theme=rule34&padding=3&offset=0&align=top&scale=1&pixelated=1&darkmode=1)](https://github.com/k4wai1)
-[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/kwai1)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+<img src="docs/assets/icon.png?v=1.2.2" width="128" alt="Jav" />
 
-<p align="center"><img src="docs/assets/icon.png?v=1.2.2" width="140" alt="Jav logo" /></p>
+# Jav
+
+**Full-control Android MCP runtime. No root.**
+
+Accessibility-first on-device app + Go MCP server (stdio): 38 atomic tools,
+Shizuku-gated shell, WSS/Tailnet with TOFU pinning.
+
+[![release](https://img.shields.io/github/v/release/k4wai1/jav?style=flat-square&labelColor=F8F9FA&color=DCECE7)](https://github.com/k4wai1/jav/releases)
+[![tools](https://img.shields.io/badge/tools-38-E8DFF5?style=flat-square&labelColor=F8F9FA)](#tools--38-in-4-groups)
+[![mcp](https://img.shields.io/badge/MCP-stdio-DCEEFB?style=flat-square&labelColor=F8F9FA)](#quickstart)
+[![android](https://img.shields.io/badge/minSdk-29-FCE4EC?style=flat-square&labelColor=F8F9FA)](#what-is-jav)
+[![go](https://img.shields.io/badge/go-1.25%2B-DCEEE9?style=flat-square&labelColor=F8F9FA)](#quickstart)
+[![license](https://img.shields.io/badge/license-GPL--3.0-FCEADE?style=flat-square&labelColor=F8F9FA)](LICENSE)
+
+[Releases](https://github.com/k4wai1/jav/releases) ·
+[Protocol](docs/PROTOCOL.md) ·
+[Benchmarks](docs/benchmarks/PERFORMANCE.md) ·
+[Plan](PLAN.md)
+
+</div>
 
 > **English first, español después.** Normative detail lives in `AGENTS.md`,
 > `PROTOCOL.md`, `ARCHITECTURE.md`, `PLAN.md` and `docs/specs/`.
 
 ---
 
-# 🇬🇧 ENGLISH
-
 ## What is Jav
 
 **Jav is a full-control Android MCP runtime without root.** An on-device app
 (**Jav**, `dev.k4wai1.jav`) exposes the screen via `AccessibilityService` and
 privileged actions via **Shizuku** (started by the user) to a Go MCP server on
-the PC (`jav`, `cmd/jav`, stdio).
-
-Two clearly separated roles:
+the PC (`jav`, stdio).
 
 | | **Jav** (this repo) | **Director** (external, not part of Jav) |
 |---|---|---|
 | What | Go MCP server (`cmd/jav`) + Android app `dev.k4wai1.jav` | OpenCode / Claude / Cursor / operator |
 | Does | exposes 38 atomic MCP tools, runs no loops and no internal planner | reads each screen, picks one atomic tool per step, verifies the effect |
-| Tactical help | serves **`resolve_element`** (blind S1 Jev resolver) | decides goals, gates, and approves previews |
+| Tactical help | serves `resolve_element` (blind S1 Jev resolver) | decides goals, gates, and approves previews |
 
 Jav never loops, never plans and never invents coordinates. The Director holds
 the loop; Jav holds the device.
 
+## Architecture
+
+<p align="center">
+  <a href="docs/diagrams/jav-architecture.html"><img src="docs/assets/jav-architecture.svg" alt="Jav architecture: Director — jav MCP stdio — Jev resolver — Jav app with 3 lanes" width="960"></a>
+</p>
+
+<p align="center"><sub>Interactive version: <a href="docs/diagrams/jav-architecture.html">docs/diagrams/jav-architecture.html</a></sub></p>
+
+## How the flow works with Jev — recommended: OpenRouter
+
+The Director reads the screen, picks one atomic tool per step and verifies the
+effect. When the screen is noisy, `resolve_element` adds a blind tactical
+resolver (S1 **Jev**): the accessibility tree is pruned to a numbered table
+(≤254 candidates) and Jev answers in a single pass — a `Choice` + confidence,
+**no free text**, anti-prompt-injection by construction. `conf ≥ 0.70` (tau) or
+the **Sovereign Fallback** (top candidates + recovery instruction; the Director
+decides). Measured on a real TECNO: **~3 s and ~$0.00005 per resolution**.
+
+Recommended setup: an **OpenRouter** key. `jav pair` asks for it (optional), or
+put `openrouter_api_key` in `~/.config/jav/config.json`, or export
+`OPENROUTER_API_KEY`. Default model `typesafe/jev-1.13`; an optional S2 model
+(`ai_base_url` / `ai_api_key` / `ai_model`) handles escalations. **No key?**
+Everything still works: the resolver degrades to the Sovereign Fallback and
+never fabricates options.
+
 ## Quickstart
 
 ```bash
-# 1. Install the Go server (PC)
+# 1 · Go server on the PC (installs `jav` into ~/.local/bin)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    or: VERSION=v1.2.5 sh install.sh
 
-# 2. Install the companion APK (Releases) and enable accessibility (once)
-#    download jav-companion.apk from the latest GitHub Release, then:
+# 2 · Companion app from Releases; enable accessibility once; copy the token
 adb install -r jav-companion.apk
-#    Settings → Accessibility → enable Jav; copy the token shown in the app.
 
-# 3. Start Shizuku (the USER starts it; the app only requests API_V23)
-
-# 4. Pair once — no .env, no restart (Auto-TOFU cert pinning included):
-jav pair <PHONE-TAILNET-IP> <TOKEN>   # remote → wss://<ip>:38472/
-#    over USB loopback:  jav pair usb <TOKEN>
-#    writes ~/.config/jav/config.json (chmod 0600) and pins the cert.
-
-# 5. Point your Director (OpenCode/Claude/Cursor) at `jav` over stdio:
-#    { "command": ["jav"] }   # no environment block needed
+# 3 · Pair once — interactive prompt for IP + token, Auto-TOFU, no .env
+jav pair
 ```
 
-From source instead of Releases:
+Then point your Director at `jav` over stdio:
+
+```json
+{ "command": ["jav"] }
+```
+
+That's it — no `.env`, no restart: `jav` (re)reads
+`~/.config/jav/config.json` (`0600`) hot. Remote pairing uses
+`wss://<tailnet-ip>:38472/`; over USB use `jav pair usb <TOKEN>` with
+`adb forward tcp:38472 tcp:38472`. Shizuku is started by you — Jav never
+starts it.
+
+<details>
+<summary>From source instead of Releases</summary>
 
 ```bash
-make build                 # dist/jav-linux-amd64
-cd android-app && ./gradlew :app:assembleDebug
+make build                    # dist/jav-linux-amd64
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
+</details>
 
-## Tools — 38, in 4 groups
+## Tools — 38 in 4 groups
 
 Every tool returns `{ok, verified, evidence, hint}`. `verified: true` only with
 real post-verification, never on "command sent". `tools/list` carries a compact
-1–2 line description per tool; the full 7-section spec loads **on demand** as an
-MCP Resource (`android://tool/<name>`, `android://tools/<group>`, index
-`android://tools/catalog`). Startup measured with a real tiktoken tokenizer:
-**~1.8k tokens of cognitive load** (instructions + 38 compact descriptions) and
-**~3.5k tokens total** (includes the fixed MCP schema for 38 tools, not reducible
-without consolidating) — so ~8.8k before v1.2.0. See
+1–2 line description per tool; the full 7-section spec loads **on demand** as
+an MCP Resource (`android://tool/<name>`, `android://tools/<group>`, index
+`android://tools/catalog`). Startup cost measured with a real tiktoken
+tokenizer: **~1.8k tokens of cognitive load** (~3.5k total, schema included) —
+down from ~8.8k before v1.2.0. See
 [`docs/benchmarks/PERFORMANCE.md §9`](docs/benchmarks/PERFORMANCE.md).
 
 | Group | Tools |
@@ -81,213 +122,165 @@ without consolidating) — so ~8.8k before v1.2.0. See
 | **resolve** | `resolve_element` (blind S1 resolver: `screen_goal_en` + `tau` → `idx`/`node_id`/`conf`/`snapshot_id` or the Sovereign fallback) |
 
 Lanes: **N0** native, no new grants · **N1** native with user grants
-(advertised in `hello.caps`) · **N2** Shizuku/`shell`, gated by the irreversible
-denylist + interactive grant (1 cmd / 5 min / 30 min).
+(advertised in `hello.caps` and surfaced in `device_status.caps`) · **N2**
+Shizuku/`shell`, gated by the irreversible denylist + interactive grant
+(1 cmd / 5 min / 30 min).
 
 Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
 `reply_notification`, `media_control`, `take_photo`, `adb_shell`) never run on
-first call: they return `{planned:true, preview, hint}` with `verified:false`
-and only execute after `confirm:true`.
-
-## What changed in v1.2.5
-
-- **Device clipboard works in the background (Shizuku UID-shell, scrcpy
-  technique).** `get_clipboard_device` reads it through Shizuku as UID shell
-  (`via: shizuku-iclipboard`: best-effort `appops` + `IClipboard` reflection;
-  when Shizuku runs as root, a tiny `app_process` child drops to UID 2000
-  *before* opening binder so Android never wipes the clip), falls back to a
-  1×1 accessibility overlay (`via: a11y-overlay`: Android 10+ requires a
-  focused window to read in background) and finally to the local read
-  (`via: jam-foreground`). The response now carries `text` (≤2048 chars, truncated — it is the task);
-  `len`/`sha256` describe the full text.
-- **Self-contained paste:** `type_text` accepts the payload token
-  `__PASTE__` — it pastes the device clipboard into the focused field without
-  overwriting it (`ACTION_PASTE` first; last resort `input keyevent 279` via
-  Shizuku → `via: shizuku_keyevent_paste`). No external adb input needed.
-- **`device_status` exposes `caps`** (accessibility, shizuku, shell_grant,
-  usage_access, contacts, calendar, location, camera…) captured from the
-  handshake: the agent no longer has to guess grants.
-- **Deterministic debug keystore** committed (`android-app/app/debug.keystore`,
-  standard AOSP debug key, not a secret): local and CI builds share the same
-  signature, so `adb install -r` updates in place and preserves
-  accessibility/Shizuku/token.
-- No new tools (still 38); `versionName 1.2.5` / `versionCode 7`.
-
-## What changed in v1.2.4
-
-- **Element-centric liveness (`STALE_SNAPSHOT` no longer blocks live screens).**
-  `tap_node`/`type_text` accept any of the last 8 snapshots and re-verify the
-  target element itself: if the button silently moved (banner, keyboard, a
-  video seekbar refreshing every second) but keeps its identity and is unique,
-  the action proceeds; if it is gone or duplicated, `STALE_SNAPSHOT` still
-  fires. A foreground-package gate aborts with a recovery hint when the app on
-  screen changed mid-action — no more taps over the wrong app.
-- **`get_foreground` no longer consumes snapshots** (O(1), no tree walk).
-- **Messaging contacts rule:** if `list_contacts` returns 0 matches, the agent
-  opens the messaging app and looks for the chat in-app (bots/pinned chats may
-  not be in system contacts).
-- No new tools (still 38); `versionName 1.2.4` / `versionCode 6`.
-
-## What changed in v1.2.3
-
-- **Security fix (`dialConn`).** The client read the `hello` reply without
-  checking `ok`, so a rejected handshake (`{ok:false, code:"UNAUTHORIZED"}`) was
-  treated as a valid session — `jav pair` printed "linked" and pinned the cert
-  with a **wrong token**. Now `ok` is validated and `UNAUTHORIZED` is returned
-  honestly. The server was never compromised (no tool runs without a valid
-  `hello`). Regression tests included.
-- **Gold test in Tailnet certified** (PC ↔ WSS ↔ phone): `device_status`,
-  `screenshot` (~526 KB), `read_screen`, `resolve_element` (S1) and `get_audit`
-  OK; persistent session confirmed (1 `hello` per burst); `STALE_SNAPSHOT` proven
-  as a safety gate when the screen changes mid-action. `versionName 1.2.3` /
-  `versionCode 5`.
-
-## What changed in v1.2.2
-
-- **New app icon (Android + lightning).** Refreshed `docs/assets/icon.png`
-  (1000×1000) and regenerated all launcher mipmaps `ic_launcher[_round]`
-  (mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192; round with a
-  circular alpha mask). The manifest (`android:icon`/`android:roundIcon`) and
-  the in-app header logo (`@mipmap/ic_launcher_round`) pick it up automatically.
-  No new dependencies; `versionName 1.2.2` / `versionCode 4`.
-
-## What changed in v1.2.1
-
-- **Frictionless pairing, no `.env`, no restart.** New **`jav pair
-  <ip-or-url> <token>`** connects once (hello + `get_device_info`), performs
-  **Auto-TOFU** on `wss://` (captures and pins the cert SHA-256) and writes
-  `~/.config/jav/config.json` (`chmod 0600`). The MCP server re-reads the
-  config **hot**, so registering `"command": ["jav"]` is enough. Priority per
-  field: env (`JAV_*`) → `config.json` → default.
-- **Persistent session: ~1.3 s → ~0.2 s per call.** `pkg/jam` keeps ONE
-  shared WebSocket and serialises calls with a mutex, so a burst of tool calls
-  yields a **single `hello`** (was 1 per call). Measured on a real TECNO over
-  WSS/Tailnet: **989 ms → 320 ms** avg (light tools **~140 ms**), **0 extra
-  `hello` frames** vs **11**. Automatic **1 reconnect + retry** on transport
-  errors.
-- **Graceful WebSocket close** (frame `close` + peer echo, ~500 ms bound)
-  added to `Client.Close`: fixes the `4001: BUSY` seen with abrupt TCP closes
-  (the phone kept its single-client slot until its ~2 min timeout).
-- AI keys also live in `config.json` (`openrouter_api_key`, `ai_base_url`,
-  `ai_api_key`, `ai_model`) with the same env → config priority.
-
-## What changed in v1.2.0
-
-- **~80% fewer startup tokens.** 38 compact descriptions in `tools/list` +
-  full 7-section specs on demand as Resources (`android://tool/<name>`);
-  compacted `initialize` instructions (≤220 words). New `audit-mcp` check
-  `token-budget-startup` certifies the budget.
-- **Per-session cost summary, no per-call spam.** `pkg/cost` is silent by
-  default (`JAV_DEBUG_COST=1` to trace) and accumulates
-  `{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}` delivered in
-  `evidence.cost` of `device_status` / `resolve_element`.
-- **Identity consolidated** as **`Jav`** / `dev.k4wai1.jav` (v1.0.0), with the
-  self-signed TLS cert unified to `CN=jav.local`.
-- **Phase 2b** (WSS tailnet + cert + token in Keystore + lockout) and
-  **Phase 6** (audit ring 500 + Kill Switch + shell grant/denylist + N2) shipped.
-- **New icon (1000×1000) and native UI polish**: launcher mipmaps, header logo,
-  semantic `values`/`values-night` colors — zero new dependencies.
-- **Docs cleanup**: historical specs moved to `docs/specs/archive/`; live
-  contract in `docs/specs/`.
-
-## Real runs with numbers (summary)
-
-> Benchmarks own the numbers:
-> [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md) (per-tool
-> latencies on real hardware) and
-> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md) (closed
-> tasks with wall/cost/forensics). This table only summarizes.
-
-| Area | Figure (measured) |
-|---|---|
-| Perception `dump_ui` | ~2 ms/node (13n/40 ms, 66n/106 ms, 124n/264 ms; ~1 s worst @500) |
-| tap (`ACTION_CLICK` first) | ~70 ms |
-| S1 Jev | ~1.6 s |
-| N0 native (Go e2e) | ~50–190 ms/tool |
-| Persistent session (v1.2.1, WSS/Tailnet) | **~140 ms** light / **~320 ms** avg per call; **1 `hello`** per burst |
-| Cost ceiling | **<$0.003** per run |
-
-Host: Debian, Go, MCP stdio; `dump_ui` is ~16× faster than `uiautomator dump`.
+first call: they return `{planned:true, preview}` with `verified:false` and
+only execute after `confirm:true`.
 
 ## Security
+
+<p align="center">
+  <a href="docs/diagrams/jav-security.html"><img src="docs/assets/jav-security.svg" alt="Jav security: pinned WSS, token on every bind, gates, shell policy, audit ring, kill switch" width="960"></a>
+</p>
 
 - **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back, grantless
   `open_app`) · `shell` (grant-gated, irreversible denylist + `confirm`) ·
   `admin` (token/audit/settings). Token mandatory on every bind (loopback
   included); lockout 5 fails/60 s → 5 min; 4 MiB frame; 50 req/s (shell 5/s).
+- **Transport:** WS on loopback only; **WSS required** on any non-loopback
+  bind (Tailnet `100.64.0.0/10`, never `0.0.0.0`), self-signed `CN=jav.local`
+  with TOFU pinning; token AES-GCM in `AndroidKeyStore`.
 - **Confirm:** messaging, paying, deleting, account/permission, photo, media
   stop and settings writes are critical: without `confirm:true` they are planned
   without executing (`planned:true` + `preview`).
-- **Forensics:** `logs/run-<ts>.jsonl` per step (never raw sensitive text) plus
-  fail-fast `run_signature`.
+- **Forensics:** audit ring of 500 on-device entries (method, scope, 16-hex
+  arg hash, result, origin — never raw args or token) + `logs/run-<ts>.jsonl`.
 - **Kill switch:** Quick Settings tile + notification action (revoke tokens,
   stop the server). Push/pull only under `/sdcard/Download/jav-mcp/`.
 
-## 👨‍💻 Developer
+## Measured on real hardware
 
-**[k4wai1](https://github.com/k4wai1)** — if Jav saved you time, consider
-[buying a coffee](https://ko-fi.com/kwai1). Contributions via PRs welcome.
+> Benchmarks own the numbers:
+> [`docs/benchmarks/PERFORMANCE.md`](docs/benchmarks/PERFORMANCE.md) (per-tool
+> latencies, session, token budget, 38/38 live certification) and
+> [`docs/benchmarks/TASK_HISTORY.md`](docs/benchmarks/TASK_HISTORY.md) (closed
+> tasks with wall/cost/forensics). This table only summarizes.
 
-## 📜 License
+| Area | Figure (measured) |
+|---|---|
+| Perception `read_screen` (`dump_ui`) | ~2 ms/node (13n/40 ms … 124n/264 ms; worst ~1 s @500) |
+| Light tools (persistent session) | **~30–140 ms** depending on path; 1 `hello` per burst |
+| 38/38 live certification (WSS/Tailnet) | 40 calls: 29 OK + 11 honest gates, 0 timeouts |
+| S1 Jev `resolve_element` | ~3 s · **$0.000053** per resolution |
+| `adb_shell` grant | blocks 60 s if not granted → `SHELL_DENIED` (verified live) |
 
-This project is licensed under the **GNU General Public License v3.0** — see the
-[LICENSE](LICENSE) file for details.
+## What changed
+
+### v1.2.5 — clipboard UID-shell, `__PASTE__`, caps, keystore
+
+- **Device clipboard works in the background (Shizuku UID-shell, scrcpy
+  technique).** `get_clipboard_device` reads it through Shizuku as UID shell
+  (`via: shizuku-iclipboard`); when Shizuku runs as root, a tiny `app_process`
+  child drops to UID 2000 *before* opening binder so Android never wipes the
+  clip. Fallbacks: `a11y-overlay` (1×1 focus window) → `jam-foreground` →
+  `CLIPBOARD_EMPTY`. The response carries `text` (≤2048 chars) plus
+  `len`/`sha256` of the full text.
+- **Self-contained paste:** `type_text` accepts the payload token `__PASTE__`
+  — pastes the device clipboard into the focused field without overwriting it
+  (`ACTION_PASTE` first; last resort `input keyevent 279` via Shizuku). No
+  external adb needed.
+- **`device_status` exposes `caps`** captured from the handshake — no more
+  guessing grants.
+- **Deterministic debug keystore** committed (standard AOSP debug key, not a
+  secret): local and CI builds share one signature, so `adb install -r`
+  updates in place and preserves accessibility/Shizuku/token.
+
+### v1.2.4 — element-centric liveness
+
+- `tap_node`/`type_text` accept any of the last **8** snapshots and re-verify
+  the target element itself: moved-but-unique → the action proceeds; gone or
+  duplicated → `STALE_SNAPSHOT`. A foreground-package gate aborts with a
+  recovery hint when the app changes mid-action.
+- `get_foreground` no longer consumes snapshots (O(1), no tree walk).
+
+Earlier releases: [v1.2.3 `dialConn` security fix + Tailnet Gold test](
+https://github.com/k4wai1/jav/releases/tag/v1.2.3) · [v1.2.2 icon refresh](
+https://github.com/k4wai1/jav/releases/tag/v1.2.2) · [v1.2.1 `jav pair` +
+persistent session + Auto-TOFU](https://github.com/k4wai1/jav/releases/tag/v1.2.1) ·
+[v1.2.0 compact catalog + audit ring + kill switch](
+https://github.com/k4wai1/jav/releases/tag/v1.2.0).
+
+## Troubleshooting
+
+- **`UNAUTHORIZED`** — token missing/wrong. Run `jav pair` (interactive). After
+  5 failed attempts from one origin the phone locks out for 5 min.
+- **`CONNECTION_FAILED` on loopback** — no `adb forward tcp:38472 tcp:38472`.
+- **`SHIZUKU_UNAVAILABLE`** — start Shizuku yourself; the app never starts it.
+  Without it N0 still works, `open_app`/`screenshot` fallbacks fail honestly.
+- **`ACCESSIBILITY_DISABLED`** — enable Jav in Settings → Accessibility.
+- **`BUSY: 4001`** — a previous client didn't close cleanly; v1.2.1+ closes
+  gracefully. Wait ~2 min or restart the app.
+- **WSS won't connect over Tailnet** — the phone must have a `100.64.x.x`
+  address; otherwise only the loopback listener comes up. Check the pinned
+  fingerprint (`CN=jav.local`) in `~/.config/jav/config.json`.
+
+## Developer & License
+
+**k4wai1** — if Jav saved you time, consider
+[buying a coffee](https://ko-fi.com/kwai1). PRs welcome.
+
+GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
 ---
 
-# 🇪🇸 ESPAÑOL
+# ESPAÑOL
 
 ## Qué es Jav
 
-**Jav es un runtime MCP de control integral de Android sin root.** Una app en el
-dispositivo (**Jav**, `dev.k4wai1.jav`) expone la pantalla por
+**Jav es un runtime MCP de control integral de Android sin root.** Una app en
+el dispositivo (**Jav**, `dev.k4wai1.jav`) expone la pantalla por
 `AccessibilityService` y las acciones privilegiadas por **Shizuku** (lo arranca
-el usuario) a un servidor MCP Go en el PC (`jav`, `cmd/jav`, stdio).
+el usuario) a un servidor MCP Go en el PC (`jav`, stdio). Jav no loopea, no
+planifica y nunca inventa coordenadas: el bucle lo lleva el Director
+(OpenCode/Claude/Cursor/operador); el dispositivo lo lleva Jav.
 
-Dos roles separados:
+<p align="center">
+  <a href="docs/diagrams/jav-architecture.html"><img src="docs/assets/jav-architecture.svg" alt="Arquitectura de Jav" width="960"></a>
+</p>
 
-| | **Jav** (este repo) | **Director** (externo, no es parte de Jav) |
-|---|---|---|
-| Qué es | servidor MCP Go (`cmd/jav`) + app Android `dev.k4wai1.jav` | OpenCode / Claude / Cursor / operador |
-| Hace | expone 38 tools MCP atómicas; sin bucles ni planificador interno | lee cada pantalla, elige una tool atómica por paso, verifica el efecto |
-| Ayuda táctica | sirve **`resolve_element`** (resolver ciego S1 Jev) | fija metas, compuertas y aprueba previews |
+## Flujo con Jev — recomendado: OpenRouter
 
-Jav no loopea, no planifica y nunca inventa coordenadas. El bucle lo lleva el
-Director; el dispositivo lo lleva Jav.
+Cuando la pantalla es ruidosa, `resolve_element` añade un resolver táctico
+ciego (S1 **Jev**): el árbol de accesibilidad se poda a una tabla numerada
+(≤254 candidatos) y Jev responde en un solo pase — un `Choice` + confianza,
+**sin texto libre**, anti-prompt-injection por construcción. `conf ≥ 0.70`
+(tau) o **Fallback Soberano** (top candidatos + instrucción de recuperación).
+Medido en un TECNO real: **~3 s y ~$0.00005 por resolución**. Configura una key
+de **OpenRouter** (`jav pair` la pide opcional; `openrouter_api_key` en
+`~/.config/jav/config.json`; o `OPENROUTER_API_KEY`). **Sin key** todo sigue
+funcionando: el resolver degrada al Fallback Soberano y nunca inventa opciones.
 
 ## Quickstart
 
 ```bash
-# 1. Instala el servidor Go (PC)
+# 1 · Servidor Go en el PC (instala `jav` en ~/.local/bin)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    o: VERSION=v1.2.5 sh install.sh
 
-# 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
-#    descarga jav-companion.apk del último Release y:
+# 2 · APK companion (Releases); activa accesibilidad una vez; copia el token
 adb install -r jav-companion.apk
-#    Ajustes → Accesibilidad → activa Jav; copia el token que muestra la app.
 
-# 3. Shizuku lo arranca el USUARIO (la app solo pide el permiso runtime API_V23)
-
-# 4. Empareja una vez — sin .env, sin reiniciar (incluye Auto-TOFU del cert):
-jav pair <IP-TAILNET-DEL-TELEFONO> <TOKEN>   # remoto → wss://<ip>:38472/
-#    por USB loopback:  jav pair usb <TOKEN>
-#    escribe ~/.config/jav/config.json (chmod 0600) y fija el certificado.
-
-# 5. Apunta tu Director (OpenCode/Claude/Cursor) a `jav` por stdio:
-#    { "command": ["jav"] }   # sin bloque environment
+# 3 · Vincula una vez — pide IP + token, Auto-TOFU, sin .env
+jav pair
 ```
+
+Apunta tu Director a `jav` por stdio (`{ "command": ["jav"] }`). La config
+`~/.config/jav/config.json` (`0600`) se relee **en caliente**; remoto =
+`wss://<ip-tailnet>:38472/`, USB = `jav pair usb <TOKEN>` (+ `adb forward`).
+Shizuku lo arrancas tú; Jav nunca lo inicia.
 
 ## Herramientas — 38 en 4 grupos
 
-Toda tool devuelve `{ok, verified, evidence, hint}`. `tools/list` lleva una
-descripción compacta de 1–2 líneas; la ficha completa de 7 secciones se carga
-**bajo demanda** como Resource MCP (`android://tool/<name>`,
-`android://tools/<group>`, índice `android://tools/catalog`). Arranque medido con
-un tokenizer **tiktoken real**: **~1.8k tokens de carga cognitiva** (instructions
-+ 38 descripciones compactas) y **~3.5k tokens totales** (incluye el esquema MCP
-fijo de 38 tools, no reducible sin consolidar); antes ~8.8k en v1.2.0. Ver
-[`docs/benchmarks/PERFORMANCE.md §9`](docs/benchmarks/PERFORMANCE.md).
+Toda tool devuelve `{ok, verified, evidence, hint}`; las 38 viven en 4 grupos
+(`state`, `ui`, `native`, `resolve`) y las fichas completas de 7 secciones se
+cargan **bajo demanda** como Resources (`android://tool/<name>`,
+`android://tools/<group>`, índice `android://tools/catalog`). Sensibles
+(`settings_put`, `send_intent`, `add_contact`, `create_event`,
+`reply_notification`, `media_control`, `take_photo`, `adb_shell`) devuelven
+`{planned:true, preview}` y solo ejecutan con `confirm:true`.
 
 | Grupo | Tools |
 |---|---|
@@ -296,179 +289,44 @@ fijo de 38 tools, no reducible sin consolidar); antes ~8.8k en v1.2.0. Ver
 | **native** | `settings_get`, `settings_put`, `open_url`, `send_intent`, `get_clipboard_device`, `get_app_usage`, `list_contacts`, `add_contact`, `list_events`, `create_event`, `list_notifications`, `reply_notification`, `media_state`, `media_control`, `get_location`, `take_photo`, `adb_shell` |
 | **resolve** | `resolve_element` |
 
-Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
-usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
-interactivo (1 cmd / 5 min / 30 min).
+## Seguridad
 
-## Qué cambió en v1.2.5
+<p align="center">
+  <a href="docs/diagrams/jav-security.html"><img src="docs/assets/jav-security.svg" alt="Seguridad de Jav" width="960"></a>
+</p>
 
-- **El clipboard del dispositivo funciona en segundo plano (UID shell vía
-  Shizuku, técnica scrcpy).** `get_clipboard_device` lo lee por Shizuku como
-  UID shell (`via: shizuku-iclipboard`: `appops` best-effort + reflexión
-  `IClipboard`; si Shizuku corre como root, un hijo `app_process` baja a
-  UID 2000 *antes* de abrir binder para que Android no borre el clip), cae a
-  un overlay 1×1 de accesibilidad (`via: a11y-overlay`: Android 10+ exige
-  foco del UID en background) y por último al leído local
-  (`via: jam-foreground`). La respuesta ahora trae `text` (≤2048 chars, truncado — es la tarea);
-  `len`/`sha256` describen el texto íntegro.
-- **Paste autocontenido:** `type_text` acepta el token-payload `__PASTE__` —
-  pega el clipboard del dispositivo en el campo enfocado sin pisarlo
-  (`ACTION_PASTE` primero; último recurso `input keyevent 279` por Shizuku →
-  `via: shizuku_keyevent_paste`). Sin adb externo.
-- **`device_status` expone `caps`** (accessibility, shizuku, shell_grant,
-  usage_access, contacts, calendar, location, camera…) capturados del
-  handshake: el agente ya no adivina grants.
-- **Keystore debug determinista** commiteado (`android-app/app/debug.keystore`,
-  clave debug estándar AOSP, no es secreto): local y CI firman igual, así que
-  `adb install -r` actualiza in-place y preserva accesibilidad/Shizuku/token.
-- Sin tools nuevas (siguen 38); `versionName 1.2.5` / `versionCode 7`.
+Token obligatorio en todos los binds (loopback incluido), WSS con pinning TOFU
+en el tailnet (nunca `0.0.0.0`), lockout 5 fallos/60 s → 5 min, `shell` con
+denylist de irreversibles + grant interactivo (1 cmd / 5 min / 30 min), audit
+ring de 500 en el dispositivo (hashes de 16 hex, nunca args/token en claro) y
+Kill Switch (tile QS + notificación). Detalle en [Protocol](docs/PROTOCOL.md) y
+[Arquitectura](ARCHITECTURE.md).
 
-## Qué cambió en v1.2.4
+## Cambios recientes
 
-- **Frescura centrada en el elemento (el `STALE_SNAPSHOT` ya no bloquea
-  pantallas vivas).** `tap_node`/`type_text` aceptan cualquiera de los últimos
-  8 snapshots y re-verifican el elemento objetivo: si el botón se movió por un
-  banner, el teclado o el seekbar de un video que refresca cada segundo, pero
-  conserva su identidad y es único, la acción procede; si desapareció o se
-  duplicó, sigue fallando con `STALE_SNAPSHOT`. Una compuerta de paquete en
-  primer plano aborta (con hint de recuperación) si la app en pantalla cambió
-  a mitad de acción — nunca más taps sobre la app equivocada.
-- **`get_foreground` deja de consumir snapshots** (O(1), sin recorrer el árbol).
-- **Regla de contactos en mensajería:** si `list_contacts` devuelve 0 matches,
-  el agente abre la app de mensajería y busca el chat dentro de la app (los
-  bots/chats fijados pueden no estar en los contactos del sistema).
-- Sin tools nuevas (siguen 38); `versionName 1.2.4` / `versionCode 6`.
-
-## Qué cambió en v1.2.3
-
-- **Fix de seguridad (`dialConn`).** El cliente leía la respuesta del `hello` sin
-  comprobar `ok`, así que un handshake rechazado
-  (`{ok:false, code:"UNAUTHORIZED"}`) se trataba como sesión válida: `jav pair`
-  decía "Vinculado" y fijaba el certificado con un **token falso**. Ahora se
-  valida `ok` y se devuelve `UNAUTHORIZED` de forma honesta. El servidor nunca
-  estuvo comprometido (ninguna tool ejecuta sin `hello` válido). Con tests de
-  regresión.
-- **Prueba de Oro en Tailnet certificada** (PC ↔ WSS ↔ teléfono): `device_status`,
-  `screenshot` (~526 KB), `read_screen`, `resolve_element` (S1) y `get_audit` OK;
-  sesión persistente confirmada (1 `hello`/ráfaga); `STALE_SNAPSHOT` demostrado
-  como compuerta de seguridad cuando la pantalla cambia a mitad de acción.
-  `versionName 1.2.3` / `versionCode 5`.
-
-## Qué cambió en v1.2.2
-
-- **Nuevo icono de la app (Android + rayito).** `docs/assets/icon.png`
-  (1000×1000) refrescado y mipmaps `ic_launcher[_round]` regenerados
-  (mdpi 48 / hdpi 72 / xhdpi 96 / xxhdpi 144 / xxxhdpi 192; round con máscara
-  circular y alfa). El manifest (`android:icon`/`android:roundIcon`) y el logo
-  del header (`@mipmap/ic_launcher_round`) lo heredan automáticamente. Sin
-  dependencias nuevas; `versionName 1.2.2` / `versionCode 4`.
-
-## Qué cambió en v1.2.1
-
-- **Vinculación sin fricción, sin `.env`, sin reiniciar.** Nuevo **`jav pair
-  <ip-o-url> <token>`**: conecta una vez (hello + `get_device_info`), hace
-  **Auto-TOFU** en `wss://` (captura y fija el SHA-256 del cert) y escribe
-  `~/.config/jav/config.json` (`chmod 0600`). El servidor MCP relee la config
-  **en caliente**, así que basta registrar `"command": ["jav"]`. Prioridad por
-  campo: env (`JAV_*`) → `config.json` → default.
-- **Sesión persistente: ~1.3 s → ~0.2 s por llamada.** `pkg/jam` mantiene UN
-  WebSocket compartido y serializa las llamadas con un mutex: una ráfaga de
-  tools produce **un solo `hello`** (antes 1 por llamada). Medido en un TECNO
-  real por WSS/Tailnet: **989 ms → 320 ms** de media (tools ligeras **~140 ms**),
-  **0 `hello` extra** frente a **11**. **1 reconexión + reintento** automáticos
-  ante error de transporte.
-- **Cierre WebSocket ordenado** (frame `close` + eco del peer, acotado ~500 ms)
-  en `Client.Close`: corrige el `4001: BUSY` del cierre TCP abrupto (el teléfono
-  retenía el slot single-client hasta su timeout de ~2 min).
-- Las claves de IA también viven en `config.json` (`openrouter_api_key`,
-  `ai_base_url`, `ai_api_key`, `ai_model`) con la misma prioridad env → config.
-
-## Qué cambió en v1.2.0
-
-- **~80% menos tokens de arranque**: descripciones compactas en `tools/list` +
-  fichas completas bajo demanda como Resources; instructions ≤220 palabras.
-- **Resumen de costo por sesión sin spam**: `pkg/cost` silencioso por defecto
-  (`JAV_DEBUG_COST=1` para trazar) y `evidence.cost` con
-  `{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}` en `device_status` /
-  `resolve_element`.
-- **Identidad consolidada** (`Jav` / `dev.k4wai1.jav`) y cert TLS unificado a
-  `CN=jav.local`.
-- **Fase 2b** (WSS tailnet + cert + token en Keystore + lockout) y **Fase 6**
-  (audit ring 500 + Kill Switch + shell grant/denylist + N2).
-- **Icono nuevo (1000×1000) y pulido visual nativo** sin dependencias nuevas.
-- **Poda documental**: specs históricos a `docs/specs/archive/`.
+- **v1.2.5** — clipboard en background por UID shell (Shizuku, técnica scrcpy,
+  sin borrar el clip), paste autocontenido `__PASTE__` en `type_text`, `caps`
+  en `device_status` y keystore debug determinista (install -r in-place).
+- **v1.2.4** — liveness centrada en el elemento: 8 snapshots + re-anclaje del
+  nodo objetivo (el `STALE_SNAPSHOT` solo si desaparece/duplica o cambia la
+  app) y `get_foreground` O(1).
+- Historial completo: [Releases](https://github.com/k4wai1/jav/releases).
 
 ## Troubleshooting
 
-### `UNAUTHORIZED` when connecting
-The token is missing or wrong. Run `jav pair <ip> <token>` (or `jav pair` for
-interactive mode). If you already paired, check `~/.config/jav/config.json`
-(must be `0600`). After 5 failed `UNAUTHORIZED` from the same origin the phone
-locks out for 5 min.
+- **`UNAUTHORIZED`** — token ausente/incorrecto; `jav pair` (interactivo).
+  5 fallos del mismo origen → bloqueo 5 min.
+- **`CONNECTION_FAILED` en loopback** — falta `adb forward tcp:38472 tcp:38472`.
+- **`SHIZUKU_UNAVAILABLE`** — Shizuku no corre; arráncalo tú (Jav nunca lo
+  inicia). Sin él, N0 sigue vivo; `open_app`/`screenshot` fallan honestos.
+- **`ACCESSIBILITY_DISABLED`** — activa Jav en Ajustes → Accesibilidad.
+- **`BUSY: 4001`** — cliente previo sin cierre limpio; v1.2.1+ cierra ordenado.
+- **WSS no conecta por Tailnet** — la IP del teléfono debe ser `100.64.x.x`;
+  si no, solo se levanta el listener loopback.
 
-### `CONNECTION_FAILED` on loopback
-No `adb forward` active. Run:
-```bash
-adb forward tcp:38472 tcp:38472
-```
-Then `jav pair usb <TOKEN>`.
+## Desarrollador y licencia
 
-### `SHIZUKU_UNAVAILABLE`
-Shizuku isn't running. Open the Shizuku app and start it yourself (**Jav never
-starts it**). Without Shizuku the N0 native lane still works, but `open_app` and
-`screenshot` (API 29 fallback) fail.
-
-### `ACCESSIBILITY_DISABLED`
-Enable Jav in Settings → Accessibility. Without it, `read_screen` / `tap_node`
-fail.
-
-### `BUSY: 4001`
-A previous client didn't close cleanly. Wait ~2 min or restart the Jav app.
-v1.2.1's graceful close fixes this; if it persists, open an issue.
-
-### WSS doesn't connect over Tailnet
-Check the phone's address is `100.64.x.x` (Tailscale). Otherwise the WSS
-listener doesn't come up (loopback only). Also verify the pinned fingerprint
-(`cert_fingerprint` in the config) matches the app cert (`CN=jav.local`).
-
-## Troubleshooting (ES)
-
-### `UNAUTHORIZED` al conectar
-Falta el token o es incorrecto. Ejecuta `jav pair <ip> <token>` (o `jav pair` en
-modo interactivo). Si ya vinculaste, revisa `~/.config/jav/config.json` (debe ser
-`0600`). Tras 5 fallos `UNAUTHORIZED` del mismo origen, el teléfono bloquea 5 min.
-
-### `CONNECTION_FAILED` en loopback
-No hay `adb forward` activo. Ejecuta:
-```bash
-adb forward tcp:38472 tcp:38472
-```
-Luego `jav pair usb <TOKEN>`.
-
-### `SHIZUKU_UNAVAILABLE`
-Shizuku no está corriendo. Abre la app Shizuku y arráncalo tú (**Jav nunca lo
-inicia**). Sin Shizuku, el carril nativo N0 sigue vivo, pero `open_app` y
-`screenshot` (fallback API 29) fallan.
-
-### `ACCESSIBILITY_DISABLED`
-Activa Jav en Ajustes → Accesibilidad. Sin esto, `read_screen` / `tap_node`
-fallan.
-
-### `BUSY: 4001`
-Un cliente previo no cerró limpio. Espera ~2 min o reinicia la app Jav. El cierre
-ordenado de v1.2.1 lo corrige; si persiste, abre un issue.
-
-### WSS no conecta por Tailnet
-Verifica que la IP del teléfono sea `100.64.x.x` (Tailscale). Si no, el listener
-WSS no se levanta (solo loopback). Comprueba también que el fingerprint fijado
-(`cert_fingerprint` en la config) coincide con el cert de la app (`CN=jav.local`).
-
-## 👨‍💻 Desarrollador
-
-**[k4wai1](https://github.com/k4wai1)** — si Jav te ahorró tiempo, considera
+**k4wai1** — si Jav te ahorró tiempo, considera
 [invitar un café](https://ko-fi.com/kwai1). PRs bienvenidos.
 
-## 📜 Licencia
-
-Este proyecto está bajo la **GNU General Public License v3.0** — ver el archivo
-[LICENSE](LICENSE) para el texto completo.
+GNU General Public License v3.0 — ver [LICENSE](LICENSE).

@@ -29,6 +29,19 @@ class ShellUserService : IShellService.Stub() {
     private var lastOut = ""
     private var lastErr = ""
 
+    /**
+     * v1.2.5 perf: `appops set` y `pm path` son idempotentes mientras vive
+     * ESTE proceso (Shizuku reinicia el user-service al actualizar la app),
+     * así que se ejecutan una sola vez y las lecturas sucesivas ahorran
+     * ~0.5 s de spawns. El spawn de `app_process` por lectura permanece
+     * (seguridad de UID): ver `docs/BUILD.md §31`.
+     */
+    @Volatile
+    private var appopsAllowed = false
+
+    @Volatile
+    private var cachedApkPath: String? = null
+
     override fun exec(cmd: Array<String>?, timeoutMs: Long): Int {
         if (cmd == null || cmd.isEmpty()) {
             setOutputs("", "cmd vacío")
@@ -101,12 +114,15 @@ class ShellUserService : IShellService.Stub() {
 
     /** appops best-effort (idempotente); scrcpy deja el allow puesto. */
     private fun allowShellClipboardRead() {
+        if (appopsAllowed) return
         try {
             ProcessBuilder(
                 "appops", "set", "com.android.shell", "READ_CLIPBOARD", "allow"
             ).start().waitFor(3, TimeUnit.SECONDS)
         } catch (t: Throwable) {
             // Sin permiso para cambiar el op: se intenta la lectura igual.
+        } finally {
+            appopsAllowed = true
         }
     }
 
@@ -149,16 +165,21 @@ class ShellUserService : IShellService.Stub() {
         return out.toString()
     }
 
-    private fun apkPath(): String? = try {
-        val p = ProcessBuilder("pm", "path", "dev.k4wai1.jav").start()
-        val out = p.inputStream.bufferedReader().use { it.readText() }
-        p.waitFor(3, TimeUnit.SECONDS)
-        out.lineSequence()
-            .firstOrNull { it.startsWith("package:") }
-            ?.removePrefix("package:")?.trim()
-            ?.takeIf { it.isNotEmpty() }
-    } catch (t: Throwable) {
-        null
+    private fun apkPath(): String? {
+        cachedApkPath?.let { return it }
+        val path = try {
+            val p = ProcessBuilder("pm", "path", "dev.k4wai1.jav").start()
+            val out = p.inputStream.bufferedReader().use { it.readText() }
+            p.waitFor(3, TimeUnit.SECONDS)
+            out.lineSequence()
+                .firstOrNull { it.startsWith("package:") }
+                ?.removePrefix("package:")?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        } catch (t: Throwable) {
+            null
+        }
+        if (path != null) cachedApkPath = path
+        return path
     }
 
     private fun setOutputs(o: String, e: String) = synchronized(lock) {

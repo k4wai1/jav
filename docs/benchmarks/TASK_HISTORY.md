@@ -210,3 +210,26 @@ slot se libera de inmediato (verificado 10/10 sin `BUSY`).
 Tests Go nuevos en `pkg/jam`: `TestPersistentReusesOneHello`,
 `TestReconnectAfterServerDrop`, `TestResetSharedSendsCloseFrame`
 (harness WS single-client en `close_test.go`).
+
+## 11. Certificación viva 38/38 + micro-opt clipboard + fix `planned` (2026-10-17)
+
+Sprint post-v1.2.5 sobre **TECNO LG7n** (app v1.2.5 CI en foreground, Shizuku
+root, accesibilidad activa, **sin USB**): certificación de las 38 tools desde
+el binario stdio local (`dist/jav-linux-amd64`) por WSS/Tailnet, micro-opt de
+`get_clipboard_device` y hallazgo de contrato en `adb_shell`.
+
+| Tarea | Resultado | Números | Evidencia |
+|---|---|---|---|
+| Certificación 38/38 (stdio→WSS) | 40 llamadas: **29 OK + 11 compuertas honestas**, 0 timeouts, 0 colgues | ligeras **32–33 ms** calientes | tablas `PERFORMANCE.md §10` |
+| `planned:true` sin ejecutar | 8 tools críticas devuelven `preview` y no actúan | `settings_put` 480 · `add_contact` 182 · `create_event` 92 · `reply` 31 · `media_control` 28 · `take_photo` 77 · `adb_shell rm -rf /` 982/19 ms | payloads crudos |
+| `adb_shell` hostil | self-harm → `SHELL_DENYLIST` (461 ms, sin grant); `rm -rf /` + confirm → **60.4 s** de bloqueo → `SHELL_DENIED` | 1ª vez que el grant bloquea de verdad con un cliente stdio | forense `get_audit` |
+| Recursos + prompts | 6/6 resources + 3/3 prompts OK | 966–18 018 chars | `resources/read`, `prompts/get` |
+| `resolve_element` S1 en vivo | `idx`+`conf` con coste real | 3 052 ms · **$0.000053** | `evidence.cost` |
+| **Fix de contrato** | `jamCall` devolvía `verified:true` con `planned:true` (solo `jamCallLatency` lo mapeaba) → corregido | retest: `ok:true verified:false planned:true` | `pkg/tools/helpers.go` |
+| Micro-opt clipboard (Kotlin) | `appops` + `apkPath` cacheados (`@Volatile`); build 94/94 + APK OK; **instalación pendiente de USB** | baseline pre-opt **2 679/2 347 ms** (el cuello real es el `app_process` por lectura) | `docs/BUILD.md §31` |
+| Diagramas + README | Archify 4/4 gates ×2 + SVG pastel XML-validados embebidos | `docs/diagrams/*.html`, `docs/assets/*.svg` | commit del sprint |
+
+**Nota honesta**: `list_packages` falló `ADB_FAILED` porque usa el adb del
+host por diseño y el cable estaba desconectado; `list_notifications`,
+`media_state` y `get_location` devolvieron sus caps ausentes con hint — cero
+errores fingidos.

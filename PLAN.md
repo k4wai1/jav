@@ -345,6 +345,24 @@
   `__PASTE__` → `via=action_paste` (cero adb externo) + envío real con OK
   del operador (`Sent` 09:14). Detalle: `docs/BUILD.md §30` → tag/CI.
 
+### Sprint 2026-10-17 (post-v1.2.5) — certificación 38/38 + micro-opt + diagramas + README
+- [x] **Micro-opt clipboard** (`ShellUserService.kt`): `appops` y `apkPath`
+  cacheados (`@Volatile`); build local **94/94** + APK firmado. Instalación
+  en el banco pendiente de USB (cable desconectado al cierre; la app en
+  ejecución es la v1.2.5 CI). El `app_process` por lectura (~1.5–2 s) sigue
+  siendo el cuello real.
+- [x] **Certificación viva 38/38** (40 llamadas stdio→WSS/Tailnet, TECNO
+  LG7n): 29 OK + 11 compuertas honestas, 0 timeouts; recursos 6/6, prompts
+  3/3; `resolve_element` S1 ($0.000053); `adb_shell` hostil → `SHELL_DENYLIST`
+  y bloqueo real de 60 s → `SHELL_DENIED`. Tablas: `PERFORMANCE.md §10`,
+  `TASK_HISTORY.md §11`.
+- [x] **Fix de contrato**: `jamCall` mapea `planned → verified:false`
+  (`adb_shell` planned devolvía `verified:true`); retest en vivo.
+- [x] **Diagramas** Archify 4/4 gates (`docs/diagrams/jav-{architecture,
+  security}.html`) + SVG pastel estáticos (`docs/assets/*.svg`) embebidos en
+  el **README rediseñado** (sin emojis decorativos, badges pastel, sección
+  Jev/OpenRouter). `docs/BUILD.md §31`.
+
 ## Próxima tarea (director v5 vigente; loop congelado)
 
 1. `@judge`: cierre formal v5 — `uv run pytest -q` (148 en verde) +

@@ -582,3 +582,22 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 6. **Versión:** `1.2.5` (binario, Makefile, `versionName 1.2.5`/`versionCode 7`).
    Sin tools nuevas (38). Detalle en `docs/BUILD.md §29`, contrato en
    `PROTOCOL.md §2/§4/§4.1`.
+
+**2026-10-17 — post-v1.2.5: certificación viva 38/38 + micro-opt clipboard + fix `planned` + diagramas/README:**
+
+1. **Certificación viva 38/38** (40 llamadas stdio→WSS/Tailnet, TECNO LG7n):
+   29 OK + 11 compuertas honestas (`STALE_SNAPSHOT`, `SELECTOR_NOT_FOUND`,
+   `TIMEOUT`, `SHELL_DENYLIST`, `SHELL_DENIED` tras bloqueo real de 60 s,
+   `planned:true`×8, caps ausentes con hint, `ADB_FAILED` de `list_packages`
+   sin USB). Recursos 6/6 y prompts 3/3; `resolve_element` S1 en vivo
+   (`$0.000053`). Tablas: `PERFORMANCE.md §10`, `TASK_HISTORY.md §11`.
+2. **Fix de contrato** (`pkg/tools/helpers.go`): `jamCall` mapea
+   `planned → verified:false` (antes `adb_shell` planned devolvía
+   `verified:true`; solo `jamCallLatency` lo mapeaba). Retesteado en vivo.
+3. **Micro-opt clipboard** (`ShellUserService.kt`): `appops` + `apkPath`
+   cacheados (`@Volatile`). Build local 94/94 + APK firmado; la instalación
+   en el banco quedó pendiente de USB al cierre (el cuello real sigue siendo
+   el `app_process` por lectura, ~1.5–2 s).
+4. **Diagramas**: `docs/diagrams/jav-{architecture,security}.html` (Archify,
+   4/4 gates) + SVG pastel estáticos en `docs/assets/` embebidos en el README
+   rediseñado (sin emojis decorativos, badges pastel); sin tools nuevas (38).

@@ -209,7 +209,11 @@ func jamCall(fn func(c *jam.Client) (map[string]any, *jam.JamError)) jam.Envelop
 		return jam.JamFail(jerr)
 	}
 	_ = t0
-	return jam.OK(true, res, "")
+	verified := true
+	if p, _ := res["planned"].(bool); p {
+		verified = false
+	}
+	return jam.OK(verified, res, "")
 }
 
 // jamCallLatency igual + latency_ms en evidence (carril native).

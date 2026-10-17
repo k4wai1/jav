@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="990" height="520" viewBox="0 0 990 520" role="img" aria-label="Jav control path and the role of Jev">
+  <defs>
+    <marker id="ja" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 z" fill="#90A4AE"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="990" height="520" fill="#FFFFFF"/>
+  <text x="24" y="36" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="14" font-weight="600" fill="#37474F">Jav — control path and the role of Jev</text>
+  <text x="24" y="54" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#78909C">Director keeps the loop · Jav keeps the device · Jev resolves the target in one pass</text>
+
+  <rect x="22" y="228" width="432" height="110" rx="14" fill="none" stroke="#B0BEC5" stroke-dasharray="6 5"/>
+  <text x="36" y="248" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#78909C">Client machine</text>
+
+  <rect x="502" y="100" width="452" height="358" rx="14" fill="none" stroke="#B0BEC5" stroke-dasharray="6 5"/>
+  <text x="516" y="120" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#78909C">Android device · TECNO LG7n</text>
+
+  <rect x="40" y="256" width="170" height="54" rx="10" fill="#FFF3E0" stroke="#B0BEC5"/>
+  <text x="125" y="279" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#263238">External Director</text>
+  <text x="125" y="298" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">OpenCode · Claude · Cursor</text>
+
+  <rect x="260" y="256" width="170" height="54" rx="10" fill="#E3F2FD" stroke="#B0BEC5"/>
+  <text x="345" y="279" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#263238">jav (Go) · MCP stdio</text>
+  <text x="345" y="298" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">persistent session · loads specs on demand</text>
+
+  <rect x="260" y="62" width="170" height="58" rx="10" fill="#EDE7F6" stroke="#B0BEC5"/>
+  <text x="345" y="85" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#263238">Jev — typesafe/jev-1.13</text>
+  <text x="345" y="102" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">OpenRouter · single-pass Choice</text>
+  <text x="345" y="115" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">conf ≥ 0.70 · no free text</text>
+
+  <rect x="520" y="256" width="170" height="54" rx="10" fill="#E0F2F1" stroke="#B0BEC5"/>
+  <text x="605" y="279" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#263238">Jav for Android</text>
+  <text x="605" y="298" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">dev.k4wai1.jav · SDK 31</text>
+
+  <rect x="760" y="130" width="172" height="50" rx="10" fill="#E0F2F1" stroke="#B0BEC5"/>
+  <text x="846" y="151" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">Lane 1 · Native</text>
+  <text x="846" y="169" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">N0/N1/N2 APIs · cheapest first</text>
+
+  <rect x="760" y="258" width="172" height="50" rx="10" fill="#E0F2F1" stroke="#B0BEC5"/>
+  <text x="846" y="279" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">Lane 2 · Intents</text>
+  <text x="846" y="297" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">one system hop</text>
+
+  <rect x="760" y="386" width="172" height="58" rx="10" fill="#E0F2F1" stroke="#B0BEC5"/>
+  <text x="846" y="407" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" font-weight="600" fill="#263238">Lane 3 · Accessibility UI</text>
+  <text x="846" y="424" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">element re-anchor · package gate</text>
+  <text x="846" y="437" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#546E7A">Shizuku uid 2000</text>
+
+  <line x1="210" y1="283" x2="252" y2="283" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <text x="231" y="274" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">MCP stdio</text>
+
+  <path d="M292,256 L292,126" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <text x="276" y="196" text-anchor="end" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">pruned table ≤254</text>
+  <path d="M398,126 L398,250" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <text x="414" y="196" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">idx + conf</text>
+
+  <line x1="430" y1="283" x2="512" y2="283" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <text x="471" y="274" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">WS/WSS :38472</text>
+
+  <path d="M690,270 C726,270 726,155 752,155" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <line x1="690" y1="283" x2="752" y2="283" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <path d="M690,296 C726,296 726,415 752,415" fill="none" stroke="#90A4AE" stroke-width="1.4" marker-end="url(#ja)"/>
+  <text x="716" y="238" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9" fill="#546E7A">dispatch</text>
+
+  <text x="24" y="498" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#78909C">Blind resolver: the raw tree never reaches the Director · no API key → Sovereign Fallback (top candidates + recovery instruction).</text>
+</svg>

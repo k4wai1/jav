@@ -1199,3 +1199,74 @@ título verificado (`n_41`), input enfocado (`n_117`):
 
 Cadena E2E certificada: `shizuku-iclipboard` (lectura en background sin
 borrado) → `action_paste` (autocontenido, sin adb) → envío confirmado.
+
+## 31. v1.2.5+ (post-release) — micro-opt clipboard + certificación viva 38/38 + fix `planned` (2026-10-17)
+
+**Bloque 1 — micro-opt `ShellUserService.kt`** (sobre master, sin tag nuevo;
+el tag `v1.2.5` ya publicado no la incluye): `@Volatile appopsAllowed`
+(cachea el `appops set com.android.shell READ_CLIPBOARD allow` tras la
+primera lectura) + `cachedApkPath` (resuelve `packageInfo` una sola vez en
+vez de por lectura). El costo dominante sigue siendo el `app_process` por
+lectura (~1.5–2 s); la meta de ~150 ms del directive **no es alcanzable sin
+renunciar al aislamiento de uid 2000** — se reporta honesto.
+
+Build local (JDK 21):
+
+```bash
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain
+# BUILD SUCCESSFUL in 22m 39s (44 tasks; el daemon Kotlin murió por presión
+# de memoria y cayó a compilación in-process — lento pero verde)
+# JVM: 94/94 (0 failures/errors), APK debug 16.9 MB firmado (misma clave)
+```
+
+**Instalación pendiente**: al cierre del sprint el cable USB estaba
+desconectado (`adb devices` vacío; TCP 5555 rechazado por diseño) y la app
+en ejecución es la v1.2.5 CI. El APK optimizado queda en
+`android-app/app/build/outputs/apk/debug/app-debug.apk` listo para
+`adb install -r` cuando el banco vuelva por USB.
+
+**Bloque 2 — certificación viva 38/38** (script stdio JSON-RPC →
+`dist/jav-linux-amd64` → WSS/Tailnet; TECNO LG7n; sesión persistente,
+1 `hello`):
+
+- 38/38 tools responden el contrato `{ok, verified, evidence, hint}`;
+  40 llamadas: 29 OK + 11 errores **honestos/de compuerta** (detalle en
+  `docs/benchmarks/PERFORMANCE.md §10` y `TASK_HISTORY.md §11`).
+- Compuertas verificadas en vivo: `STALE_SNAPSHOT` (snapshot 0 fuera de la
+  ventana de 8), `SELECTOR_NOT_FOUND`, `TIMEOUT` (`wait_for_text` 1500 ms),
+  `NOTIFICATION_LISTENER_DISABLED`, `MEDIA_SESSIONS_UNAVAILABLE`,
+  `LOCATION_UNAVAILABLE`, `ADB_FAILED` (`list_packages` usa adb del host por
+  diseño; sin USB), `VALIDATION_ERROR` (2 por args míos mal nombrados:
+  `display_name`, `cmd` — reintentados OK).
+- `planned:true ×8` con `preview` (sin ejecutar): `settings_put` (480 ms),
+  `add_contact` (182 ms), `create_event` (92 ms), `reply_notification`
+  (31 ms), `media_control` (28 ms), `take_photo` (77 ms), `adb_shell`
+  `rm -rf /` (982 ms frío / 19 ms caliente, `reason=denylist_irreversible`).
+  `open_url` y `send_intent` VIEW ejecutan (por diseño) con
+  `via=startActivity`.
+- `adb_shell` hostil: self-harm (`pm uninstall dev.k4wai1.jav`) →
+  `SHELL_DENYLIST` (461 ms, sin grant); `rm -rf /` + `confirm:true` →
+  bloqueo real de **60.4 s** → `SHELL_DENIED` (sin grant activo; nadie tapeó
+  la notificación).
+- Recursos 6/6 (`android://tools/{catalog,state,ui,native,resolve}` +
+  `android://tool/read_screen`) y prompts 3/3 (`navigate_and_copy`,
+  `send_verified`, `troubleshoot_app` responde 1 mensaje cada uno).
+- `resolve_element` S1 en vivo: 3 052 ms, `ok`/`verified`, coste
+  `$0.000053` (`evidence.cost`, 1 llamada S1).
+- Clipboard pre-opt por WSS: `via=shizuku-iclipboard`, 2 679 ms / 2 347 ms
+  (dos lecturas, mismo clip) — **baseline** para comparar tras instalar el
+  APK optimizado.
+
+**Fix de contrato (hallazgo de la certificación)**: `jamCall`
+(`pkg/tools/helpers.go`) devolvía `verified:true` aunque el payload trajera
+`planned:true` (solo `jamCallLatency` lo mapeaba). `adb_shell` sin confirm
+era el caso visible. Fix: `verified := true; if res["planned"] → false`.
+Retest en vivo: `ok:true, verified:false, planned:true,
+reason=denylist_irreversible`. `make build` recomienda el binario
+(`-X main.version=1.2.5`) sin cambio de versión.
+
+**Anexos del sprint**: diagramas `docs/diagrams/jav-{architecture,security}.html`
+(Archify; 4/4 gates — el primer `browser-check` falló por contención de CPU
+con Gradle y pasó con la máquina libre) + SVG pastel estáticos
+`docs/assets/jav-{architecture,security}.svg` (XML validado) embebidos en
+`README.md`; benchmarks en `PERFORMANCE.md §10` y `TASK_HISTORY.md §11`.
