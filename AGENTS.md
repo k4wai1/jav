@@ -595,9 +595,11 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `planned → verified:false` (antes `adb_shell` planned devolvía
    `verified:true`; solo `jamCallLatency` lo mapeaba). Retesteado en vivo.
 3. **Micro-opt clipboard** (`ShellUserService.kt`): `appops` + `apkPath`
-   cacheados (`@Volatile`). Build local 94/94 + APK firmado; la instalación
-   en el banco quedó pendiente de USB al cierre (el cuello real sigue siendo
-   el `app_process` por lectura, ~1.5–2 s).
+   cacheados (`@Volatile`). Build local 94/94, APK firmado e **instalado por
+   USB** (`install -r` Success). Medición post-opt: caliente **avg 1 858 ms**
+   (pre-opt 2 168–2 679 ms); el cuello real sigue siendo el `app_process` por
+   lectura (~1.5–2 s), los ~150 ms no son alcanzables sin romper el
+   aislamiento uid 2000. `list_packages` con USB: 347 ms.
 4. **Diagramas**: `docs/diagrams/jav-{architecture,security}.html` (Archify,
    4/4 gates) + SVG pastel estáticos en `docs/assets/` embebidos en el README
    rediseñado (sin emojis decorativos, badges pastel); sin tools nuevas (38).

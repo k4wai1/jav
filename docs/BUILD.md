@@ -1219,11 +1219,17 @@ cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=
 # JVM: 94/94 (0 failures/errors), APK debug 16.9 MB firmado (misma clave)
 ```
 
-**Instalación pendiente**: al cierre del sprint el cable USB estaba
-desconectado (`adb devices` vacío; TCP 5555 rechazado por diseño) y la app
-en ejecución es la v1.2.5 CI. El APK optimizado queda en
-`android-app/app/build/outputs/apk/debug/app-debug.apk` listo para
-`adb install -r` cuando el banco vuelva por USB.
+**Instalación y medición post-opt** (2026-10-17, USB reconectado):
+`adb install -r` → **Success** + monkey relaunch. 8 lecturas de
+`get_clipboard_device` (`via=shizuku-iclipboard`, **mismo `sha256`** en todas →
+el clip sobrevive; **0** líneas `Clearing clipboard` en logcat): la primera
+lectura de cada ráfaga tarda **3.3–3.9 s** (spawn `app_process` en frío) y el
+resto **1.65–2.2 s** (avg caliente **1 858 ms**; pre-opt 2 168–2 679 ms) → la
+cache de `appops`/`apkPath` mejora el caliente ~15–25 %, pero el techo real
+sigue siendo el `app_process` por lectura (los ~150 ms del directive **no son
+alcanzables** sin renunciar al aislamiento uid 2000). `list_packages` ya OK con
+USB (347 ms, filtro `whatsapp` → 3 paquetes) — cierra el único `ADB_FAILED` de
+la certificación.
 
 **Bloque 2 — certificación viva 38/38** (script stdio JSON-RPC →
 `dist/jav-linux-amd64` → WSS/Tailnet; TECNO LG7n; sesión persistente,

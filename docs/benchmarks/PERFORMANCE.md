@@ -260,6 +260,15 @@ da tools ligeras de **~30–40 ms** calientes (vs ~140 ms VPS→TECNO de §8);
 las cifras grandes incluyen el **efecto** real en el dispositivo (open_app,
 screenshot PNG, scroll, clipboard pre-opt) más el roundtrip.
 
+**Post-opt (APK con caché de `appops`/`apkPath`, instalado 2026-10-17 por
+USB)**: 8 lecturas de clipboard — primera de ráfaga **3.3–3.9 s**
+(`app_process` en frío), resto **1.65–2.2 s**, **avg caliente 1 858 ms**
+(pre-opt 2 168–2 679 ms; ~15–25 % mejor). El clip sobrevive todas las lecturas
+(mismo `sha256`, 0 `Clearing clipboard`). Los ~150 ms del directive no son
+alcanzables: el costo dominante es el spawn de `app_process` por lectura
+(aislamiento uid 2000). `list_packages` con USB: **347 ms** (cierra el
+`ADB_FAILED` de la tabla).
+
 **Hallazgo + fix**: `adb_shell` planned devolvía `verified:true`
 (`jamCall` no mapeaba `planned`); corregido a `verified:false` y retestado en
 vivo (`ok:true verified:false planned:true`). Detalle: `docs/BUILD.md §31`,

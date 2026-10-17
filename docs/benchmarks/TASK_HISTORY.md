@@ -226,7 +226,8 @@ el binario stdio local (`dist/jav-linux-amd64`) por WSS/Tailnet, micro-opt de
 | Recursos + prompts | 6/6 resources + 3/3 prompts OK | 966–18 018 chars | `resources/read`, `prompts/get` |
 | `resolve_element` S1 en vivo | `idx`+`conf` con coste real | 3 052 ms · **$0.000053** | `evidence.cost` |
 | **Fix de contrato** | `jamCall` devolvía `verified:true` con `planned:true` (solo `jamCallLatency` lo mapeaba) → corregido | retest: `ok:true verified:false planned:true` | `pkg/tools/helpers.go` |
-| Micro-opt clipboard (Kotlin) | `appops` + `apkPath` cacheados (`@Volatile`); build 94/94 + APK OK; **instalación pendiente de USB** | baseline pre-opt **2 679/2 347 ms** (el cuello real es el `app_process` por lectura) | `docs/BUILD.md §31` |
+| Micro-opt clipboard (Kotlin) | `appops` + `apkPath` cacheados (`@Volatile`); build 94/94 + APK OK; **instalado por USB** y remedido | pre-opt **2 168–2 679 ms** → post-opt caliente **avg 1 858 ms** (min 1 650; primera de ráfaga 3.3–3.9 s); clip sobrevive (0 `Clearing clipboard`) | `docs/BUILD.md §31` |
+| Cierre del `ADB_FAILED` | `list_packages` con USB reconectado | **347 ms**, 3 pkgs (`*whatsapp*`) | certificación 38/38 sin errores de entorno |
 | Diagramas + README | Archify 4/4 gates ×2 + SVG pastel XML-validados embebidos | `docs/diagrams/*.html`, `docs/assets/*.svg` | commit del sprint |
 
 **Nota honesta**: `list_packages` falló `ADB_FAILED` porque usa el adb del

@@ -347,10 +347,11 @@
 
 ### Sprint 2026-10-17 (post-v1.2.5) — certificación 38/38 + micro-opt + diagramas + README
 - [x] **Micro-opt clipboard** (`ShellUserService.kt`): `appops` y `apkPath`
-  cacheados (`@Volatile`); build local **94/94** + APK firmado. Instalación
-  en el banco pendiente de USB (cable desconectado al cierre; la app en
-  ejecución es la v1.2.5 CI). El `app_process` por lectura (~1.5–2 s) sigue
-  siendo el cuello real.
+  cacheados (`@Volatile`); build local **94/94** + APK firmado; **instalado
+  por USB** (`install -r` Success) y remedido: caliente **avg 1 858 ms**
+  (pre-opt 2 168–2 679 ms; primera de ráfaga 3.3–3.9 s por el spawn
+  `app_process`, el techo real). `list_packages` con USB cierra el único
+  `ADB_FAILED` de la certificación (347 ms).
 - [x] **Certificación viva 38/38** (40 llamadas stdio→WSS/Tailnet, TECNO
   LG7n): 29 OK + 11 compuertas honestas, 0 timeouts; recursos 6/6, prompts
   3/3; `resolve_element` S1 ($0.000053); `adb_shell` hostil → `SHELL_DENYLIST`
