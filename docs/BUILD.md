@@ -1024,3 +1024,57 @@ preexistente `pkg/normalizer` (logs/ gitignored); `audit-mcp` **12/12 PASS**.
 preexistente `pkg/normalizer` (logs gitignored); `audit-mcp` **12/12 PASS**;
 `jav pair` probado en no interactivo (piped→uso/exit 2) e interactivo (pty).
 Installer probado con `PREFIX=/tmp/javtest VERSION=v1.2.2` (descarga real + guía).
+
+## 27. Prueba de Oro en Tailnet + hardening de `dialConn` (v1.2.3) (2026-10-16)
+
+**Escenario:** PC (OpenCode MCP, `~/.config/jav/config.json`) ↔ **Tailnet** (WSS,
+`wss://100.105.124.102:38472/`) ↔ TECNO (Android 12, SDK 31). Cliente escalado por
+la **sesión persistente** (`pkg/jam`, `sharedMu`).
+
+### 27.1 Fix de seguridad: `dialConn` ignoraba `UNAUTHORIZED`
+
+Auditoría del "dummy token" (un `jav pair` con token falso reportaba "Vinculado"):
+la app Android **acierta** (`AuthStore.verify` rechaza vacío, comparación en tiempo
+constante; `CommandDispatcher.hello` sin bypass; `JamWsServer` no añade `authedScopes`
+y responde `{ok:false, code:"UNAUTHORIZED"}`). El fallo era **del cliente**: `dialConn`
+leía el hello con `c.raw` (que **no** mira `ok`/`code`/`error`) en vez de validarlo.
+Resultado: un hello rechazado se trataba como sesión válida → `jav pair` fijaba el
+pin TOFU y persistía el config con un token falso (las tools seguían fallando con
+`UNAUTHORIZED`, así que **no** hubo bypass de ejecución).
+
+Fix (`pkg/jam/jam.go`, `dialConn`): tras el hello, si `hello["ok"] != true` se cierra
+la conexión y se devuelve `JamError{Code, Message}` (default `UNAUTHORIZED`). Se
+mantiene la lectura por `raw` (la respuesta del hello es plana: `scopes`/`app_version`
+en la raíz, no en `result`, así que `callOnConn` no aplica). Regresión:
+`TestDialRejectsUnauthorized` + `TestPairRejectsUnauthorizedDoesNotPersist`
+(`pkg/jam/close_test.go`, harness con `rejectHello`). Verificado e2e contra el
+teléfono: token falso → `✗ UNAUTHORIZED`, **sin** escribir config; token real → OK.
+
+### 27.2 Prueba de Oro (resultados)
+
+| Paso | Tool | Resultado |
+| --- | --- | --- |
+| Telemetría | `device_status` | ✅ `app_version 1.2.2`, `scopes [read,ui,admin]`, foreground real |
+| Transporte 4 MiB | `screenshot` | ✅ frame ~526 KB por WSS |
+| Percepción | `read_screen` | ✅ `snapshot_id` monotónico, 38/152 candidates, package/activity |
+| Decisión IA (S1) | `resolve_element` | ✅ `idx=2 node_id=n_46 conf=0.76` (≥τ 0.70), cost US$0.000215 (in 5119 / out 814 tok) |
+| Acción | `tap_node` | ✅ dispatch (`via=action_click`); **`STALE_SNAPSHOT`** cuando el usuario cambió de app durante la prueba |
+| Verificación | `read_screen` | ✅ snapshot nuevo |
+| Forense | `get_audit` | ✅ ring: **1 `hello` sirvió toda la ráfaga UI**; `UNAUTHORIZED` auditados sin fuga |
+
+**`STALE_SNAPSHOT` es una compuerta de seguridad, no un fallo:** el usuario estaba
+cambiando de YouTube a Twitter/X entre el `dump` y el `tap`; la app abortó el toque a
+ciegas. Regla aplicada: re-leer **una** vez; si el target desaparece → `UI_UNSTABLE`,
+no se reintenta a ciegas.
+
+**Seguridad observada:** sin `UNAUTHORIZED` de la sesión MCP, sin `ACCESSIBILITY_DISABLED`,
+sin `BUSY` en uso normal. `BUSY: 4001` confirmado al intentar un segundo cliente mientras
+el MCP mantenía el slot (política single-client).
+
+**Latencia:** no se re-midió con precisión por el mismo motivo (un segundo cliente da
+`BUSY` mientras el MCP sostiene el slot). Referencia vigente: **~140–320 ms/llamada**
+(sesión persistente, v1.2.1). Para números exactos por tool usar `cmd/jav-e2e`
+(USB + `.env`); cualitativamente la ráfaga respondió sin pausas perceptibles.
+
+**S1 (resolver):** requiere `OPENROUTER_API_KEY` (env) o `config.openrouter_api_key`;
+sin ella devuelve fallback honesto `S1_UNAVAILABLE` (nunca idx inventado).

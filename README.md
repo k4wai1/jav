@@ -36,7 +36,7 @@ the loop; Jav holds the device.
 ```bash
 # 1. Install the Go server (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    or: VERSION=v1.2.2 sh install.sh
+#    or: VERSION=v1.2.3 sh install.sh
 
 # 2. Install the companion APK (Releases) and enable accessibility (once)
 #    download jav-companion.apk from the latest GitHub Release, then:
@@ -88,6 +88,20 @@ Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
 `reply_notification`, `media_control`, `take_photo`, `adb_shell`) never run on
 first call: they return `{planned:true, preview, hint}` with `verified:false`
 and only execute after `confirm:true`.
+
+## What changed in v1.2.3
+
+- **Security fix (`dialConn`).** The client read the `hello` reply without
+  checking `ok`, so a rejected handshake (`{ok:false, code:"UNAUTHORIZED"}`) was
+  treated as a valid session — `jav pair` printed "linked" and pinned the cert
+  with a **wrong token**. Now `ok` is validated and `UNAUTHORIZED` is returned
+  honestly. The server was never compromised (no tool runs without a valid
+  `hello`). Regression tests included.
+- **Gold test in Tailnet certified** (PC ↔ WSS ↔ phone): `device_status`,
+  `screenshot` (~526 KB), `read_screen`, `resolve_element` (S1) and `get_audit`
+  OK; persistent session confirmed (1 `hello` per burst); `STALE_SNAPSHOT` proven
+  as a safety gate when the screen changes mid-action. `versionName 1.2.3` /
+  `versionCode 5`.
 
 ## What changed in v1.2.2
 
@@ -207,7 +221,7 @@ Director; el dispositivo lo lleva Jav.
 ```bash
 # 1. Instala el servidor Go (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    o: VERSION=v1.2.2 sh install.sh
+#    o: VERSION=v1.2.3 sh install.sh
 
 # 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
 #    descarga jav-companion.apk del último Release y:
@@ -246,6 +260,21 @@ fijo de 38 tools, no reducible sin consolidar); antes ~8.8k en v1.2.0. Ver
 Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
 usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
 interactivo (1 cmd / 5 min / 30 min).
+
+## Qué cambió en v1.2.3
+
+- **Fix de seguridad (`dialConn`).** El cliente leía la respuesta del `hello` sin
+  comprobar `ok`, así que un handshake rechazado
+  (`{ok:false, code:"UNAUTHORIZED"}`) se trataba como sesión válida: `jav pair`
+  decía "Vinculado" y fijaba el certificado con un **token falso**. Ahora se
+  valida `ok` y se devuelve `UNAUTHORIZED` de forma honesta. El servidor nunca
+  estuvo comprometido (ninguna tool ejecuta sin `hello` válido). Con tests de
+  regresión.
+- **Prueba de Oro en Tailnet certificada** (PC ↔ WSS ↔ teléfono): `device_status`,
+  `screenshot` (~526 KB), `read_screen`, `resolve_element` (S1) y `get_audit` OK;
+  sesión persistente confirmada (1 `hello`/ráfaga); `STALE_SNAPSHOT` demostrado
+  como compuerta de seguridad cuando la pantalla cambia a mitad de acción.
+  `versionName 1.2.3` / `versionCode 5`.
 
 ## Qué cambió en v1.2.2
 

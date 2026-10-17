@@ -6,7 +6,7 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v1.2.2)
+## Estado Operativo Actual (v1.2.3)
 
 | Área | Estado |
 | --- | --- |
@@ -498,3 +498,19 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `SHIZUKU_UNAVAILABLE`, `ACCESSIBILITY_DISABLED`, `BUSY: 4001`, WSS/Tailnet.
 4. **Sin cambios de contrato MCP**; `audit-mcp` **12/12**; sin dependencias
    nuevas. Detalle en `docs/BUILD.md §26`.
+
+**2026-10-16 — v1.2.3: fix `dialConn` (bypass de "dummy token") + Prueba de Oro:**
+
+1. **Fix de seguridad** (`pkg/jam/jam.go`): `dialConn` leía el `hello` con `raw`
+   (que **no** valida `ok`/`code`), así que un `{ok:false, code:"UNAUTHORIZED"}`
+   se trataba como sesión válida → `jav pair` reportaba "Vinculado" con token
+   falso y fijaba el pin TOFU. Ahora se valida `hello["ok"]`; si no, se cierra y
+   se devuelve `JamError` (default `UNAUTHORIZED`). La seguridad del servidor
+   **nunca** estuvo comprometida (ninguna tool ejecuta sin hello válido). Tests:
+   `TestDialRejectsUnauthorized`, `TestPairRejectsUnauthorizedDoesNotPersist`.
+2. **Prueba de Oro en Tailnet** (PC ↔ WSS ↔ TECNO): `device_status`, `screenshot`
+   (~526 KB), `read_screen`, `resolve_element` S1 (`idx=2 conf=0.76`, coste) y
+   `get_audit` OK; `STALE_SNAPSHOT` = compuerta de seguridad (el usuario cambió de
+   app durante el test). Sesión persistente confirmada (1 `hello`/ráfaga).
+3. **Versión:** `1.2.3` (binario, Makefile, `versionName 1.2.3`/`versionCode 5`).
+   Detalle en `docs/BUILD.md §27`.
