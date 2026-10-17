@@ -1105,3 +1105,97 @@ Go: `gofmt`/`vet` limpios; `go test ./...` verde salvo el preexistente
 (`-X main.version=1.2.4`); `audit-mcp` **12/12 PASS**
 (`initialize-instructions` 216 ≤ 220, `tools-count-38`, `token-budget-startup`
 ~1626 tokens ≤ 3000).
+
+## 29. v1.2.5 — clipboard UID-shell + `__PASTE__` + `caps` + keystore (2026-10-17)
+
+Diagnóstico (flujo real YouTube→WhatsApp de v1.2.4): (a) `get_clipboard`
+inútil en background (Android 10+ bloquea la app); (b) el paste exigió
+`adb shell input keyevent 279` externo; (c) `device_status` sin `caps`;
+(d) el keystore debug efímero de CI rompía `install -r`.
+
+Kotlin: `IShellService.getClipboardText()` (user-service `version=3`; appops
+best-effort `appops set com.android.shell READ_CLIPBOARD allow` + reflexión
+`ServiceManager`→`IClipboard$Stub.asInterface`→`getPrimaryClip` con firmas
+validadas por TIPOS). Con Shizuku root el user-service corre con uid 0:
+`ClipboardService.addActiveOwnerLocked` (línea 386) lanza `SecurityException`
+y **borra el clipboard** (logcat: `Clearing clipboard`), así que nunca se
+llama a `IClipboard` con uid 0: un hijo `app_process` del APK baja a UID
+2000 en `main()` (`Os.setgid/setuid`) antes de abrir binder y escribe el
+texto por stdout. `JevAccessibilityService.readClipboardWithOverlay()`
+(overlay 1×1 `TYPE_ACCESSIBILITY_OVERLAY`, foco ~40-120 ms, sin robar toques)
+y `NativeSensitive.getClipboardFg` = Shizuku → overlay a11y → local →
+`CLIPBOARD_EMPTY` (+`text ≤2048`, `len`/`sha256` del íntegro);
+`TextEntry.PASTE_TOKEN="__PASTE__"` (jamás pisa el clipboard);
+`typeNode` keyevent 279 por Shizuku (`shizuku_keyevent_paste`, `chars=0`).
+Go: `jam.Client.Caps` del hello (solo bool) → `device_status.caps`;
+`get_clipboard_device.forense.via` real; docs de `type_text`/clipboard.
+Bloque 3: `android-app/app/debug.keystore` (clave debug AOSP estándar, no
+secreto; excepción en `.gitignore`) + `signingConfigs.debug` → local y CI
+firman con la MISMA clave.
+
+Verificación (Debian 13, 2 núcleos / ~2 GB, **JDK 21**, SDK en `~/Android/Sdk`):
+
+```bash
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain
+# 1.er intento: FAILED en compileDebugKotlin (6m 37s): `return` dentro de
+#   expression body en ShellUserService.getClipboardText → block body; re-run:
+# BUILD SUCCESSFUL in 8m 46s (44 tasks: 11 executed, 33 up-to-date)
+# Tests JVM: 94/94, 0 fallos (14 suites; +2 TextEntryTest __PASTE__)
+# APK: app/build/outputs/apk/debug/app-debug.apk (15.9 MB)
+#   package dev.k4wai1.jav versionCode=7 versionName=1.2.5 (aapt badging)
+#   firmado con debug.keystore del repo:
+#   SHA-256 45:FF:1F:30:81:B9:8B:A6:86:A6:A3:55:E8:83:26:28:08:4C:A0:05:49:AE:5A:E0:77:24:5F:D1:BB:D8:AF:94
+```
+
+Go: `gofmt`/`vet` limpios; `go test ./pkg/jam ./pkg/tools` verde (+1
+`TestHelloCapturesCaps`); `make build` (`-X main.version=1.2.5`);
+`audit-mcp` **12/12 PASS** (`initialize-instructions` 216 ≤ 220,
+`tools-count-38`, `token-budget-startup` ~1638 tokens ≤ 3000).
+
+Instalación y prueba en vivo (TECNO LG7n, USB): `adb install -r` in-place
+(misma firma → preserva accesibilidad/Shizuku/token) + clipboard
+`shizuku-iclipboard` + `type_text "__PASTE__"`. Ver §30.
+
+## 30. v1.2.5 — prueba en vivo E2E (clipboard + paste + envío) (2026-10-17)
+
+Banco: TECNO LG7n (Android 12/SDK 31) por USB, **Shizuku corriendo como
+root** (uid 0), accesibilidad Jav activa.
+
+Instalación (in-place, sin perder configuración):
+
+```bash
+adb install -r android-app/app/build/outputs/apk/debug/app-debug.apk   # Success
+adb shell monkey -p dev.k4wai1.jav -c android.intent.category.LAUNCHER 1
+# device_status → ok:true, app_version 1.2.5, MainActivity foreground
+```
+
+**Clipboard en background (el bug de raíz):** con YouTube en foreground
+(Jav en background), tras `Share → Copy link`:
+
+- `get_clipboard_device` → `via: shizuku-iclipboard`, `len=28`,
+  `sha256=7bf16a73…6c7a`, `text=https://youtu.be/D80kH61IQtM`
+  (latencia 3 597 ms en frío — spawn inicial del user-service v3 — y
+  2 261 ms en caliente; el costo es el `app_process` por lectura,
+  optimización futura no bloqueante).
+- Segunda lectura inmediata: mismo `sha256` → **el clip sobrevive** (la
+  lectura no lo borra).
+- `logcat`: `Shell pasted from your clipboard` (toast cosmético de A12,
+  1×/uid+clip) y **ausencia total de `Clearing clipboard`**
+  (`ClipboardService` línea 386), el síntoma exacto del uid 0.
+- `forense.via` (Go) mostró el valor viejo en esta prueba porque el MCP
+  en memoria seguía siendo el binario previo al fix; el campo autoritativo
+  fue el `via` del teléfono (`shizuku-iclipboard`). Con el binario nuevo y
+  MCP reiniciado queda dinámico.
+
+**Paste nativo en WhatsApp (sin adb externo):** chat "Rupa" (fijado),
+título verificado (`n_41`), input enfocado (`n_117`):
+
+- `type_text("__PASTE__")` → `via: action_paste` (`chars=9` es cosmético:
+  longitud del token, no del resultado), cero `input keyevent` externo.
+- Readback (`read_screen`): `EditText = https://youtu.be/D80kH61IQtM` y
+  aparición del botón Send.
+- Envío real con OK explícito del operador: tap Send → mensaje nuevo con
+  hora `09:14` y estado `Sent` (`n_89`/`n_116`), input vuelto a placeholder.
+
+Cadena E2E certificada: `shizuku-iclipboard` (lectura en background sin
+borrado) → `action_paste` (autocontenido, sin adb) → envío confirmado.

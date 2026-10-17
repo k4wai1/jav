@@ -88,7 +88,7 @@ object ShizukuBridge {
         var svc: IShellService? = null
         val args = Shizuku.UserServiceArgs(
             ComponentName(BuildConfig.APPLICATION_ID, ShellUserService::class.java.name)
-        ).daemon(false).processNameSuffix("shell").version(1).tag("jam-shell")
+        ).daemon(false).processNameSuffix("shell").version(3).tag("jam-shell")
         val conn = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                 svc = IShellService.Stub.asInterface(binder)
@@ -136,6 +136,24 @@ object ShizukuBridge {
             ""
         }
         return ExecResult(exit, out, err)
+    }
+
+    /**
+     * Lee el clipboard del dispositivo con UID shell (v1.2.5, técnica
+     * scrcpy): `nativeSensitive.getClipboardFg` la usa como fallback
+     * cuando el proceso de la app no puede leerlo en background.
+     * Devuelve "" si Shizuku no está vivo o el clipboard es ilegible;
+     * nunca lanza (el caller decide el error honesto).
+     */
+    fun getClipboardText(): String {
+        if (!hasPermission()) return ""
+        return try {
+            val s = service()
+            s.clipboardText.orEmpty()
+        } catch (t: Throwable) {
+            shell = null
+            ""
+        }
     }
 
     private const val BIND_TIMEOUT_MS = 10_000L

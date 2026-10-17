@@ -23,7 +23,7 @@ type toolMeta struct {
 // toolCatalog espeja la tabla declarativa de register.go (mismos 38 nombres).
 var toolCatalog = map[string]toolMeta{
 	// --- state: lectura de estado (carril nativo/read) ---
-	"device_status":   {"state", "estado Jav: scopes/versión/foreground (read).", false},
+	"device_status":   {"state", "estado Jav: scopes/versión/caps/foreground (read).", false},
 	"get_foreground":  {"state", "foreground: paquete+activity (read).", false},
 	"list_packages":   {"state", "paquetes instalados vía adb host (read).", false},
 	"get_battery":     {"state", "batería: nivel/carga/temp/saver (N0).", false},
@@ -37,7 +37,7 @@ var toolCatalog = map[string]toolMeta{
 	"read_screen":   {"ui", "pantalla normalizada + snapshot_id (read).", false},
 	"tap_node":      {"ui", "toca node_id+snapshot_id (ui).", false},
 	"tap_text":      {"ui", "toca el primer nodo con text (ui).", false},
-	"type_text":     {"ui", "REPLACE en campo enfocado (ui).", false},
+	"type_text":     {"ui", "REPLACE en campo enfocado; __PASTE__ pega clipboard (ui).", false},
 	"scroll":        {"ui", "scroll up/down (ui).", false},
 	"press_back":    {"ui", "botón atrás (ui).", false},
 	"press_home":    {"ui", "botón home (ui).", false},
@@ -51,7 +51,7 @@ var toolCatalog = map[string]toolMeta{
 	"settings_put":         {"native", "escribe ajuste System (crítica) (admin).", true},
 	"open_url":             {"native", "abre URL (ACTION_VIEW), no envía (intent).", false},
 	"send_intent":          {"native", "intent de apertura/pre-relleno (intent).", true},
-	"get_clipboard_device": {"native", "clipboard como len+hash, no crudo (read).", false},
+	"get_clipboard_device": {"native", "clipboard: len/sha256/text≤2048 (jam/shizuku) (read).", false},
 	"get_app_usage":        {"native", "foreground agregado top 50 (N1).", false},
 	"list_contacts":        {"native", "contactos; forense count+hash (N1).", false},
 	"add_contact":          {"native", "alta de contacto (crítica) (N1).", true},

@@ -185,7 +185,11 @@ type Client struct {
 	Token      string
 	Scopes     []string
 	AppVersion string
-	conn       *websocket.Conn
+	// Caps del hello (v1.2.5): grants/estado del dispositivo al conectar
+	// (accessibility, shizuku, shell_grant, usage_access, contacts…).
+	// Nil si la app no los expone (versiones < 1.2.5).
+	Caps map[string]bool
+	conn *websocket.Conn
 }
 
 // --- Sesión persistente (política single-client del teléfono) -----------
@@ -347,6 +351,14 @@ func dialConn(url, token, fp string) (*Client, string, *JamError) {
 	}
 	if v, ok := hello["app_version"].(string); ok {
 		c.AppVersion = v
+	}
+	if caps, ok := hello["caps"].(map[string]any); ok {
+		c.Caps = make(map[string]bool, len(caps))
+		for k, v := range caps {
+			if b, ok := v.(bool); ok {
+				c.Caps[k] = b
+			}
+		}
 	}
 	return c, captured, nil
 }

@@ -130,4 +130,10 @@ object NatPolicies {
         if (s.length <= max) s else s.take(max)
 
     const val NOTIF_TEXT_MAX = 200
+
+    /**
+     * v1.2.5: el texto del clipboard SÍ viaja (es la tarea pedida), truncado
+     * a 2048; `len`/`sha256` de la respuesta son del texto íntegro.
+     */
+    const val CLIPBOARD_TEXT_MAX = 2048
 }

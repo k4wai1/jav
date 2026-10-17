@@ -25,6 +25,7 @@ import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import dev.k4wai1.jav.service.JamNotificationListener
+import dev.k4wai1.jav.service.JevAccessibilityService
 import dev.k4wai1.jav.shell.ShizukuBridge
 import dev.k4wai1.jav.socket.JamError
 import java.security.MessageDigest
@@ -590,26 +591,57 @@ object NativeSensitive {
         put("via", via)
     }
 
-    // ---- portapapeles en foreground (P1-narrow; bg en Android 10+ = honesto) ----
+    // ---- portapapeles: Shizuku UID shell → overlay a11y → local (v1.2.5) ----
 
+    /**
+     * Lee el clipboard primario (v1.2.5).
+     *  1. Fallback Shizuku UID shell (`shizuku-iclipboard`, técnica scrcpy:
+     *     appops + reflexión IClipboard en `ShellUserService`; si Shizuku es
+     *     root, subproceso `app_process` que baja a UID 2000 ANTES de abrir
+     *     binder — con uid 0 el sistema BORRA el clip, `ClipboardService:386`).
+     *  2. Overlay 1×1 de accesibilidad (`a11y-overlay`): Android 10+ exige
+     *     que el UID tenga una ventana con foco para leer en background; la
+     *     ventana lo da sin robar toques.
+     *  3. Lectura directa `ClipboardManager` (`jam-foreground`; solo válida
+     *     con la app en foreground).
+     * Agotadas las tres → `CLIPBOARD_EMPTY` honesto.
+     * El texto devuelto va truncado a `NatPolicies.CLIPBOARD_TEXT_MAX`
+     * (2048) porque ES la tarea pedida; `len`/`sha256` son del texto íntegro.
+     */
     fun getClipboardFg(ctx: Context): JsonObject {
-        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val text = try {
-            cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
-        } catch (t: SecurityException) {
-            ""
+        var text = ""
+        var via = ""
+        if (ShizukuBridge.hasPermission()) {
+            text = ShizukuBridge.getClipboardText()
+            if (text.isNotEmpty()) via = "shizuku-iclipboard"
+        }
+        if (text.isEmpty()) {
+            text = JevAccessibilityService.instance?.readClipboardWithOverlay().orEmpty()
+            if (text.isNotEmpty()) via = "a11y-overlay"
+        }
+        if (text.isEmpty()) {
+            text = localClipboardText(ctx)
+            if (text.isNotEmpty()) via = "jam-foreground"
         }
         if (text.isEmpty()) {
             throw JamError(
-                "clipboard vacío o ilegible en segundo plano (Android 10+)",
+                "clipboard vacío o ilegible (UID shell, overlay a11y y foreground agotados)",
                 "CLIPBOARD_EMPTY"
             )
         }
         return buildJsonObject {
             put("len", text.length)
             put("sha256", sha256(text))
-            put("via", "jam-foreground")
+            put("via", via)
+            put("text", NatPolicies.truncate(text, NatPolicies.CLIPBOARD_TEXT_MAX))
         }
+    }
+
+    private fun localClipboardText(ctx: Context): String = try {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.primaryClip?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
+    } catch (t: SecurityException) {
+        ""
     }
 
     // ---- intents P0 (apertura/pre-relleno; el envío va por carril Jev) ----

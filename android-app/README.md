@@ -20,8 +20,21 @@ y ejecución (gestos + shell UID 2000 vía Shizuku) por WebSocket. Paquete
   drift ≤120 px o match único con ancla → procede; cambio de app →
   `STALE_SNAPSHOT` con hint. `get_foreground` pasa a O(1) (no consume
   `snapshot_id`).
+- **Clipboard UID shell + paste nativo (v1.2.5):**
+  `IShellService.getClipboardText()` (user-service `version=3`): appops
+  `com.android.shell READ_CLIPBOARD allow` + reflexión `IClipboard` con
+  firmas validadas por tipos (técnica scrcpy); con Shizuku root un hijo
+  `app_process` baja a UID 2000 antes de abrir binder (con uid 0 el sistema
+  borra el clip). `get_clipboard` prueba esa vía (`via: shizuku-iclipboard`),
+  luego un overlay 1×1 de accesibilidad (`via: a11y-overlay`) y por último
+  la lectura local (`via: jam-foreground`); devuelve `text ≤2048`.
+  `type_text` acepta `__PASTE__` (pega el clipboard
+  sin pisarlo; último recurso `input keyevent 279` por Shizuku).
+- **Keystore debug determinista (v1.2.5):** `app/debug.keystore` commiteado
+  (clave debug estándar AOSP) → local y CI firman igual; `adb install -r`
+  actualiza in-place sin `INSTALL_FAILED_UPDATE_INCOMPATIBLE`.
 
-Kotlin **92/92** en verde (`:app:testDebugUnitTest`).
+Kotlin **94/94** en verde (`:app:testDebugUnitTest`).
 
 ## Compilar (Debian 13, máquina pequeña)
 

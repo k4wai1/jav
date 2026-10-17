@@ -43,6 +43,8 @@ El gate real es `protocol_version`. `client_version` es informativo.
 `caps` N1 (`usage_access`, `notification_listening`, `contacts`,
 `calendar`, `location`, `camera`) reflejan grants del usuario en el
 dispositivo; sin grant el método falla honesto (§7), nunca inventa.
+v1.2.5: el cliente MCP captura `caps` del `hello` y los expone en
+`device_status.evidence.caps` (estado al conectar; app <1.2.5 → `{}`).
 
 ## 3. Auth y scopes
 
@@ -85,7 +87,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `dump_ui` | `{}` | `{snapshot_id, package, activity, timestamp, nodes[]}` (sin ventana activa → `package: ""`, `nodes: []`) | read |
 | `tap` | `{selector}` | `{node_id, via}` | ui |
 | `tap_node` | `{node_id, snapshot_id}` | `{via: action_click\|click_ancestor\|gesture}` (mismatch → `STALE_SNAPSHOT`) | ui |
-| `type` | `{node_id, snapshot_id, text}` | `{chars, via: action_set_text\|action_paste}` (nodo sin foco → `NOT_FOCUSED`; el cliente hace `tap` previo explícito; `ACTION_SET_TEXT` y, si un WebView/input lo rechaza, fallback `ACTION_PASTE` vía `ClipboardManager`) | ui |
+| `type` | `{node_id, snapshot_id, text}` | `{chars, via: action_set_text\|action_paste\|shizuku_keyevent_paste}` (nodo sin foco → `NOT_FOCUSED`; el cliente hace `tap` previo explícito; `ACTION_SET_TEXT` y, si un WebView/input lo rechaza, fallback `ACTION_PASTE` vía `ClipboardManager`; v1.2.5: `text="__PASTE__"` pega el clipboard del dispositivo sin pisarlo — va directo a `ACTION_PASTE` y, si el nodo lo rechaza, `input keyevent 279` por Shizuku; `chars=0` en esa vía) | ui |
 | `scroll` | `{direction: up\|down\|left\|right, node_id?}` | `{}` | ui |
 | `press_back` / `press_home` | `{}` | `{}` | ui |
 | `wait_for_node` | `{selector, timeout_ms}` | `{node_id, snapshot_id}` o `TIMEOUT` | ui |
@@ -137,7 +139,9 @@ vía Shizuku-shell (UID shell; imposible non-root) y exige Shizuku vivo
 (`SHIZUKU_UNAVAILABLE` sin él). `settings_put` sobre una clave crítica de
 accesibilidad → `FORBIDDEN` (nunca auto-desconecta a Jav). PII (contactos,
 calendario, notificaciones, ubicación, clipboard): proyección mínima; el
-forense MCP guarda solo conteos/hashes.
+forense MCP guarda solo conteos/hashes. Excepción v1.2.5: `get_clipboard`
+devuelve el `text` truncado a 2048 (es la tarea pedida); `len`/`sha256`
+son del texto íntegro.
 
 N0 — sin permisos nuevos:
 
@@ -151,7 +155,7 @@ N0 — sin permisos nuevos:
 | `settings_get` | `{namespace: system\|secure\|global, key}` | `{namespace, key, found, value?}` (clave sensible denegada → `FORBIDDEN`) | read |
 | `open_url` | `{url, package?}` | `{url, via, package?}` (esquema `://…` válido o `VALIDATION_ERROR`; sin `package` y >1 handler → chooser/`ResolverActivity`; con `package` fija componente, 1 salto: no instalado → `PACKAGE_NOT_FOUND`, instalado sin handler → `INTENT_UNRESOLVED`; fallback Shizuku `am` → `via: shizuku-am`) | ui, sin grant |
 | `send_intent` | `{action, uri?, package?, mime?, confirm?, extras?}` | `{action, via}`; crítica (envía/comunica/borra) sin `confirm` → `{planned: true, preview, hint}` sin ejecutar | ui, sin grant; crítica + `confirm` |
-| `get_clipboard` | `{}` | `{len, sha256, via}` — **nunca texto crudo**; vacía o 2.º plano (Android 10+) → `CLIPBOARD_EMPTY` | read sensible |
+| `get_clipboard` | `{}` | `{len, sha256, via, text ≤2048}`; v1.2.5: cadena UID shell vía Shizuku (`shizuku-iclipboard`, técnica scrcpy: appops + reflexión `IClipboard`; con Shizuku root, subproceso `app_process` que baja a UID 2000 antes de abrir binder) → overlay 1×1 de accesibilidad (`a11y-overlay`; Android 10+ exige foco del UID en background) → local (`jam-foreground`); las tres agotadas → `CLIPBOARD_EMPTY` | read sensible |
 
 N1 — con grant del usuario (estado en `hello.caps`):
 

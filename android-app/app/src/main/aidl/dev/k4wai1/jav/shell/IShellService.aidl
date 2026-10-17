@@ -5,4 +5,9 @@ interface IShellService {
     int exec(in String[] cmd, in long timeoutMs);
     String getStdout();
     String getStderr();
+    /**
+     * Lee el clipboard primario con UID shell (v1.2.5, técnica scrcpy):
+     * appops + reflexión sobre IClipboard. "" si vacío/ilegible.
+     */
+    String getClipboardText();
 }

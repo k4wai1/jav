@@ -36,7 +36,7 @@ the loop; Jav holds the device.
 ```bash
 # 1. Install the Go server (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    or: VERSION=v1.2.4 sh install.sh
+#    or: VERSION=v1.2.5 sh install.sh
 
 # 2. Install the companion APK (Releases) and enable accessibility (once)
 #    download jav-companion.apk from the latest GitHub Release, then:
@@ -88,6 +88,30 @@ Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
 `reply_notification`, `media_control`, `take_photo`, `adb_shell`) never run on
 first call: they return `{planned:true, preview, hint}` with `verified:false`
 and only execute after `confirm:true`.
+
+## What changed in v1.2.5
+
+- **Device clipboard works in the background (Shizuku UID-shell, scrcpy
+  technique).** `get_clipboard_device` reads it through Shizuku as UID shell
+  (`via: shizuku-iclipboard`: best-effort `appops` + `IClipboard` reflection;
+  when Shizuku runs as root, a tiny `app_process` child drops to UID 2000
+  *before* opening binder so Android never wipes the clip), falls back to a
+  1×1 accessibility overlay (`via: a11y-overlay`: Android 10+ requires a
+  focused window to read in background) and finally to the local read
+  (`via: jam-foreground`). The response now carries `text` (≤2048 chars, truncated — it is the task);
+  `len`/`sha256` describe the full text.
+- **Self-contained paste:** `type_text` accepts the payload token
+  `__PASTE__` — it pastes the device clipboard into the focused field without
+  overwriting it (`ACTION_PASTE` first; last resort `input keyevent 279` via
+  Shizuku → `via: shizuku_keyevent_paste`). No external adb input needed.
+- **`device_status` exposes `caps`** (accessibility, shizuku, shell_grant,
+  usage_access, contacts, calendar, location, camera…) captured from the
+  handshake: the agent no longer has to guess grants.
+- **Deterministic debug keystore** committed (`android-app/app/debug.keystore`,
+  standard AOSP debug key, not a secret): local and CI builds share the same
+  signature, so `adb install -r` updates in place and preserves
+  accessibility/Shizuku/token.
+- No new tools (still 38); `versionName 1.2.5` / `versionCode 7`.
 
 ## What changed in v1.2.4
 
@@ -236,7 +260,7 @@ Director; el dispositivo lo lleva Jav.
 ```bash
 # 1. Instala el servidor Go (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    o: VERSION=v1.2.4 sh install.sh
+#    o: VERSION=v1.2.5 sh install.sh
 
 # 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
 #    descarga jav-companion.apk del último Release y:
@@ -275,6 +299,29 @@ fijo de 38 tools, no reducible sin consolidar); antes ~8.8k en v1.2.0. Ver
 Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
 usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
 interactivo (1 cmd / 5 min / 30 min).
+
+## Qué cambió en v1.2.5
+
+- **El clipboard del dispositivo funciona en segundo plano (UID shell vía
+  Shizuku, técnica scrcpy).** `get_clipboard_device` lo lee por Shizuku como
+  UID shell (`via: shizuku-iclipboard`: `appops` best-effort + reflexión
+  `IClipboard`; si Shizuku corre como root, un hijo `app_process` baja a
+  UID 2000 *antes* de abrir binder para que Android no borre el clip), cae a
+  un overlay 1×1 de accesibilidad (`via: a11y-overlay`: Android 10+ exige
+  foco del UID en background) y por último al leído local
+  (`via: jam-foreground`). La respuesta ahora trae `text` (≤2048 chars, truncado — es la tarea);
+  `len`/`sha256` describen el texto íntegro.
+- **Paste autocontenido:** `type_text` acepta el token-payload `__PASTE__` —
+  pega el clipboard del dispositivo en el campo enfocado sin pisarlo
+  (`ACTION_PASTE` primero; último recurso `input keyevent 279` por Shizuku →
+  `via: shizuku_keyevent_paste`). Sin adb externo.
+- **`device_status` expone `caps`** (accessibility, shizuku, shell_grant,
+  usage_access, contacts, calendar, location, camera…) capturados del
+  handshake: el agente ya no adivina grants.
+- **Keystore debug determinista** commiteado (`android-app/app/debug.keystore`,
+  clave debug estándar AOSP, no es secreto): local y CI firman igual, así que
+  `adb install -r` actualiza in-place y preserva accesibilidad/Shizuku/token.
+- Sin tools nuevas (siguen 38); `versionName 1.2.5` / `versionCode 7`.
 
 ## Qué cambió en v1.2.4
 

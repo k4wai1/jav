@@ -12,8 +12,22 @@ android {
         applicationId = "dev.k4wai1.jav"
         minSdk = 29
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.2.4"
+        versionCode = 7
+        versionName = "1.2.5"
+    }
+
+    // v1.2.5: keystore debug determinista commiteado (debug estándar AOSP:
+    // storepass/keypass "android", alias "androiddebugkey"). Local y CI
+    // firman con la MISMA clave → `adb install -r` actualiza in-place sin
+    // INSTALL_FAILED_UPDATE_INCOMPATIBLE (el keystore efímero de CI rompía
+    // la actualización). Ver AGENTS.md (enmienda v1.2.5).
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

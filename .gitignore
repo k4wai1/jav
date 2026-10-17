@@ -8,6 +8,9 @@
 *.jks
 *.keystore
 *.p12
+# Excepción v1.2.5: debug.keystore determinista (clave debug estándar AOSP,
+# no es secreto) para que local y CI firmen igual (install -r in-place).
+!android-app/app/debug.keystore
 google-services.json
 
 # --- Android / Gradle (máquina-específico y artefactos) ---

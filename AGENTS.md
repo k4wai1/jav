@@ -6,7 +6,7 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v1.2.4)
+## Estado Operativo Actual (v1.2.5)
 
 | Área | Estado |
 | --- | --- |
@@ -538,3 +538,47 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 4. **Versión:** `1.2.4` (binario, Makefile, `versionName 1.2.4`/`versionCode 6`).
    Tests JVM **92/92** (+4 en `LiveNodeReanchorTest`); sin tools nuevas (38).
    Build local documentado en `docs/BUILD.md §28` (JDK 21).
+
+**2026-10-17 — v1.2.5: clipboard UID-shell, `__PASTE__` nativo, `caps` y keystore determinista:**
+
+1. **Diagnóstico (3 fallos silenciosos + 1 de release):** (a) `get_clipboard`
+   inútil en background (Android 10+ bloquea la lectura desde la app);
+   (b) el paste en WhatsApp exigió `adb shell input keyevent 279` EXTERNO al
+   MCP (el flujo no era autocontenido); (c) `device_status` no exponía los
+   `caps` del hello (el agente adivinaba grants); (d) CI firmaba con keystore
+   debug efímero → APK del Release no instalable sobre una instalación local
+   (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`).
+2. **Bloque 1 — clipboard UID shell (técnica scrcpy):**
+   `IShellService.getClipboardText()` (AIDL, user-service `version=3`);
+   `ShellUserService` hace appops best-effort
+   (`appops set com.android.shell READ_CLIPBOARD allow`) + reflexión sobre
+   `IClipboard` (`ServiceManager` → `Stub.asInterface` → `getPrimaryClip`
+   con firmas validadas por TIPOS, no solo por conteo). Con Shizuku root el
+   user-service corre con uid 0 y `ClipboardService.addActiveOwnerLocked`
+   (línea 386) lanza `SecurityException` y **borra el clipboard** (visto en
+   logcat: `Clearing clipboard`): nunca se llama a `IClipboard` con uid 0.
+   En su lugar se lanza un hijo `app_process` del propio APK cuyo `main()`
+   hace `Os.setgid(2000); Os.setuid(2000)` ANTES de abrir binder (sin `su`,
+   AGENTS §2) y escribe el texto por stdout. `ShizukuBridge.getClipboardText()`
+   (nunca lanza; `""` sin Shizuku); `NativeSensitive.getClipboardFg` =
+   Shizuku (`shizuku-iclipboard`) → overlay 1×1 de accesibilidad
+   (`a11y-overlay`; Android 10+ exige foco del UID en background) → local
+   (`jam-foreground`) → `CLIPBOARD_EMPTY`. La respuesta incluye `text`
+   truncado a **2048** (`NatPolicies.CLIPBOARD_TEXT_MAX`); `len`/`sha256`
+   del texto íntegro. Go: `forense.via` refleja la vía real.
+3. **Bloque 2 — paste nativo autocontenido:** `TextEntry.PASTE_TOKEN`
+   (`"__PASTE__"`) salta `setText`/`preparePaste` (jamás pisa el clipboard)
+   y va directo a `ACTION_PASTE`; si el nodo lo rechaza y hay Shizuku vivo,
+   `JevAccessibilityService` ejecuta `input keyevent 279` por UID shell →
+   `via: shizuku_keyevent_paste` con `chars=0` (lo verifica `read_screen`).
+   Cero adb externo en el flujo MCP.
+4. **Bloque 2b — `device_status.caps`:** `jam.Client.Caps` se parsea del
+   hello (solo pares string→bool; app <1.2.5 → `{}`, no se inventa).
+5. **Bloque 3 — keystore determinista:** `android-app/app/debug.keystore`
+   commiteado (clave debug estándar AOSP, **no** secreto; excepción
+   documentada en `.gitignore`) + `signingConfigs.debug` en
+   `app/build.gradle.kts` → local y CI firman con la misma clave y
+   `adb install -r` actualiza in-place (preserva accesibilidad/Shizuku/token).
+6. **Versión:** `1.2.5` (binario, Makefile, `versionName 1.2.5`/`versionCode 7`).
+   Sin tools nuevas (38). Detalle en `docs/BUILD.md §29`, contrato en
+   `PROTOCOL.md §2/§4/§4.1`.

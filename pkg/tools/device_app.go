@@ -25,9 +25,15 @@ func hDeviceStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 		return result(jam.JamFail(jerr))
 	}
 	_ = t0
+	// caps del hello (v1.2.5): evita que el agente adivine grants; app
+	// <1.2.5 o hello sin caps → objeto vacío (no se inventa estado).
+	caps := c.Caps
+	if caps == nil {
+		caps = map[string]bool{}
+	}
 	return result(jam.OK(true, map[string]any{
 		"scopes": c.Scopes, "app_version": c.AppVersion, "foreground": fg,
-		"cost": cost.SessionSummary(),
+		"caps": caps, "cost": cost.SessionSummary(),
 	}, ""))
 }
 

@@ -25,6 +25,8 @@ type wsHarness struct {
 	gracefulClose int
 	forceClose    chan struct{}
 	rejectHello   bool
+	// v1.2.5: caps opcionales en el hello (nil = app <1.2.5 sin caps).
+	helloCaps map[string]any
 }
 
 func newWsHarness(t *testing.T) *wsHarness {
@@ -69,6 +71,7 @@ func newWsHarness(t *testing.T) *wsHarness {
 				h.mu.Lock()
 				h.hellos++
 				reject := h.rejectHello
+				caps := h.helloCaps
 				h.mu.Unlock()
 				if reject {
 					_ = conn.WriteJSON(map[string]any{
@@ -77,10 +80,14 @@ func newWsHarness(t *testing.T) *wsHarness {
 					})
 					continue
 				}
-				_ = conn.WriteJSON(map[string]any{
+				reply := map[string]any{
 					"jsonrpc": "2.0", "id": id, "ok": true,
 					"scopes": []string{"read", "ui", "admin"}, "app_version": "test",
-				})
+				}
+				if caps != nil {
+					reply["caps"] = caps
+				}
+				_ = conn.WriteJSON(reply)
 				continue
 			}
 			_ = conn.WriteJSON(map[string]any{
@@ -201,6 +208,46 @@ func TestPairRejectsUnauthorizedDoesNotPersist(t *testing.T) {
 	}
 	if _, err := os.Stat(cfg); err == nil {
 		t.Fatalf("Pair() persistió %s pese a UNAUTHORIZED", cfg)
+	}
+}
+
+// v1.2.5: el hello trae `caps` (grants/estado) y el cliente los expone
+// para `device_status`; app sin caps (<1.2.5) → mapa nil (no se inventa).
+func TestHelloCapturesCaps(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.helloCaps = map[string]any{
+		"shizuku": true, "accessibility": false, "contacts": true, "ruido": "x",
+	}
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	if c.Caps == nil {
+		t.Fatal("Caps nil con hello que trae caps")
+	}
+	if !c.Caps["shizuku"] || !c.Caps["contacts"] {
+		t.Fatalf("caps true perdidos: %v", c.Caps)
+	}
+	if c.Caps["accessibility"] {
+		t.Fatalf("caps false mal parseado: %v", c.Caps)
+	}
+	if _, ok := c.Caps["ruido"]; ok {
+		t.Fatalf("valor no-bool no debe entrar en caps: %v", c.Caps)
+	}
+
+	// hello sin caps (app <1.2.5) → nil, sin inventar defaults.
+	h2 := newWsHarness(t)
+	defer h2.srv.Close()
+	h2.pointClientAt(t)
+	c2, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial 2: %v", jerr)
+	}
+	if c2.Caps != nil {
+		t.Fatalf("Caps=%v, esperado nil sin caps en hello", c2.Caps)
 	}
 }
 

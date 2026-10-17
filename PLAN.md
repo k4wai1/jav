@@ -316,6 +316,35 @@
   (`docs/BUILD.md §28`).
 - [x] `versionName 1.2.4`/`versionCode 6`; tag `v1.2.4` → APK CI.
 
+### Release v1.2.5 — clipboard UID-shell + `__PASTE__` + `caps` + keystore (2026-10-17)
+- [x] **Diagnóstico** (flujo YouTube→WhatsApp de v1.2.4): clipboard ilegible
+  en background, paste dependiente de adb externo, `caps` sin exponer,
+  keystore CI efímero (install -r imposible).
+- [x] **Bloque 1**: `IShellService.getClipboardText()` (user-service **v3**:
+  uid 2000 lee directo; uid 0 **jamás** toca `IClipboard` —hijo `app_process`
+  baja a 2000 en `main()` y escribe por stdout—; reflexión matrix 1..5 params
+  validada por TIPOS); `JevAccessibilityService.readClipboardWithOverlay()`
+  (overlay 1×1 a11y); `NativeSensitive` shizuku→overlay→local→
+  `CLIPBOARD_EMPTY`; `text ≤2048` (`len`/`sha256` del íntegro); forense `via`
+  real en Go.
+- [x] **Bloque 2**: `TextEntry.PASTE_TOKEN="__PASTE__"` (jamás pisa el
+  clipboard) + keyevent 279 por Shizuku como último recurso
+  (`shizuku_keyevent_paste`, `chars=0`).
+- [x] **Bloque 2b**: `Client.Caps` del hello → `device_status.caps`
+  (app <1.2.5 → `{}`, sin inventar).
+- [x] **Bloque 3**: `android-app/app/debug.keystore` commiteado +
+  `signingConfigs.debug` → local y CI firman igual (install -r in-place).
+- [x] Go verde (`gofmt`/`vet`/`test` salvo preexistente `pkg/normalizer`),
+  `make build` 1.2.5, **`audit-mcp` 12/12** (carga ~1638 tokens ≤3000).
+- [x] **Build local JDK 21**: `./gradlew :app:testDebugUnitTest :app:assembleDebug`
+  → **94/94** tests JVM (+2 `__PASTE__`), APK `versionCode 7`/`versionName 1.2.5`,
+  firma `45ff1f…af94` (`docs/BUILD.md §29`).
+- [x] Instalación in-place (`adb install -r` Success, misma firma) + prueba
+  en vivo E2E: `get_clipboard_device via=shizuku-iclipboard` en background
+  (sin `Clearing clipboard`, clip sobrevive 2 lecturas) + paste
+  `__PASTE__` → `via=action_paste` (cero adb externo) + envío real con OK
+  del operador (`Sent` 09:14). Detalle: `docs/BUILD.md §30` → tag/CI.
+
 ## Próxima tarea (director v5 vigente; loop congelado)
 
 1. `@judge`: cierre formal v5 — `uv run pytest -q` (148 en verde) +

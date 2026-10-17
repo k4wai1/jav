@@ -81,13 +81,13 @@ func defTool(name, desc string, required []string, props map[string]any, h Handl
 
 const dDeviceStatus = `Estado de la conexion con Jav.
 
-Descripcion: Scopes del token, version de la app y app/activity en foreground.
+Descripcion: Scopes del token, version de la app, caps del dispositivo (grants/estado v1.2.5) y app/activity en foreground.
 Parametros: Ninguno.
-Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, foreground{package, activity}, cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
+Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, caps{accessibility, shizuku, shell_grant, usage_access, notification_listening, contacts, calendar, location, camera}, foreground{package, activity}, cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
 Permisos/Grants: conexion Jav + accesibilidad para foreground; scope read.
-Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false.
+Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false; caps es el estado del hello: app <1.2.5 -> {} (no se inventa); un grant concedido despues del hello no se refleja hasta reconectar.
 Cuándo NO usar: NO usar para un dato concreto → usa la tool nativa (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO cachear el foreground → re-lee con get_foreground tras cada mutación.
-Ejemplo: device_status() → {scopes[], app_version, foreground{package, activity}}`
+Ejemplo: device_status() → {scopes[], app_version, caps{}, foreground{package, activity}}`
 
 const dListPackages = `Lista paquetes instalados (host adb shell pm list packages).
 
@@ -191,13 +191,13 @@ Ejemplo: adb_shell(cmd="df -k /data /sdcard", timeout_ms=15000) → {planned:tru
 
 const dTypeText = `Escribe en un campo ya enfocado (semantica REPLACE).
 
-Descripcion: Accion TYPE del enum Jev: escribe con ACTION_SET_TEXT (reemplaza el contenido, sin teclado simulado ni append).
-Parametros: node_id (str); snapshot_id (int); text (str): contenido final del campo.
-Retorno: {ok, verified, evidence, hint}; evidence = {chars, snapshot_id}.
-Permisos/Grants: accesibilidad (scope ui).
-Errores/gotchas: NOT_FOCUSED si el nodo no esta enfocado (haz tap antes; no hay taps implicitos); STALE_SNAPSHOT. No devuelve snapshot: verifica con read_screen.
+Descripcion: Accion TYPE del enum Jev: escribe con ACTION_SET_TEXT (reemplaza el contenido, sin teclado simulado ni append). Fallback ACTION_PASTE si el nodo rechaza SET_TEXT (WebViews). Token especial: text="__PASTE__" pega el clipboard del dispositivo (no pisa el clipboard; ultimo recurso keyevent 279 via Shizuku).
+Parametros: node_id (str); snapshot_id (int); text (str): contenido final del campo, o el token __PASTE__.
+Retorno: {ok, verified, evidence, hint}; evidence = {chars, snapshot_id, via}; via = action_set_text | action_paste | shizuku_keyevent_paste (con __PASTE__ via keyevent, chars=0: el contenido pegado lo verifica read_screen).
+Permisos/Grants: accesibilidad (scope ui); el fallback __PASTE__ por keyevent exige Shizuku (SHIZUKU_UNAVAILABLE si no).
+Errores/gotchas: NOT_FOCUSED si el nodo no esta enfocado (haz tap antes; no hay taps implicitos); STALE_SNAPSHOT; INTERNAL_ERROR solo si SET_TEXT, PASTE y keyevent fallan. No devuelve snapshot: verifica con read_screen.
 Cuándo NO usar: NO escribir sin foco → tap + re-lee primero; NO añadir: es REPLACE del contenido final; NO inventar texto: solo goal/UI o payload del nivel superior. Verifica después con read_screen.
-Ejemplo: type_text(node_id="<id>", snapshot_id=123, text="<texto del operador>") → {chars, snapshot_id}`
+Ejemplo: type_text(node_id="<id>", snapshot_id=123, text="<texto del operador>") → {chars, snapshot_id, via}`
 
 const dScroll = `Scroll en una direccion, opcionalmente sobre un nodo.
 
@@ -339,15 +339,15 @@ Errores/gotchas: SEND/CALL sin confirm -> planned (nunca envia solo); no finge e
 Cuándo NO usar: NO esperar envío headless → como máximo abre editor pre-rellenado; crítica sin confirm → planned, nunca ejecuta.
 Ejemplo: send_intent(action="VIEW", uri="https://<forma>") → {action, via}`
 
-const dGetClipboardDevice = `Lee el clipboard del dispositivo en foreground (nunca crudo).
+const dGetClipboardDevice = `Lee el clipboard del dispositivo (UID shell via Shizuku, overlay a11y o local).
 
-Descripcion: Caso narrow en primer plano; en background Android 10+ se reporta honesto. Para el host usa el atajo get_clipboard.
+Descripcion: Lee el clipboard primario en orden: (1) UID shell via Shizuku (tecnica scrcpy: appops + reflexion IClipboard; con Shizuku root un subproceso app_process baja a UID 2000 antes de abrir binder), (2) overlay 1x1 de accesibilidad (Android 10+ exige foco del UID en background), (3) ClipboardManager local (solo foreground). El texto devuelto es la tarea pedida, truncado a 2048 chars; len/sha256 son del texto integro.
 Parametros: Ninguno.
-Retorno: {ok, verified, evidence, hint}; evidence = {len, sha256, via, forense{via, len, sha256}, latency_ms}; el texto NUNCA viaja.
-Permisos/Grants: scope read sensible.
-Errores/gotchas: background Android 10+ o vacio -> CLIPBOARD_EMPTY honesto; no sondea ni inventa.
+Retorno: {ok, verified, evidence, hint}; evidence = {len, sha256, via, text, forense{via, len, sha256}, latency_ms}; via = shizuku-iclipboard | a11y-overlay | jam-foreground; text ≤2048 chars.
+Permisos/Grants: scope read sensible; el paso 1 exige Shizuku vivo; el paso 2 exige el servicio de accesibilidad habilitado.
+Errores/gotchas: clipboard vacio o las tres vias agotadas -> CLIPBOARD_EMPTY honesto; no sondea ni inventa; nunca se llama a IClipboard con uid 0 (el sistema borraria el clip).
 Cuándo NO usar: NO ir a la UI para este dato → carril nativo primero; NO inventar contenido ante CLIPBOARD_EMPTY → copia primero en la app-origen y re-lee.
-Ejemplo: get_clipboard_device() → {len, sha256, via, forense{via, len, sha256}, latency_ms}`
+Ejemplo: get_clipboard_device() → {len, sha256, via, text}`
 
 const dGetAppUsage = `Tiempo en foreground agregado por paquete (top 50).
 

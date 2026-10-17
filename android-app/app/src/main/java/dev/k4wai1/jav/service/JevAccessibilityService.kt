@@ -8,12 +8,17 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.graphics.Point
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Display
+import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import dev.k4wai1.jav.shell.ShizukuBridge
@@ -34,6 +39,7 @@ import dev.k4wai1.jav.util.JevLog
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -274,6 +280,14 @@ class JevAccessibilityService : AccessibilityService() {
             }
             val via = TextEntry.write(live, text, preparePaste = { setClipboardText(text) })
             if (via == null) {
+                // v1.2.5: `__PASTE__` en nodos que rechazan SET_TEXT+PASTE
+                // (WebViews) → keyevent 279 (KEYCODE_PASTE) por Shizuku UID
+                // shell, sin adb externo. Los chars no se inventan: 0 (el
+                // contenido pegado lo verifica el cliente con read_screen).
+                if (text == TextEntry.PASTE_TOKEN && ShizukuBridge.hasPermission()) {
+                    val pasteVia = shizukuKeyeventPaste()
+                    if (pasteVia != null) return TypeResult(0, pasteVia)
+                }
                 throw JamError("ACTION_SET_TEXT y ACTION_PASTE rechazados", "INTERNAL_ERROR")
             }
             return TypeResult(text.length, via)
@@ -281,6 +295,15 @@ class JevAccessibilityService : AccessibilityService() {
             live.recycle()
             uiDirty = true
         }
+    }
+
+    /** Keyevent 279 (PASTE) por Shizuku; null si no se pudo (error honesto). */
+    private fun shizukuKeyeventPaste(): String? = try {
+        val r = ShizukuBridge.exec(listOf("input", "keyevent", "279"), 5_000)
+        if (r.exitCode == 0) "shizuku_keyevent_paste" else null
+    } catch (t: Throwable) {
+        JevLog.d(TAG, "keyevent paste por Shizuku falló: ${t.message}")
+        null
     }
 
     /** Copia el texto al clipboard primario para el fallback ACTION_PASTE. */
@@ -291,6 +314,82 @@ class JevAccessibilityService : AccessibilityService() {
         } catch (t: Throwable) {
             JevLog.d(TAG, "setPrimaryClip falló: ${t.message}")
         }
+    }
+
+    /**
+     * v1.2.5: lee el clipboard creando una ventana overlay 1×1 focusable de
+     * accesibilidad (técnica KDE Connect): Android 10+ exige que el UID tenga
+     * una ventana con foco para leer el clipboard en background. La ventana
+     * vive ~40-120 ms, no roba toques (`FLAG_NOT_TOUCH_MODAL`) y se retira
+     * en el `finally` lógico ([finish]). Bloquea al caller (hilo WS) hasta
+     * `CLIP_OVERLAY_TIMEOUT_MS`; "" si no se pudo (error honesto).
+     */
+    fun readClipboardWithOverlay(): String {
+        val result = arrayOf("")
+        val done = CountDownLatch(1)
+        val main = Handler(Looper.getMainLooper())
+        val finished = AtomicBoolean(false)
+        main.post {
+            var view: View? = null
+            val wm = try {
+                getSystemService(WindowManager::class.java)
+            } catch (t: Throwable) {
+                null
+            }
+            fun finish(text: String) {
+                if (!finished.compareAndSet(false, true)) return
+                result[0] = text
+                try {
+                    view?.let { wm?.removeViewImmediate(it) }
+                } catch (t: Throwable) {
+                    // La vista ya no está: nada que retirar.
+                }
+                done.countDown()
+            }
+            fun readNow() {
+                val text = try {
+                    getSystemService(ClipboardManager::class.java)
+                        ?.primaryClip
+                        ?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+                } catch (t: Throwable) {
+                    ""
+                }
+                finish(text)
+            }
+            try {
+                if (wm == null) {
+                    finish("")
+                    return@post
+                }
+                val v = View(this)
+                v.setBackgroundColor(Color.TRANSPARENT)
+                val lp = WindowManager.LayoutParams(
+                    1,
+                    1,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+                )
+                v.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
+                    if (hasFocus) main.postDelayed({ readNow() }, CLIP_SETTLE_MS)
+                }
+                wm.addView(v, lp)
+                view = v
+                // Si el foco no llega (p. ej. keyguard), se lee igual dentro
+                // del presupuesto: la ventana ya está arriba.
+                main.postDelayed({ readNow() }, CLIP_FOCUS_BUDGET_MS)
+            } catch (t: Throwable) {
+                finish("")
+            }
+        }
+        try {
+            done.await(CLIP_OVERLAY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (t: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        return result[0]
     }
 
     fun scrollBy(direction: String, nodeId: String?) {
@@ -562,6 +661,9 @@ class JevAccessibilityService : AccessibilityService() {
         private const val OPEN_APP_WAIT_MS = 5000L
         private const val SCREENSHOT_TIMEOUT_MS = 5000L
         private const val MAX_SCREENSHOT_B64 = 3_500_000
+        private const val CLIP_SETTLE_MS = 30L
+        private const val CLIP_FOCUS_BUDGET_MS = 120L
+        private const val CLIP_OVERLAY_TIMEOUT_MS = 350L
 
         @Volatile
         var instance: JevAccessibilityService? = null

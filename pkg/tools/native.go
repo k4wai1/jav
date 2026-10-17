@@ -126,7 +126,13 @@ func hGetClipboardDevice(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		ev := env["evidence"].(map[string]any)
 		length, _ := ev["len"].(float64)
 		sha, _ := ev["sha256"].(string)
-		ev["forense"] = map[string]any{"via": "jav-foreground", "len": length, "sha256": sha}
+		// v1.2.5: el via real puede ser `shizuku-iclipboard`, `a11y-overlay`
+		// o `jam-foreground`; el forense refleja la via ejecutada, no una fija.
+		via, _ := ev["via"].(string)
+		if via == "" {
+			via = "jam-foreground"
+		}
+		ev["forense"] = map[string]any{"via": via, "len": length, "sha256": sha}
 	}
 	return result(env)
 }

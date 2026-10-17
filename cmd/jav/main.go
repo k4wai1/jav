@@ -14,8 +14,8 @@ import (
 	"github.com/k4wai1/jav/pkg/tools"
 )
 
-// version se inyecta por -ldflags -X main.version=… (default 1.2.4).
-var version = "1.2.4"
+// version se inyecta por -ldflags -X main.version=… (default 1.2.5).
+var version = "1.2.5"
 
 // instructions es el bloque §1 de docs/MCP_SPEC_GUIDELINES.md, compactado a
 // ≤220 palabras (v1.2.0; CONTACTS añadido en v1.2.4). Conserva intactos los

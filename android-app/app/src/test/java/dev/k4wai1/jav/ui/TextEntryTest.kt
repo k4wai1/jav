@@ -40,4 +40,26 @@ class TextEntryTest {
         assertEquals(1, node.pasteAttempts)
         assertTrue(prepared)
     }
+
+    @Test
+    fun pasteTokenGoesStraightToPaste() {
+        val node = FakeA11yNode(setTextResult = true, pasteResult = true)
+        var prepared = false
+        val via = TextEntry.write(node, TextEntry.PASTE_TOKEN, preparePaste = { prepared = true })
+        assertEquals(TextEntry.VIA_PASTE, via)
+        assertEquals(0, node.setTextAttempts)
+        assertEquals(1, node.pasteAttempts)
+        assertTrue(!prepared)
+    }
+
+    @Test
+    fun pasteTokenNullWithoutTouchingClipboardWhenPasteFails() {
+        val node = FakeA11yNode(setTextResult = true, pasteResult = false)
+        var prepared = false
+        val via = TextEntry.write(node, TextEntry.PASTE_TOKEN, preparePaste = { prepared = true })
+        assertNull(via)
+        assertEquals(0, node.setTextAttempts)
+        assertEquals(1, node.pasteAttempts)
+        assertTrue(!prepared)
+    }
 }
