@@ -94,7 +94,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `open_app` | `{package}` | `{package, activity}` (`monkey -p <pkg> -c android.intent.category.LAUNCHER 1` por Shizuku; verificar con `get_foreground`) | ui, sin grant |
 | `force_stop` | `{package}` | `{}` | shell, sin grant |
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |
-| `get_foreground` | `{}` | `{package, activity}` | read |
+| `get_foreground` | `{}` | `{package, activity}` (v1.2.4: O(1), no consume `snapshot_id`) | read |
 | `list_packages` | `{filter?}` | `{packages[]}` (package visibility) | read |
 | `shell` | `{cmd, timeout_ms? 500..60000 default 15000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jav → `SHELL_DENYLIST`; sin grant → `SHELL_DENIED`; > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
 | `get_audit` | `{limit?: int=50 (1..200), since_seq?: int=0}` | `{total_buffered, returned, entries[]}` con cada entry `{seq, ts, method, scope, args_sha256 (16 hex SHA-256), result, origin}` (ring buffer, 500 entradas; nunca args en claro) | admin |
@@ -114,12 +114,20 @@ El desenlace se emite como evento `shell_grant` (§6).
   objetivo no era clickable → se ejecutó `ACTION_CLICK` sobre el ancestro
   cliqueable más próximo, ≤3 niveles) o `gesture` (fallback: gesto al
   centro de `bounds`).
-- El `snapshot_id` caduca ante cambios **reales** de estructura/estado.
-  Los eventos `TYPE_WINDOW_CONTENT_CHANGED` (ruido cosmético de sistema y
-  de la app: relojes, animaciones, cursores) **no** invalidan el snapshot
-  por diseño. La consistencia fina la aporta la identidad del nodo
-  (`text` + `resource_id` + `class`) verificada al actuar: si cambió →
-  `STALE_SNAPSHOT`.
+- **Ventana de snapshots (v1.2.4):** el dispositivo conserva los últimos
+  **8** `dump_ui`; `tap_node`/`type_text` aceptan cualquier `snapshot_id` de
+  esa ventana (una lectura intermedia —p. ej. `get_foreground`— ya no consume
+  el snapshot del agente). Fuera de la ventana → `STALE_SNAPSHOT`.
+- **Frescura centrada en el elemento (v1.2.4):** al actuar se re-verifica el
+  nodo vivo por identidad (`text` + `resource_id` + `class` + `content_desc`):
+  si se desplazó ≤120 px, o fuera de esa deriva sigue siendo el **único**
+  match con ancla → la acción procede (`via` lo reporta); si desapareció o se
+  duplicó → `STALE_SNAPSHOT`. Los `TYPE_WINDOW_CONTENT_CHANGED` cosméticos
+  (relojes, animaciones, cursores, seekbars) no invalidan nada por sí solos.
+- **Compuerta de paquete activo (v1.2.4):** si la ventana en primer plano no
+  pertenece al paquete del snapshot (cambio de app a mitad de acción) →
+  `STALE_SNAPSHOT` con hint del paquete esperado; nunca se tapea sobre otra
+  app.
 
 ### 4.1 Catálogo nativo N0+N1 (carril APIs directas, sin Jev)
 
@@ -169,11 +177,10 @@ responde `ok: true, verified: false`; repetir con `confirm: true` ejecuta.
 
 `nodes` es un **array plano**; el parentesco va por `children: [id]`.
 `snapshot_id` es un contador monotónico persistido; `tap_node`/`type`
-lo exigen y fallan con `STALE_SNAPSHOT` si cambió la UI.
-
-Un `TYPE_WINDOW_CONTENT_CHANGED` puramente cosmético **no** cuenta como
-cambio de UI (anti-ticker): la frescura fina la decide la identidad del
-nodo en el momento de actuar (ver §4 "Frescura y `via`").
+lo exigen y aceptan los últimos **8** snapshots (v1.2.4); fuera de la
+ventana → `STALE_SNAPSHOT`. La frescura fina la decide el elemento al
+actuar: identidad del nodo vivo + paquete activo (ver §4 "Frescura y
+`via`"). `get_foreground` no acuña `snapshot_id` (O(1), v1.2.4).
 
 ```json
 {"id": "n_0", "text": "Buscar", "content_desc": null,

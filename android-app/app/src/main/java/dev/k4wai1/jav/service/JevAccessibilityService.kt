@@ -46,16 +46,20 @@ data class TypeResult(val chars: Int, val via: String)
 
 // Anti-ticker (spec tactical-robustness-p1p2 §1): los
 // TYPE_WINDOW_CONTENT_CHANGED son ruido cosmético del sistema Y de la
-// propia app (relojes, animaciones, cursores). No invalidan el snapshot
-// por sí solos: la identidad real del nodo se valida en reanchorOrThrow
-// al actuar (STALE_SNAPSHOT si de verdad cambió).
+// propia app (relojes, animaciones, cursores). v1.2.4 (spec
+// element-centric-liveness): la frescura se decide sobre el elemento:
+// un snapshot sigue usable dentro de los últimos 8 dumps y la identidad
+// real del nodo se valida en reanchorOrThrow al actuar, con compuerta de
+// paquete activo (STALE_SNAPSHOT si de verdad cambió).
 internal fun isVolatileEvent(eventType: Int?): Boolean =
     eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
 
 /**
  * Fase 2: percepción + acciones UI. Fase 3a: `open_app`/`force_stop`
  * (Shizuku) + `screenshot` (`takeScreenshot`, API 30+).
- * `snapshot_id` persistido anti-staleness; toda mutación marca `uiDirty`.
+ * v1.2.4: `snapshotRing` de los últimos 8 snapshots; `tap_node`/`type_text`
+ * aceptan cualquier snapshot de esa ventana y validan el nodo vivo
+ * (identidad + paquete activo) antes de actuar.
  */
 class JevAccessibilityService : AccessibilityService() {
 
@@ -79,11 +83,20 @@ class JevAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastActivity: String = ""
 
-    @Volatile
-    private var lastSnapshotId: Long = -1L
+    // v1.2.4: historial corto de snapshots (element-centric liveness).
+    // `uiDirty` se conserva como señal de diagnóstico, pero ya no decide:
+    // la acción valida el nodo vivo contra el snapshot original.
+    private val historyLock = Any()
+    private val snapshotHistory = ArrayDeque<UiSnapshot>()
 
-    @Volatile
-    private var lastNodes: List<UiNode> = emptyList()
+    private fun rememberSnapshot(snap: UiSnapshot) {
+        synchronized(historyLock) {
+            snapshotHistory.addLast(snap)
+            while (snapshotHistory.size > MAX_SNAPSHOT_HISTORY) {
+                snapshotHistory.removeFirst()
+            }
+        }
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) {
@@ -118,9 +131,9 @@ class JevAccessibilityService : AccessibilityService() {
         val id = nextSnapshotId()
         val root = rootInActiveWindow
         if (root == null) {
-            lastSnapshotId = id
-            lastNodes = emptyList()
-            return UiSnapshot(id, "", lastActivity, System.currentTimeMillis(), emptyList())
+            val empty = UiSnapshot(id, "", lastActivity, System.currentTimeMillis(), emptyList())
+            rememberSnapshot(empty)
+            return empty
         }
         try {
             val start = System.nanoTime()
@@ -130,8 +143,7 @@ class JevAccessibilityService : AccessibilityService() {
                 id,
                 activity = lastActivity
             )
-            lastSnapshotId = id
-            lastNodes = snap.nodes
+            rememberSnapshot(snap)
             uiDirty = false
             JevLog.d(TAG, "dump_ui: ${snap.nodes.size} nodos en ${(System.nanoTime() - start) / 1_000_000}ms")
             return snap
@@ -140,27 +152,53 @@ class JevAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * v1.2.4: O(1), sin `dumpUiTree()`: lee el paquete de la ventana activa
+     * sin recorrer el árbol ni acuñar `snapshot_id` (no consume el snapshot
+     * del agente). `activity` = último `TYPE_WINDOW_STATE_CHANGED`.
+     */
     fun getForeground(): Pair<String, String> {
-        val snap = dumpUiTree()
-        return snap.packageName to snap.activity
+        val root = rootInActiveWindow ?: return "" to lastActivity
+        return try {
+            root.packageName?.toString().orEmpty() to lastActivity
+        } finally {
+            root.recycle()
+        }
     }
 
     // ---- acciones UI (Fase 2) ----
 
-    private fun requireFreshNode(nodeId: String, snapshotId: Long): UiNode {
-        if (snapshotId != lastSnapshotId || uiDirty) {
-            throw JamError("snapshot obsoleto; re-haz dump_ui", "STALE_SNAPSHOT")
-        }
-        return lastNodes.find { it.id == nodeId }
+    /**
+     * v1.2.4 (element-centric liveness): el snapshot es válido si vive en
+     * el anillo de los últimos 8; `uiDirty` ya no aborta. La identidad del
+     * nodo y el paquete activo se validan al actuar ([reanchorOrThrow]).
+     */
+    private fun requireFreshNode(nodeId: String, snapshotId: Long): Pair<UiSnapshot, UiNode> {
+        val snap = synchronized(historyLock) {
+            snapshotHistory.lastOrNull { it.snapshotId == snapshotId }
+        } ?: throw JamError(
+            "snapshot_id fuera de la ventana de los últimos $MAX_SNAPSHOT_HISTORY snapshots; re-haz read_screen",
+            "STALE_SNAPSHOT"
+        )
+        val node = snap.nodes.find { it.id == nodeId }
             ?: throw JamError("nodo fuera del snapshot", "STALE_SNAPSHOT")
+        return snap to node
     }
 
-    private fun reanchorOrThrow(expected: UiNode): A11yNode {
+    private fun reanchorOrThrow(snap: UiSnapshot, expected: UiNode): A11yNode {
         val idx = expected.id.removePrefix("n_").toIntOrNull()
             ?: throw JamError("node_id inválido", "VALIDATION_ERROR")
         val root = rootInActiveWindow
-            ?: throw JamError("el nodo ya no existe", "SELECTOR_NOT_FOUND")
+            ?: throw JamError("sin ventana activa", "SELECTOR_NOT_FOUND")
         val res = try {
+            val livePkg = root.packageName?.toString().orEmpty()
+            if (snap.packageName.isNotEmpty() && livePkg != snap.packageName) {
+                throw JamError(
+                    "la app en primer plano cambió de ${snap.packageName} a $livePkg; " +
+                        "vuelve a abrir ${snap.packageName} o haz read_screen",
+                    "STALE_SNAPSHOT"
+                )
+            }
             LiveNodeReanchor.reanchor(RealA11yNode(root), expected, idx)
         } finally {
             root.recycle()
@@ -179,14 +217,16 @@ class JevAccessibilityService : AccessibilityService() {
         val snap = dumpUiTree()
         val node = SelectorResolver.resolve(snap.nodes, sel)
             ?: throw JamError("selector sin match", "SELECTOR_NOT_FOUND")
-        return tapLiveNode(node)
+        return tapLiveNode(snap, node)
     }
 
-    fun tapNode(nodeId: String, snapshotId: Long): TapResult =
-        tapLiveNode(requireFreshNode(nodeId, snapshotId))
+    fun tapNode(nodeId: String, snapshotId: Long): TapResult {
+        val (snap, node) = requireFreshNode(nodeId, snapshotId)
+        return tapLiveNode(snap, node)
+    }
 
-    private fun tapLiveNode(node: UiNode): TapResult {
-        val live = reanchorOrThrow(node)
+    private fun tapLiveNode(snap: UiSnapshot, node: UiNode): TapResult {
+        val live = reanchorOrThrow(snap, node)
         try {
             val via: String
             if (live.isClickable && live.performClick()) {
@@ -226,8 +266,8 @@ class JevAccessibilityService : AccessibilityService() {
     }
 
     fun typeNode(nodeId: String, snapshotId: Long, text: String): TypeResult {
-        val expected = requireFreshNode(nodeId, snapshotId)
-        val live = reanchorOrThrow(expected)
+        val (snap, expected) = requireFreshNode(nodeId, snapshotId)
+        val live = reanchorOrThrow(snap, expected)
         try {
             if (!live.isFocused) {
                 throw JamError("el nodo no tiene foco; haz tap antes", "NOT_FOCUSED")
@@ -513,6 +553,7 @@ class JevAccessibilityService : AccessibilityService() {
         private const val TAG = "JamUi"
         private const val PREFS = "jam"
         private const val KEY_SNAPSHOT = "snapshot_id"
+        private const val MAX_SNAPSHOT_HISTORY = 8
         private const val TAP_MS = 100L
         private const val SWIPE_MS = 400L
         private const val GESTURE_TIMEOUT_MS = 3000L

@@ -14,28 +14,31 @@ import (
 	"github.com/k4wai1/jav/pkg/tools"
 )
 
-// version se inyecta por -ldflags -X main.version=… (default 1.2.3).
-var version = "1.2.3"
+// version se inyecta por -ldflags -X main.version=… (default 1.2.4).
+var version = "1.2.4"
 
 // instructions es el bloque §1 de docs/MCP_SPEC_GUIDELINES.md, compactado a
-// ≤220 palabras (v1.2.0). Conserva intactos los tokens obligatorios
-// (LANE, snapshot_id, NOT_FOCUSED, VERIFY, planned:true, confirm:true,
-// PRIVACY, hint) y remite a las fichas completas bajo demanda por Resource.
-const instructions = `You control an Android device through Jav, bridging the on-device accessibility service. Never invent coordinates: taps/types target a node id from a fresh snapshot.
+// ≤220 palabras (v1.2.0; CONTACTS añadido en v1.2.4). Conserva intactos los
+// tokens obligatorios (LANE, snapshot_id, NOT_FOCUSED, VERIFY, planned:true,
+// confirm:true, PRIVACY, hint) y remite a las fichas completas bajo demanda
+// por Resource.
+const instructions = `You control an Android device through Jav. Never invent coordinates: taps/types target a node id from a snapshot.
 
-LANE — prefer the cheapest lane: (1) NATIVE device APIs (battery, memory, storage, cpu, device_info, settings, clipboard, usage, contacts, calendar, notifications, media, location, photo); (2) INTENTS (open_url, send_intent) that open or pre-fill, never send headlessly; (3) UI last (read_screen, tap_node, type_text, scroll, press_back, wait_for_text).
+LANE — prefer the cheapest lane: (1) NATIVE device APIs (battery, storage, settings, clipboard, usage, contacts, calendar, media, location); (2) INTENTS (open_url, send_intent) that pre-fill/open, never send headlessly; (3) UI last (read_screen, tap_node, type_text, scroll, press_back, wait_for_text).
 
-FRESHNESS — read_screen returns a monotone snapshot_id; tap_node and type_text REQUIRE it, else STALE_SNAPSHOT. Never retry the same snapshot: re-read once; a second STALE means UI_UNSTABLE — stop and report.
+CONTACTS — if list_contacts returns 0 matches for a person/bot, do NOT stop: open the messaging app and find the chat in the visible list or search (many live only in-app).
 
-FOCUS — type_text writes only into the focused field (REPLACE via ACTION_SET_TEXT). Otherwise NOT_FOCUSED: tap, re-read, then type. No implicit taps.
+FRESHNESS — read_screen returns a monotone snapshot_id; tap_node/type_text require it; the live element is re-verified (moved-but-unique → re-anchored; gone/duplicated → STALE_SNAPSHOT). On STALE re-read once; a second STALE = UI_UNSTABLE — stop.
 
-VERIFY — mutations return no snapshot; verify with read_screen or wait_for_text and report the via path executed. Prefer tap_node over tap-by-text.
+FOCUS — type_text writes only into the focused field (REPLACE). Otherwise NOT_FOCUSED: tap, re-read, then type. No implicit taps.
 
-CONFIRM — critical/irreversible effects (messaging, paying, deleting, account/permission, photo, media stop, settings writes) return {planned:true, preview, hint} with verified:false on first call. Repeat with confirm:true only after the operator approves that exact preview. Previews carry lengths/hashes, never raw secrets.
+VERIFY — mutations return no snapshot; verify with read_screen/wait_for_text and report the via path. Prefer tap_node over tap-by-text.
 
-PRIVACY — clipboard/contacts/calendar/notifications/location are minimal-projection: counts/hashes/lengths, never raw content beyond the task; never log secrets or bodies.
+CONFIRM — critical/irreversible effects (messaging, paying, deleting, permissions, photo, media, settings) return {planned:true, preview, hint}, verified:false. confirm:true only after operator approval of that exact preview; previews carry lengths/hashes, never raw secrets.
 
-ERRORS — every failure carries evidence.code plus a recovery hint; follow it literally. Full per-tool specs load on demand: android://tool/<name> or android://tools/catalog.`
+PRIVACY — clipboard/contacts/calendar/notifications/location are minimal-projection: counts/hashes/lengths, never raw content or logged secrets.
+
+ERRORS — every failure carries evidence.code plus a recovery hint; follow it literally. Full specs: android://tool/<name> or android://tools/catalog.`
 
 func main() {
 	// Subcomando de vinculación sin fricción (no arranca el servidor MCP):

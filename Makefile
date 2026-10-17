@@ -1,4 +1,4 @@
-VERSION ?= 1.2.3
+VERSION ?= 1.2.4
 LDFLAGS = -s -w -X main.version=$(VERSION)
 BIN = dist/jav-linux-amd64
 

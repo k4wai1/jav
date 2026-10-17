@@ -65,10 +65,80 @@ class LiveNodeReanchorTest {
     }
 
     @Test
-    fun driftBeyondToleranceFailsNotFound() {
+    fun largeDriftWithinNewLimitReanchors() {
+        val decoy = decoy()
+        val send = sendLive(listOf(40, 210, 240, 310))
+        val root = rootOf(decoy, send)
+
+        val res = LiveNodeReanchor.reanchor(root, expected(1), 1)
+
+        assertEquals(ReanchorStatus.REANCHORED, res.status)
+        assertEquals("Enviar", res.node!!.text)
+        assertTrue(decoy.recycled)
+        assertFalse(send.recycled)
+        assertFalse(root.recycled)
+    }
+
+    @Test
+    fun driftBeyondToleranceUniqueIdentityReanchors() {
         val decoy = decoy()
         val send = sendLive(listOf(40, 300, 240, 400))
         val root = rootOf(decoy, send)
+
+        val res = LiveNodeReanchor.reanchor(root, expected(1), 1)
+
+        assertEquals(ReanchorStatus.REANCHORED, res.status)
+        assertTrue(res.reanchored)
+        assertEquals("Enviar", res.node!!.text)
+        assertTrue(decoy.recycled)
+        assertFalse(send.recycled)
+        assertFalse(root.recycled)
+    }
+
+    @Test
+    fun twoFarIdenticalCandidatesFailsAmbiguous() {
+        val first = sendLive(listOf(40, 500, 240, 600))
+        val second = sendLive(listOf(40, 800, 240, 900))
+        val root = rootOf(decoy(), first, second)
+
+        val res = LiveNodeReanchor.reanchor(root, expected(1), 1)
+
+        assertNull(res.node)
+        assertEquals(ReanchorStatus.AMBIGUOUS, res.status)
+        assertEquals("STALE_SNAPSHOT", res.status.errorCode)
+        assertTrue(first.recycled)
+        assertTrue(second.recycled)
+        assertFalse(root.recycled)
+    }
+
+    @Test
+    fun uniqueIdentityWithoutAnchorFailsNotFound() {
+        val bare = UiNode(
+            id = "n_1", text = null, contentDesc = null,
+            className = "android.widget.Button", resourceId = null,
+            bounds = listOf(40, 100, 240, 200), clickable = true, editable = false,
+            scrollable = false, enabled = true, checked = false, focused = false,
+            visible = true, children = emptyList()
+        )
+        val live = FakeA11yNode(
+            text = null, contentDescription = null,
+            className = "android.widget.Button", viewIdResourceName = null,
+            boundsInScreen = listOf(40, 500, 240, 600)
+        )
+        val root = rootOf(decoy(), live)
+
+        val res = LiveNodeReanchor.reanchor(root, bare, 1)
+
+        assertNull(res.node)
+        assertEquals(ReanchorStatus.NOT_FOUND, res.status)
+        assertTrue(live.recycled)
+        assertFalse(root.recycled)
+    }
+
+    @Test
+    fun targetGoneFailsNotFound() {
+        val decoy = decoy()
+        val root = rootOf(decoy)
 
         val res = LiveNodeReanchor.reanchor(root, expected(1), 1)
 
@@ -76,7 +146,6 @@ class LiveNodeReanchorTest {
         assertEquals(ReanchorStatus.NOT_FOUND, res.status)
         assertEquals("STALE_SNAPSHOT", res.status.errorCode)
         assertTrue(decoy.recycled)
-        assertTrue(send.recycled)
         assertFalse(root.recycled)
     }
 

@@ -1078,3 +1078,30 @@ el MCP mantenía el slot (política single-client).
 
 **S1 (resolver):** requiere `OPENROUTER_API_KEY` (env) o `config.openrouter_api_key`;
 sin ella devuelve fallback honesto `S1_UNAVAILABLE` (nunca idx inventado).
+
+## 28. v1.2.4 — element-centric liveness (build local JDK 21) (2026-10-17)
+
+Contrato: `docs/specs/element-centric-liveness.md` (deroga partes de
+`tactical-robustness-p1p2.md §10`). Kotlin: `snapshotRing` de **8** snapshots;
+`requireFreshNode` ya no corta por `uiDirty` y devuelve `(snapshot, nodo)`;
+`reanchorOrThrow` añade compuerta de paquete activo; `MAX_DRIFT_PX` 24→**120**
++ paso 3 (match de identidad único con ancla); `getForeground()` O(1).
+Go: bloque `CONTACTS` en `instructions` (216 palabras ≤ 220) y bump `1.2.4`.
+
+Verificación (Debian 13, 2 núcleos / ~2 GB, **JDK 21**
+(`/usr/lib/jvm/java-21-openjdk-amd64`), SDK en `~/Android/Sdk`):
+
+```bash
+cd android-app && ./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain
+# BUILD SUCCESSFUL in 14m 11s (44 tasks: 34 executed, 10 from cache)
+# Tests JVM: 92/92, 0 fallos (14 suites; +4 en LiveNodeReanchorTest)
+# APK: app/build/outputs/apk/debug/app-debug.apk (16.7 MB)
+#   package dev.k4wai1.jav versionCode=6 versionName=1.2.4 (aapt badging)
+# Aviso no bloqueante: metaspace del daemon (256 MiB); el build completó.
+```
+
+Go: `gofmt`/`vet` limpios; `go test ./...` verde salvo el preexistente
+`pkg/normalizer` (dependiente de `logs/`; ver §22); `make build`
+(`-X main.version=1.2.4`); `audit-mcp` **12/12 PASS**
+(`initialize-instructions` 216 ≤ 220, `tools-count-38`, `token-budget-startup`
+~1626 tokens ≤ 3000).

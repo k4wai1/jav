@@ -275,6 +275,7 @@
 - [ ] **Pendiente en hardware**: `./gradlew :app:testDebugUnitTest :app:assembleDebug`
   (88/88) + e2e en vivo `e03638e5`. No ejecutable en el entorno del agente
   (sin JDK/SDK, dispositivo no conectado); ver `docs/BUILD.md §22`.
+  **Nota 2026-10-17:** el entorno local ya compila (JDK 21 + SDK); ver §28.
 
 ### Release v1.2.1 — sesión persistente + `jav pair` + Auto-TOFU (2026-10-16)
 - [x] **Sesión persistente** compartida (`pkg/jam`, `sharedMu`): `Dial` reusa la
@@ -294,6 +295,26 @@
 - [x] `versionName 1.2.1` / `versionCode 3`; sin dependencias Android nuevas.
 - [ ] **Pendiente en hardware**: `./gradlew :app:testDebugUnitTest` (88/88) +
   `assembleDebug`, a cargo del workflow CI (JDK 17); ver `docs/BUILD.md §23`.
+  **Nota 2026-10-17:** build local JDK 21 OK (92/92 al día, `BUILD.md §28`).
+
+### Release v1.2.4 — element-centric liveness (2026-10-17)
+- [x] **Síntoma real corregido** (sesión de usuario: YouTube con video que
+  refresca cada segundo + WhatsApp con chat fijado no-contacto): el agente
+  quedaba en bucle de `STALE_SNAPSHOT` con el botón objetivo intacto.
+- [x] **Kotlin** (`docs/specs/element-centric-liveness.md`): `snapshotRing` de
+  **8**; `requireFreshNode` sin compuerta `uiDirty` (devuelve snapshot+nodo);
+  compuerta de **paquete activo** en `reanchorOrThrow` (cambio de app →
+  `STALE_SNAPSHOT` + hint); `MAX_DRIFT_PX` 24→**120** + **paso 3** (match de
+  identidad único con ancla → `REANCHORED`; ≥2 → `AMBIGUOUS`; sin ancla →
+  `NOT_FOUND`); `getForeground()` **O(1)** sin consumir `snapshot_id`.
+- [x] **instructions MCP**: bloque `CONTACTS` (0 matches en `list_contacts` →
+  abrir la app de mensajería y buscar in-app); 216 palabras ≤ 220.
+- [x] Go verde (`gofmt`/`vet`/`test` salvo preexistente `pkg/normalizer`),
+  `make build` 1.2.4, **`audit-mcp` 12/12**.
+- [x] **Build local JDK 21**: `./gradlew :app:testDebugUnitTest :app:assembleDebug`
+  → **92/92** tests JVM, APK `versionCode 6`/`versionName 1.2.4`
+  (`docs/BUILD.md §28`).
+- [x] `versionName 1.2.4`/`versionCode 6`; tag `v1.2.4` → APK CI.
 
 ## Próxima tarea (director v5 vigente; loop congelado)
 

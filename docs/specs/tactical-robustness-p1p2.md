@@ -1352,3 +1352,22 @@ positivo y romperían la paridad golden.
 | R20 | El gate `editable` deja sin enmascarar un secreto en un nodo no editable (poco realista) | quitar el gate en `isPasswordNode` (asumiendo el falso positivo `pin_indicator`) |
 | R21 | `Compact()` enmascarado propaga a `Row.Label`/`SerializeTable` para nodos `Secret`: si el golden algún día incluyera uno, fallaría la paridad | regenerar golden con el mismo criterio de enmascarado (o revertir 11.2) |
 | R22 | `SafeText()` sustituye por un literal fijo: el modelo pierde longitud/forma del secreto (intencional) | devolver `secretLabel(...)` también en `SafeText` |
+
+## 12. Enmienda v1.2.4 — Element-Centric Liveness (deroga partes de §10)
+
+> Contrato vigente: `docs/specs/element-centric-liveness.md`.
+
+La sesión de usuario real (2026-10-16/17: YouTube + WhatsApp) demostró que el
+P6 de §10 era insuficiente en pantallas vivas (seekbar de video refrescando
+cada segundo): `requireFreshNode` abortaba por `uiDirty`/`lastSnapshotId`
+**antes** de que el reanclaje pudiera verificar el nodo objetivo. En v1.2.4:
+
+1. **§10.1b.8 queda derogado**: `requireFreshNode` pasa a
+   `Pair<UiSnapshot, UiNode>` sobre un `snapshotRing` de 8 snapshots;
+   `uiDirty` deja de ser compuerta de acción. `reanchorOrThrow(snap, expected)`
+   gana la compuerta de paquete activo (cambio de app → `STALE_SNAPSHOT` con
+   hint del paquete esperado).
+2. **§10.1c caso (c) queda reemplazado**: drift 200 px con identidad única →
+   `REANCHORED` (paso 3 nuevo; `MAX_DRIFT_PX` 24→120 px).
+3. `getForeground()` deja de llamar a `dumpUiTree()`: O(1), sin consumir
+   `snapshot_id`.

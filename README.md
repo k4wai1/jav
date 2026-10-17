@@ -36,7 +36,7 @@ the loop; Jav holds the device.
 ```bash
 # 1. Install the Go server (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    or: VERSION=v1.2.3 sh install.sh
+#    or: VERSION=v1.2.4 sh install.sh
 
 # 2. Install the companion APK (Releases) and enable accessibility (once)
 #    download jav-companion.apk from the latest GitHub Release, then:
@@ -88,6 +88,21 @@ Sensitive tools (`settings_put`, `send_intent`, `add_contact`, `create_event`,
 `reply_notification`, `media_control`, `take_photo`, `adb_shell`) never run on
 first call: they return `{planned:true, preview, hint}` with `verified:false`
 and only execute after `confirm:true`.
+
+## What changed in v1.2.4
+
+- **Element-centric liveness (`STALE_SNAPSHOT` no longer blocks live screens).**
+  `tap_node`/`type_text` accept any of the last 8 snapshots and re-verify the
+  target element itself: if the button silently moved (banner, keyboard, a
+  video seekbar refreshing every second) but keeps its identity and is unique,
+  the action proceeds; if it is gone or duplicated, `STALE_SNAPSHOT` still
+  fires. A foreground-package gate aborts with a recovery hint when the app on
+  screen changed mid-action — no more taps over the wrong app.
+- **`get_foreground` no longer consumes snapshots** (O(1), no tree walk).
+- **Messaging contacts rule:** if `list_contacts` returns 0 matches, the agent
+  opens the messaging app and looks for the chat in-app (bots/pinned chats may
+  not be in system contacts).
+- No new tools (still 38); `versionName 1.2.4` / `versionCode 6`.
 
 ## What changed in v1.2.3
 
@@ -221,7 +236,7 @@ Director; el dispositivo lo lleva Jav.
 ```bash
 # 1. Instala el servidor Go (PC)
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-#    o: VERSION=v1.2.3 sh install.sh
+#    o: VERSION=v1.2.4 sh install.sh
 
 # 2. Instala la APK companion (Releases) y activa accesibilidad (una vez)
 #    descarga jav-companion.apk del último Release y:
@@ -260,6 +275,22 @@ fijo de 38 tools, no reducible sin consolidar); antes ~8.8k en v1.2.0. Ver
 Carriles: **N0** nativo sin permisos nuevos · **N1** nativo con grants del
 usuario · **N2** Shizuku/`shell`, con denylist de irreversibles + grant
 interactivo (1 cmd / 5 min / 30 min).
+
+## Qué cambió en v1.2.4
+
+- **Frescura centrada en el elemento (el `STALE_SNAPSHOT` ya no bloquea
+  pantallas vivas).** `tap_node`/`type_text` aceptan cualquiera de los últimos
+  8 snapshots y re-verifican el elemento objetivo: si el botón se movió por un
+  banner, el teclado o el seekbar de un video que refresca cada segundo, pero
+  conserva su identidad y es único, la acción procede; si desapareció o se
+  duplicó, sigue fallando con `STALE_SNAPSHOT`. Una compuerta de paquete en
+  primer plano aborta (con hint de recuperación) si la app en pantalla cambió
+  a mitad de acción — nunca más taps sobre la app equivocada.
+- **`get_foreground` deja de consumir snapshots** (O(1), sin recorrer el árbol).
+- **Regla de contactos en mensajería:** si `list_contacts` devuelve 0 matches,
+  el agente abre la app de mensajería y busca el chat dentro de la app (los
+  bots/chats fijados pueden no estar en los contactos del sistema).
+- Sin tools nuevas (siguen 38); `versionName 1.2.4` / `versionCode 6`.
 
 ## Qué cambió en v1.2.3
 

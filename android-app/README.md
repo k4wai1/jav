@@ -15,8 +15,13 @@ y ejecución (gestos + shell UID 2000 vía Shizuku) por WebSocket. Paquete
 - v5 director-client: `set_clipboard {text}` → `{chars}` vía
   `ClipboardManager.setPrimaryClip` por la propia app (sin Shizuku, sin
   grant, scope `ui`); la lectura sigue por host `dumpsys`.
+- **Element-centric liveness (v1.2.4):** `tap_node`/`type_text` aceptan los
+  últimos 8 snapshots y validan el nodo vivo (identidad + paquete activo);
+  drift ≤120 px o match único con ancla → procede; cambio de app →
+  `STALE_SNAPSHOT` con hint. `get_foreground` pasa a O(1) (no consume
+  `snapshot_id`).
 
-Kotlin **88/88** en verde (`:app:testDebugUnitTest`).
+Kotlin **92/92** en verde (`:app:testDebugUnitTest`).
 
 ## Compilar (Debian 13, máquina pequeña)
 

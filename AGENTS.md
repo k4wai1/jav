@@ -6,7 +6,7 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v1.2.3)
+## Estado Operativo Actual (v1.2.4)
 
 | Área | Estado |
 | --- | --- |
@@ -514,3 +514,27 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    app durante el test). Sesión persistente confirmada (1 `hello`/ráfaga).
 3. **Versión:** `1.2.3` (binario, Makefile, `versionName 1.2.3`/`versionCode 5`).
    Detalle en `docs/BUILD.md §27`.
+
+**2026-10-17 — v1.2.4: element-centric liveness (post sesión de usuario real):**
+
+1. **Síntoma real:** en YouTube (seekbar refrescando cada segundo) el agente
+   quedó en bucle de `STALE_SNAPSHOT` pese a que el botón objetivo seguía
+   intacto; `get_foreground`/`resolve_element` consumían el `snapshot_id` del
+   agente; un chat fijado de WhatsApp ("Rupa", bot) no estaba en
+   `list_contacts` y el agente se bloqueó en vez de mirar la app.
+2. **Fix Kotlin** (contrato `docs/specs/element-centric-liveness.md`, deroga
+   partes de `tactical-robustness-p1p2.md §10`): `snapshotRing` de los últimos
+   **8** snapshots; `requireFreshNode` ya **no** corta por `uiDirty` y devuelve
+   `(snapshot, nodo)`; `reanchorOrThrow(snap, expected)` añade **compuerta de
+   paquete activo** (cambio de app → `STALE_SNAPSHOT` + hint del paquete);
+   `MAX_DRIFT_PX` 24→**120** y **paso 3**: match de identidad único con ancla
+   no vacía → `REANCHORED` (≥2 → `AMBIGUOUS`, sin ancla → `NOT_FOUND`);
+   `getForeground()` pasa a **O(1)** (sin `dumpUiTree`, no consume
+   `snapshot_id`).
+3. **instructions MCP (≤220 palabras, audit-mcp):** nuevo bloque `CONTACTS`
+   (0 matches en `list_contacts` → abrir la app de mensajería y buscar el chat
+   in-app; bots/chats fijados pueden no estar en contactos). Se compactó el
+   resto para mantener 216 palabras.
+4. **Versión:** `1.2.4` (binario, Makefile, `versionName 1.2.4`/`versionCode 6`).
+   Tests JVM **92/92** (+4 en `LiveNodeReanchorTest`); sin tools nuevas (38).
+   Build local documentado en `docs/BUILD.md §28` (JDK 21).
