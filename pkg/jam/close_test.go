@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ type wsHarness struct {
 	conns         int
 	gracefulClose int
 	forceClose    chan struct{}
+	rejectHello   bool
 }
 
 func newWsHarness(t *testing.T) *wsHarness {
@@ -66,7 +68,15 @@ func newWsHarness(t *testing.T) *wsHarness {
 			if method == "hello" {
 				h.mu.Lock()
 				h.hellos++
+				reject := h.rejectHello
 				h.mu.Unlock()
+				if reject {
+					_ = conn.WriteJSON(map[string]any{
+						"jsonrpc": "2.0", "id": id, "ok": false,
+						"code": "UNAUTHORIZED", "error": "token inválido",
+					})
+					continue
+				}
 				_ = conn.WriteJSON(map[string]any{
 					"jsonrpc": "2.0", "id": id, "ok": true,
 					"scopes": []string{"read", "ui", "admin"}, "app_version": "test",
@@ -149,6 +159,48 @@ func TestReconnectAfterServerDrop(t *testing.T) {
 	hellos, conns, _ := h.counts()
 	if hellos != 2 || conns != 2 {
 		t.Fatalf("hellos=%d conns=%d, esperado 2/2 tras reconexión", hellos, conns)
+	}
+}
+
+// regresión del "dummy token": un hello rechazado por el teléfono
+// (`{ok:false, code:"UNAUTHORIZED"}`) NUNCA debe tratarse como sesión válida.
+// Antes del fix, `dialConn` usaba `raw` (sin mirar `ok`) y devolvía un
+// cliente como si la autenticación hubiera pasado.
+func TestDialRejectsUnauthorized(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.rejectHello = true
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr == nil {
+		t.Fatalf("Dial() aceptó un hello UNAUTHORIZED; cliente=%v (bug de bypass)", c)
+	}
+	if jerr.Code != "UNAUTHORIZED" {
+		t.Fatalf("code=%q, esperado UNAUTHORIZED", jerr.Code)
+	}
+	hellos, _, _ := h.counts()
+	if hellos != 1 {
+		t.Fatalf("hellos=%d, esperado 1", hellos)
+	}
+}
+
+// regresión de la cara visible del bug: `jav pair` no debe reportar
+// "Vinculado" ni escribir el config cuando el token es rechazado.
+func TestPairRejectsUnauthorizedDoesNotPersist(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.rejectHello = true
+	cfg := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("JAV_CONFIG", cfg)
+	resetShared()
+	t.Cleanup(resetShared)
+
+	if _, err := Pair(h.url(), "token-falso"); err == nil {
+		t.Fatal("Pair() aceptó un token falso (bug: reporta Vinculado sin autenticar)")
+	}
+	if _, err := os.Stat(cfg); err == nil {
+		t.Fatalf("Pair() persistió %s pese a UNAUTHORIZED", cfg)
 	}
 }
 

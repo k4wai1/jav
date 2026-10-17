@@ -321,6 +321,23 @@ func dialConn(url, token, fp string) (*Client, string, *JamError) {
 		_ = conn.Close()
 		return nil, "", jerr
 	}
+	// El hello es la puerta de autenticación: `raw` NO valida el campo `ok`
+	// (la respuesta plana trae scopes/app_version en la raíz, no en `result`).
+	// Sin este guard un `{ok:false, code:"UNAUTHORIZED"}` se trataba como
+	// éxito → `jav pair` reportaba "Vinculado" con un token falso y fijaba el
+	// pin TOFU sobre una sesión no autenticada.
+	if ok, _ := hello["ok"].(bool); !ok {
+		code, _ := hello["code"].(string)
+		msg, _ := hello["error"].(string)
+		if code == "" {
+			code = "UNAUTHORIZED"
+		}
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, ""),
+			time.Now().Add(closeTimeout))
+		_ = conn.Close()
+		return nil, "", &JamError{Code: code, Message: msg}
+	}
 	if sc, ok := hello["scopes"].([]any); ok {
 		for _, s := range sc {
 			if str, ok := s.(string); ok {
