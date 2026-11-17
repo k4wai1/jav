@@ -108,8 +108,8 @@ MANIFEST="$TMP/AUDIT-MANIFEST.txt"
 # --- ZIP sin compresión -----------------------------------------------------
 rm -f "$ZIP"
 printf '%s\n' "${FILES[@]}" > "$TMP/files.txt"
-( cd "$ROOT" && zip -0 -X -nw -q "$ZIP" -@ < "$TMP/files.txt" )
-( cd "$TMP" && zip -0 -X -nw -q "$ZIP" AUDIT-MANIFEST.txt )
+( cd "$ROOT" && zip -0 -X -q "$ZIP" -@ < "$TMP/files.txt" )
+( cd "$TMP" && zip -0 -X -q "$ZIP" AUDIT-MANIFEST.txt )
 
 # --- TREE -------------------------------------------------------------------
 EXCLUDE_TREE='.git|node_modules|.gradle|build|dist|logs|__pycache__|.idea|.vscode|jav-audit.zip|jav-tree.txt|jav_context.txt'
