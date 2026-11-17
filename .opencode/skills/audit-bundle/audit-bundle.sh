@@ -5,6 +5,9 @@
 #   jav-audit.zip  → ZIP SIN compresión (zip -0 -X) con código + docs + configs.
 #                    Incluye AUDIT-MANIFEST.txt (versión, commit, fecha, sha256
 #                    por archivo y exclusiones justificadas).
+#   jav-audit.txt  → volcado en texto plano concatenado del MISMO conjunto de
+#                    archivos (para auditores que no abren ZIP). Cada archivo va
+#                    precedido por "===== <ruta> =====".
 #   jav-tree.txt   → árbol completo del proyecto (tree -a -h) con cabecera.
 #
 # Reglas:
@@ -23,6 +26,7 @@ cd "$ROOT"
 
 ZIP="$ROOT/jav-audit.zip"
 TREE_OUT="$ROOT/jav-tree.txt"
+DUMP="$ROOT/jav-audit.txt"
 
 # --- Dependencias -----------------------------------------------------------
 for bin in git zip unzip tree sha256sum; do
@@ -89,6 +93,7 @@ MANIFEST="$TMP/AUDIT-MANIFEST.txt"
   echo "Files       : ${#FILES[@]}"
   echo "Total bytes : $TOTAL_BYTES"
   echo "Archive     : jav-audit.zip (sin compresión: zip -0 -X)"
+  echo "Text dump   : jav-audit.txt (concatenación, mismo conjunto)"
   echo
   echo "Exclusiones deliberadas"
   echo "-----------------------"
@@ -96,7 +101,7 @@ MANIFEST="$TMP/AUDIT-MANIFEST.txt"
   echo "android-app/.gradle/ · android-app/**/build/"
   echo "Secretos: .env · .env.* · local.properties · google-services.json · *.keystore|jks|p12"
   echo "Binarios/media: *.png|jpg|gif|webp|ico|svg|jar|apk|aab|pdf|so|exe|bin|woff*|ttf"
-  echo "Generados: docs/diagrams/*.html · jav_context.txt · jav-audit.zip · jav-tree.txt"
+  echo "Generados: docs/diagrams/*.html · jav_context.txt · jav-audit.zip · jav-audit.txt · jav-tree.txt"
   echo
   echo "SHA-256 (ordenado por ruta)"
   echo "---------------------------"
@@ -111,8 +116,37 @@ printf '%s\n' "${FILES[@]}" > "$TMP/files.txt"
 ( cd "$ROOT" && zip -0 -X -q "$ZIP" -@ < "$TMP/files.txt" )
 ( cd "$TMP" && zip -0 -X -q "$ZIP" AUDIT-MANIFEST.txt )
 
+# --- TEXTO CONCATENADO (auditores que no abren ZIP) -------------------------
+rm -f "$DUMP"
+DUMP_SECTIONS=0
+{
+  echo "JAV — AUDIT TEXT DUMP"
+  echo "====================="
+  echo "Generated   : $STAMP"
+  echo "App version : $VERSION"
+  echo "Commit      : $COMMIT (dirty: $DIRTY)"
+  echo "Files       : ${#FILES[@]}"
+  echo "Total bytes : $TOTAL_BYTES"
+  echo "Mismo conjunto de archivos que jav-audit.zip."
+  echo
+  echo "Formato: texto plano concatenado; cada archivo va precedido por una"
+  echo "línea '===== <ruta> ====='. Sin numeración de línea: el contenido es"
+  echo "literal y copiable."
+  echo
+  for p in "${FILES[@]}"; do
+    echo "===== $p ====="
+    cat -- "$p"
+    echo
+    DUMP_SECTIONS=$(( DUMP_SECTIONS + 1 ))
+  done
+  echo "===== AUDIT-MANIFEST.txt ====="
+  cat "$MANIFEST"
+  echo
+  DUMP_SECTIONS=$(( DUMP_SECTIONS + 1 ))
+} > "$DUMP"
+
 # --- TREE -------------------------------------------------------------------
-EXCLUDE_TREE='.git|node_modules|.gradle|build|dist|logs|__pycache__|.idea|.vscode|jav-audit.zip|jav-tree.txt|jav_context.txt'
+EXCLUDE_TREE='.git|node_modules|.gradle|build|dist|logs|__pycache__|.idea|.vscode|jav-audit.zip|jav-audit.txt|jav-tree.txt|jav_context.txt'
 {
   echo "JAV — PROJECT TREE"
   echo "=================="
@@ -138,6 +172,11 @@ if unzip -Z1 "$ZIP" | grep -Eq "$SECRET_RE"; then
   echo "ERROR: patrón de secreto detectado dentro del ZIP." >&2
   exit 4
 fi
+if (( DUMP_SECTIONS != EXPECTED )); then
+  echo "ERROR: el dump tiene $DUMP_SECTIONS secciones; esperadas $EXPECTED." >&2
+  exit 5
+fi
 
 echo "OK  jav-audit.zip  $(du -h "$ZIP" | cut -f1)  ${#FILES[@]} archivos  sha256:$(sha256sum "$ZIP" | cut -d' ' -f1)"
+echo "OK  jav-audit.txt  $(du -h "$DUMP" | cut -f1)  $(wc -l < "$DUMP") líneas   sha256:$(sha256sum "$DUMP" | cut -d' ' -f1)"
 echo "OK  jav-tree.txt   $(du -h "$TREE_OUT" | cut -f1)  $(wc -l < "$TREE_OUT") líneas   sha256:$(sha256sum "$TREE_OUT" | cut -d' ' -f1)"
