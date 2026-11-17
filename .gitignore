@@ -49,5 +49,10 @@ Thumbs.db
 *~
 refs/
 
-# --- OpenCode local (utilidades locales, no parte del repo) ---
-.opencode/skills/
+# --- Paquete de auditoría externa (skill audit-bundle; artefactos generados) ---
+/jav-audit.zip
+/jav-tree.txt
+/jav_context.txt
+
+# --- OpenCode: node_modules sí es local; las skills SÍ se commitean ---
+# (antes se ignoraba .opencode/skills/; la skill audit-bundle es parte del repo)
