@@ -290,7 +290,7 @@ func postJSON(payload map[string]any) (map[string]any, error) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("HTTP-Referer", "https://github.com/k4wai1/jav")
 		req.Header.Set("X-Title", "jav-loop")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := jam.HTTPClient.Do(req)
 		if err != nil {
 			cancel()
 			last = err

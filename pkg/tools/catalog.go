@@ -25,7 +25,7 @@ var toolCatalog = map[string]toolMeta{
 	// --- state: lectura de estado (carril nativo/read) ---
 	"device_status":   {"state", "estado Jav: scopes/versión/caps/foreground (read).", false},
 	"get_foreground":  {"state", "foreground: paquete+activity (read).", false},
-	"list_packages":   {"state", "paquetes instalados vía adb host (read).", false},
+	"list_packages":   {"state", "paquetes instalados nativo WS; fallback adb (read).", false},
 	"get_battery":     {"state", "batería: nivel/carga/temp/saver (N0).", false},
 	"get_memory":      {"state", "RAM disponible/total/low_memory (N0).", false},
 	"get_storage":     {"state", "almacenamiento; fine usa Shizuku (N0/N2).", false},

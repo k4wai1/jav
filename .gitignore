@@ -52,6 +52,8 @@ refs/
 # --- Paquete de auditoría externa (skill audit-bundle; artefactos generados) ---
 /jav-audit.zip
 /jav-audit.txt
+/jav-audit.part*.txt
+/jav-go-audit.txt
 /jav-tree.txt
 /jav_context.txt
 

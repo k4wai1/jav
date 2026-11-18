@@ -14,6 +14,14 @@ import (
 // Handlers device/ + app/ (equiv. tools/device.py + tools/app.py).
 
 func hDeviceStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := argsOf(req)
+	// v2.2.0: cambio de dispositivo en caliente antes de conectar.
+	if sel := strings.TrimSpace(getString(args, "select_device", "")); sel != "" {
+		if _, err := jam.SelectDevice(sel); err != nil {
+			return result(jam.Fail("VALIDATION_ERROR", err.Error(),
+				"usa un alias de paired_devices o vincula con jav pair --name <alias> <ip> <token>"))
+		}
+	}
 	t0 := nowMs()
 	c, jerr := jam.Dial()
 	if jerr != nil {
@@ -34,15 +42,38 @@ func hDeviceStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	return result(jam.OK(true, map[string]any{
 		"scopes": c.Scopes, "app_version": c.AppVersion, "foreground": fg,
 		"caps": caps, "cost": cost.SessionSummary(),
+		"active_device": jam.ActiveDeviceName(), "paired_devices": jam.PairedDeviceNames(),
 	}, ""))
 }
 
 func hListPackages(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := argsOf(req)
 	filter := getString(args, "filter", "")
-	// Host adb, nunca vía WS (igual que Python).
+	// v2.0.0: lista nativa por WebSocket (Termux/WSS sin USB). Solo cae a
+	// `adb` si la APK es <2.0.0 (METHOD_NOT_ALLOWED) o no hay conexión.
+	var jerr *jam.JamError
+	if c, derr := jam.Dial(); derr != nil {
+		jerr = derr
+	} else {
+		defer c.Close()
+		if res, cerr := c.ListPackages(filter); cerr == nil {
+			return result(jam.OK(true, map[string]any{
+				"count": res["count"], "packages": res["packages"],
+			}, ""))
+		} else {
+			jerr = cerr
+		}
+	}
+	if jerr.Code != "METHOD_NOT_ALLOWED" && jerr.Code != "CONNECTION_FAILED" {
+		return result(jam.JamFail(jerr))
+	}
+	// Fallback adb (host con USB) para APKs antiguas / sin sesión WS.
 	out, err := exec.Command("adb", "shell", "pm", "list", "packages").Output()
 	if err != nil {
+		// Si ya había un fallo WS, es la causa real (adb sin dispositivo).
+		if jerr != nil {
+			return result(jam.JamFail(jerr))
+		}
 		return result(jam.Fail("ADB_FAILED", "adb pm list packages falló: "+err.Error(),
 			"revisa host adb y conexion del dispositivo"))
 	}

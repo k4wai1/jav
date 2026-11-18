@@ -13,15 +13,88 @@ import org.java_websocket.server.DefaultSSLWebSocketServerFactory
 import org.java_websocket.server.WebSocketServer
 
 /**
- * Estado compartido entre listeners (loopback `ws://` + tailnet `wss://`,
- * Fase 2b): política **single-client** global (AGENTS.md §6) y scopes
- * autenticados, de modo que un cliente en el tailnet y otro en loopback
- * no conviven y `revokeAll` alcanza a ambos.
+ * Estado compartido entre listeners (loopback `ws://` + WSS tailnet/LAN):
+ * política **single-client** global (AGENTS.md §6) y scopes autenticados.
+ *
+ * v2.2.0: la consulta y la revocación viven aquí para que funcionen igual
+ * si el cliente entró por loopback, Tailscale o Wi-Fi (antes solo se
+ * miraba el listener loopback). `revokeAll` alcanza a todos.
  */
 class ClientRegistry {
+    /** Slot single-client: última conexión que posee el canal. */
     @Volatile
     var active: WebSocket? = null
+
+    /**
+     * v2.1.0: conexión nueva esperando `hello` mientras el slot está
+     * ocupado por un cliente autenticado. No se corta al recién llegado:
+     * si prueba credenciales válidas, evicta al anterior; si no, se cierra
+     * solo él y el cliente legítimo sigue intacto.
+     */
+    @Volatile
+    var candidate: WebSocket? = null
     val authedScopes = ConcurrentHashMap<WebSocket, Set<String>>()
+
+    /** Clientes activos: 0/1 sin identidad (cualquier listener). */
+    fun clientCount(): Int = synchronized(this) {
+        val c = active
+        if (c != null && c.isOpen) 1 else 0
+    }
+
+    /** ¿El cliente activo está autenticado? null = sin cliente. */
+    fun clientAuthed(): Boolean? = synchronized(this) {
+        val c = active
+        when {
+            c == null -> null
+            !c.isOpen -> null
+            else -> authedScopes.containsKey(c)
+        }
+    }
+
+    /** Emite un evento al cliente autenticado, sea cual sea el listener. */
+    fun broadcastEvent(frame: String) {
+        val conn = active ?: return
+        if (!conn.isOpen || !authedScopes.containsKey(conn)) return
+        try {
+            conn.send(frame)
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "broadcast falló", t)
+        }
+    }
+
+    /**
+     * v2.2.0: revoca todas las sesiones (autenticadas o no) de cualquier
+     * listener: limpia scopes, olvida candidate/active y cierra con
+     * `UNAUTHORIZED` limpio. Necesario tras regenerar el token o el Kill
+     * Switch.
+     */
+    fun revokeAll() {
+        val conns = LinkedHashSet<WebSocket>()
+        synchronized(this) {
+            conns.addAll(authedScopes.keys)
+            candidate?.let { conns.add(it) }
+            active?.let { conns.add(it) }
+            authedScopes.clear()
+            candidate = null
+            active = null
+        }
+        for (conn in conns) {
+            try {
+                if (conn.isOpen) conn.send(errResponse(null, "token regenerado", "UNAUTHORIZED"))
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "revoke send falló", t)
+            }
+            try {
+                conn.close(4401, "UNAUTHORIZED")
+            } catch (t: Throwable) {
+                JevLog.e(TAG, "revoke close falló", t)
+            }
+        }
+    }
+
+    private companion object {
+        private const val TAG = "JamWs"
+    }
 }
 
 /**
@@ -36,13 +109,18 @@ class JamWsServer(
     bindAddress: String = LOOPBACK,
     sslContext: SSLContext? = null,
     private val registry: ClientRegistry = ClientRegistry(),
-    private val label: String = bindAddress
+    private val label: String = bindAddress,
+    private val onTraffic: (() -> Unit)? = null
 ) : WebSocketServer(InetSocketAddress(bindAddress, port)) {
 
     init {
         if (sslContext != null) {
             setWebSocketFactory(DefaultSSLWebSocketServerFactory(sslContext))
         }
+        // v2.1.0: ping-pong automático de Java-WebSocket. Una conexión
+        // muerta (sin pong) se detecta en ~10 s, liberando el slot
+        // single-client; antes quedaba en BUSY hasta el timeout TCP (~2 min).
+        connectionLostTimeout = PING_INTERVAL_S
     }
 
     private val rateBuckets = ConcurrentHashMap<WebSocket, ArrayDeque<Long>>()
@@ -64,15 +142,33 @@ class JamWsServer(
         } catch (t: Throwable) {
             "?"
         }
+        var evicted: WebSocket? = null
         synchronized(registry) {
             val cur = registry.active
-            if (cur != null && cur.isOpen && cur !== conn) {
-                conn.send(errResponse(null, "server busy", "BUSY"))
-                conn.close(4001, "BUSY")
-                return
+            when {
+                cur == null || !cur.isOpen -> registry.active = conn
+                cur === conn -> {}
+                registry.authedScopes.containsKey(cur) -> {
+                    // Cliente autenticado vivo: no se corta ni al nuevo ni
+                    // al anterior en onOpen. El nuevo debe probar `hello`
+                    // válido para evictar (onMessage); si falla, se cierra
+                    // solo él y el legítimo conserva el slot.
+                    val pending = registry.candidate
+                    if (pending != null && pending !== conn && pending.isOpen) {
+                        evicted = pending
+                    }
+                    registry.candidate = conn
+                }
+                else -> {
+                    // Fantasma sin hello: evicta ya (v2.1.0: nada de BUSY
+                    // a un cliente legítimo por una conexión muerta).
+                    evicted = cur
+                    registry.candidate = null
+                    registry.active = conn
+                }
             }
-            registry.active = conn
         }
+        if (evicted != null) evict(evicted!!, "conexión fantasma sin hello")
         JevLog.i(TAG, "cliente conectado desde $from ($label)")
         scheduler.schedule({
             if (!registry.authedScopes.containsKey(conn) && conn.isOpen) {
@@ -82,16 +178,40 @@ class JamWsServer(
         }, HELLO_TIMEOUT_MS, TimeUnit.MILLISECONDS)
     }
 
+    /** v2.1.0: cierra una conexión obsoleta sin tocar el slot nuevo. */
+    private fun evict(conn: WebSocket, reason: String) {
+        registry.authedScopes.remove(conn)
+        rateBuckets.remove(conn)
+        try {
+            if (conn.isOpen) conn.send(errResponse(null, "conexión reemplazada: $reason", "EVICTED"))
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "evict send falló", t)
+        }
+        try {
+            if (conn.isOpen) conn.close(EVICTED_CODE, "EVICTED")
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "evict close falló", t)
+        }
+        JevLog.i(TAG, "conexión evictada ($reason)")
+    }
+
     override fun onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean) {
         registry.authedScopes.remove(conn)
         rateBuckets.remove(conn)
         synchronized(registry) {
             if (registry.active === conn) registry.active = null
+            if (registry.candidate === conn) registry.candidate = null
         }
         JevLog.i(TAG, "cliente desconectado ($reason)")
     }
 
     override fun onMessage(conn: WebSocket, message: String) {
+        // v2.1.0: cada frame renueva el WakeLock parcial del servicio.
+        try {
+            onTraffic?.invoke()
+        } catch (t: Throwable) {
+            JevLog.e(TAG, "onTraffic falló", t)
+        }
         if (message.length > MAX_FRAME) {
             conn.send(errResponse(null, "frame excede 4 MiB", "PAYLOAD_TOO_LARGE"))
             return
@@ -104,7 +224,22 @@ class JamWsServer(
         }
         if (req.method == "hello") {
             val (scopes, frame) = dispatcher.hello(req, originOf(conn))
-            if (scopes != null) registry.authedScopes[conn] = scopes
+            if (scopes == null) {
+                // Token inválido: se cierra SOLO esta conexión; el cliente
+                // autenticado anterior (si lo hay) conserva el slot.
+                conn.send(frame)
+                conn.close(4401, "UNAUTHORIZED")
+                return
+            }
+            var old: WebSocket? = null
+            synchronized(registry) {
+                val cur = registry.active
+                if (cur != null && cur !== conn && cur.isOpen) old = cur
+                registry.active = conn
+                registry.candidate = null
+                registry.authedScopes[conn] = scopes
+            }
+            if (old != null) evict(old!!, "nuevo hello válido")
             conn.send(frame)
             return
         }
@@ -142,56 +277,26 @@ class JamWsServer(
     }
 
     /** Emite un evento al cliente autenticado (de cualquier listener). */
-    fun broadcastEvent(frame: String) {
-        val conn = registry.active
-        if (conn != null && conn.isOpen && registry.authedScopes.containsKey(conn)) {
-            try {
-                conn.send(frame)
-            } catch (t: Throwable) {
-                JevLog.e(TAG, "broadcast falló", t)
-            }
-        }
-    }
+    fun broadcastEvent(frame: String) = registry.broadcastEvent(frame)
 
     /**
      * jam-ui-redesign tarjeta 1: 0/1 sin identidad (nunca token ni IP
      * en UI; el origen queda en el audit ring, no en pantalla).
      */
-    fun clientCount(): Int = synchronized(registry) {
-        val c = registry.active
-        if (c != null && c.isOpen) 1 else 0
-    }
+    fun clientCount(): Int = registry.clientCount()
 
     /**
      * ¿El cliente activo está autenticado? null = sin cliente.
      * Usado por la tarjeta 1 y como gate de regeneración (tarjeta 3).
      */
-    fun clientAuthed(): Boolean? {
-        val c = synchronized(registry) { registry.active } ?: return null
-        if (!c.isOpen) return null
-        return registry.authedScopes.containsKey(c)
-    }
+    fun clientAuthed(): Boolean? = registry.clientAuthed()
 
     /**
      * jam-ui-redesign tarjeta 3: invalida `authedScopes` tras regenerar
      * el token; desconecta al cliente con `UNAUTHORIZED` limpio.
+     * v2.2.0: incluye `active` y alcanza a todos los listeners.
      */
-    fun revokeAll() {
-        val conns = registry.authedScopes.keys.toList()
-        registry.authedScopes.clear()
-        for (conn in conns) {
-            try {
-                if (conn.isOpen) conn.send(errResponse(null, "token regenerado", "UNAUTHORIZED"))
-            } catch (t: Throwable) {
-                JevLog.e(TAG, "revoke send falló", t)
-            }
-            try {
-                conn.close(4401, "UNAUTHORIZED")
-            } catch (t: Throwable) {
-                JevLog.e(TAG, "revoke close falló", t)
-            }
-        }
-    }
+    fun revokeAll() = registry.revokeAll()
 
     fun shutdown() {
         try {
@@ -227,5 +332,11 @@ class JamWsServer(
         private const val MAX_RPS = 50
         private const val HELLO_TIMEOUT_MS = 10_000L
         private const val SHUTDOWN_TIMEOUT_MS = 1000L
+
+        /** v2.1.0: ping-pong cada 10 s (detecta conexiones muertas). */
+        private const val PING_INTERVAL_S = 10
+
+        /** v2.1.0: cierre limpio de la conexión reemplazada. */
+        private const val EVICTED_CODE = 4002
     }
 }

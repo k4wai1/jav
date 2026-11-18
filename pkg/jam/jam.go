@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -174,8 +175,26 @@ func isLoopback(url string) bool {
 	return strings.Contains(u, "127.0.0.1") || strings.Contains(u, "localhost")
 }
 
-// EnsureForward crea el forward adb (solo loopback). Equiv. _base.ensure_forward.
+// isAndroidOrTermux dice si el proceso corre dentro del teléfono (Android
+// nativo o Termux), donde `adb forward` no aplica y el resolver DNS del SO
+// puede no existir (`/etc/resolv.conf`).
+func isAndroidOrTermux() bool {
+	if runtime.GOOS == "android" {
+		return true
+	}
+	if os.Getenv("TERMUX_VERSION") != "" {
+		return true
+	}
+	return strings.Contains(os.Getenv("PREFIX"), "com.termux")
+}
+
+// EnsureForward crea el forward adb (solo loopback y solo desde el host).
+// Dentro del teléfono (Android/Termux) `127.0.0.1:38472` ya es local: no se
+// invoca `adb` (v2.0.0, independencia total de ADB/USB).
 func EnsureForward() {
+	if isAndroidOrTermux() {
+		return
+	}
 	_ = exec.Command("adb", "forward", "tcp:38472", "tcp:38472").Run()
 }
 
@@ -221,6 +240,10 @@ func Dial() (*Client, *JamError) {
 
 // acquireSharedLocked exige `sharedMu` tomado.
 func acquireSharedLocked() (*Client, *JamError) {
+	// v2.3.0: JAV_DEVICE inexistente → error honesto, nunca otro teléfono.
+	if jerr := ValidateActiveDevice(); jerr != nil {
+		return nil, jerr
+	}
 	cfg := effectiveConfig()
 	if sharedClient != nil && sharedCfg != cfg {
 		sharedClient.closeConn()
@@ -240,12 +263,37 @@ func acquireSharedLocked() (*Client, *JamError) {
 		EnsureForward()
 		c, captured, jerr = dialConn(url, token, fp)
 	}
+	// v2.3.0: failover de rutas del mismo dispositivo (Tailnet ↔ LAN ↔ USB)
+	// cuando la principal está caída y no hay URL fijada por entorno.
+	if jerr != nil && isRefused(jerr) && !wsEnvFixed() {
+		for _, fb := range ActiveDeviceFallbackURLs() {
+			if fb == url {
+				continue
+			}
+			if c2, cap2, j2 := dialConn(fb, token, fp); j2 == nil {
+				c, captured, jerr = c2, cap2, nil
+				url = fb
+				fmt.Fprintf(os.Stderr, "jav: failover a %s\n", fb)
+				break
+			}
+		}
+	}
 	if jerr != nil {
 		return nil, jerr
 	}
 	// Auto-TOFU: si conectamos a wss:// sin pin, fijamos el observado.
+	// v2.2.0: también en el `DeviceEntry` del alias activo, para que el
+	// multidispositivo conserve el pin al cambiar de teléfono.
 	if captured != "" {
-		if err := UpdateConfig(func(cf *Config) { cf.CertFingerprint = captured }); err == nil {
+		if err := UpdateConfig(func(cf *Config) {
+			cf.CertFingerprint = captured
+			if act := ActiveDeviceName(); act != "" {
+				if d, ok := cf.Devices[act]; ok {
+					d.CertFingerprint = captured
+					cf.Devices[act] = d
+				}
+			}
+		}); err == nil {
 			fmt.Fprintf(os.Stderr, "jav: Auto-TOFU %s… guardado en %s\n",
 				captured[:min(16, len(captured))], ConfigPath())
 		}
@@ -415,6 +463,20 @@ func resetShared() {
 	sharedCfg = ""
 }
 
+// OnDeviceSwitch hook opcional (v2.2.0): se invoca tras cambiar el
+// dispositivo activo para invalidar cachés derivadas (p.ej. `pkg/tools`:
+// uitrack + dimensiones de pantalla). Nunca escribe a stdout.
+var OnDeviceSwitch func()
+
+// ResetSessionState cierra la sesión WS compartida y notifica el cambio de
+// dispositivo. Se llama al vincular y al hacer `jav pair --use`.
+func ResetSessionState() {
+	resetShared()
+	if OnDeviceSwitch != nil {
+		OnDeviceSwitch()
+	}
+}
+
 func newID() string {
 	var b [4]byte
 	_, _ = rand.Read(b[:])
@@ -565,6 +627,13 @@ func (c *Client) Screenshot(fmtStr string, quality int) (map[string]any, *JamErr
 
 func (c *Client) SetClipboard(text string) (map[string]any, *JamError) {
 	return c.Call("set_clipboard", map[string]any{"text": text})
+}
+
+// ListPackages lista paquetes instalados **en el propio teléfono** (v2.0.0):
+// sin `adb` en el host, funciona en Termux y por WSS/Tailnet. La app
+// <2.0.0 responde METHOD_NOT_ALLOWED (el caller puede caer a adb).
+func (c *Client) ListPackages(filter string) (map[string]any, *JamError) {
+	return c.Call("list_packages", map[string]any{"filter": filter})
 }
 
 // Scroll envía scroll con dirección y nodo opcional.

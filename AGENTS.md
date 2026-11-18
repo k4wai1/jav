@@ -6,16 +6,17 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v1.2.5)
+## Estado Operativo Actual (v2.3.0)
 
 | Área | Estado |
 | --- | --- |
 | Identidad | App **`Jav`**, paquete `dev.k4wai1.jav`; repo `github.com/k4wai1/jav` |
 | Binario MCP | `cmd/jav` (Go, stdio JSON-RPC puro; logs solo a stderr) |
 | Catálogo | **38 tools** en 4 grupos (`state`, `ui`, `native`, `resolve`) + fichas de 7 secciones bajo demanda (`android://tool/<name>`, `android://tools/<group>`, índice `android://tools/catalog`) |
-| Vinculación / UX | `jav pair <ip-o-url\|usb> <token>` → `~/.config/jav/config.json` (0600) + **Auto-TOFU** en `wss://`; prioridad env → config → default; **recarga en caliente** (sin reiniciar el MCP) |
-| Transporte | **Sesión persistente** compartida (`pkg/jam`, `sharedMu`): 1 `hello` por ráfaga (~140–320 ms/llamada); cierre ordenado (`close`+eco) contra `BUSY` |
-| Seguridad | Token **AES-GCM/Keystore** · Lockout **5/60 s → 5 min** · **WSS tailnet** TOFU · **Audit Ring 500** · **Kill Switch** (QS tile + notificación) · **Shell Grant 1 cmd/5 min/30 min + denylist** |
+| Vinculación / UX | `jav pair <ip-o-url\|usb\|auto> <token>` → `~/.config/jav/config.json` (0600) + **Auto-TOFU** en `wss://`; multidispositivo (`--name`, `--list`, `--use`, `--remove`); prioridad env → config → default; **recarga en caliente** |
+| Red / Descubrimiento | Loopback WS + **WSS por IP privada detectada** (CGNAT `100.64/10` y RFC 1918 en `wlan*/eth*`), mDNS `_jav-mcp._tcp` (`jav pair auto`); nunca `0.0.0.0` |
+| Transporte | **Sesión persistente** compartida (`pkg/jam`, `sharedMu`): 1 `hello` por ráfaga (~140–320 ms/llamada); cierre ordenado (`close`+eco); **failover de rutas del mismo teléfono** (Tailnet ↔ LAN ↔ USB) |
+| Seguridad | Token **AES-GCM/Keystore** · Lockout **5/60 s → 5 min** · **WSS** TOFU · **Audit Ring 500** · **Kill Switch** (QS tile + notificación) · **Shell Grant 1 cmd/5 min/30 min + denylist** |
 | GUI (Android) | Icono 1000×1000 + launcher mipmaps + header con logo; colores semánticos `values`/`values-night` |
 
 ## 1. Filosofía
@@ -603,3 +604,40 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
 4. **Diagramas**: `docs/diagrams/jav-{architecture,security}.html` (Archify,
    4/4 gates) + SVG pastel estáticos en `docs/assets/` embebidos en el README
    rediseñado (sin emojis decorativos, badges pastel); sin tools nuevas (38).
+
+**2026-11-18 — v2.0.0 → v2.3.0: independencia de ADB, LAN/mDNS, multidispositivo y failover (consolidada):**
+
+1. **v2.0.0 — sin ADB en el host.** `list_packages` y las dimensiones de
+   pantalla viajan por WS (`list_packages` nativo + `refreshScreenSize`/
+   `ensureScreenSize`); `EnsureForward()` es no-op en Android/Termux
+   (`isAndroidOrTermux`); `pkg/jam/netclient.go` resuelve DNS con
+   `1.1.1.1`/`8.8.8.8` cuando el SO no tiene resolver; `get_clipboard`
+   reutiliza la vía nativa. El binario funciona en el teléfono sin USB.
+2. **v2.1.0 — LAN + mDNS.** `net/NetworkDetector.kt`: detecta CGNAT
+   `100.64/10` (tailnet) y RFC 1918 en `wlan*/eth*/ap*/swlan*`; un
+   `JamWsServer` WSS por IP (nunca `0.0.0.0`), WakeLock/WifiLock y
+   anuncio mDNS `_jav-mcp._tcp` (`NsdManager`). Cliente Go:
+   `pkg/jam/mdns.go` + `jav pair auto`. `JamWsServer` usa
+   `connectionLostTimeout = 10` y ping-pong; conexión nueva **desaloja**
+   a la anterior (`4002 EVICTED`), el slot ya no queda muerto por TCP
+   abrupto.
+3. **v2.2.0 — multidispositivo.** `ClientRegistry` es el único punto de
+   verdad (conteo, `authedScopes`, `broadcastEvent`, `revokeAll`) para
+   loopback y WSS; `JevForegroundService` lo comparte. Config:
+   `DeviceEntry`/`devices`/`active_device` con migración en memoria de
+   configs v1.2.x a `default`; `JAV_DEVICE` manda. CLI `--name`, `--list`,
+   `--use`; `device_status(select_device=…)`; `OnDeviceSwitch` +
+   `ResetSessionState` invalidan cachés y cierran la sesión anterior.
+4. **v2.3.0 — endurecimiento.** (a) `revokeAll()` cierra también el
+   `candidate` pendiente de `hello` (Kill Switch/rotación de token).
+   (b) `JAV_DEVICE` inexistente → `VALIDATION_ERROR` **antes de abrir
+   socket**; `normalizeDevices` limpia los campos raíz (fail-closed, nunca
+   fuga al último teléfono). (c) Alias: reutiliza por `CertFingerprint`;
+   colisión de modelo → `base-2`, `base-3`… (`sameDeviceEntry`). (d)
+   `FallbackURLs` por dispositivo (máx. 4): re-vincular el mismo equipo en
+   otra ruta conserva la anterior y `Dial()` cae a ella sola cuando la
+   primaria da `isRefused` y no hay `JAV_WS_URL`/`JEV_WS_URL` fijo. (e)
+   `RemoveDevice` + `jav pair --remove|rm|unpair` (promociona el siguiente
+   alfabético o deja sin activo) y `--name` sin valor → uso + exit 2. (f)
+   selección `1..N` en `jav pair` interactivo (mDNS). (g) `ClientRegistry`
+   con test JVM por proxy dinámico (`ClientRegistryTest.kt`).

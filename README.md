@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="docs/assets/icon.png?v=1.2.2" width="128" alt="Jav" />
+<img src="docs/assets/icon.png?v=2.3.0" width="128" alt="Jav" />
 
 # Jav
 
 **Full-control Android MCP runtime. No root.**
 
 Accessibility-first on-device app + Go MCP server (stdio): 38 atomic tools,
-Shizuku-gated shell, WSS/Tailnet with TOFU pinning.
+Shizuku-gated shell, WSS over Tailnet/LAN with TOFU pinning, multi-device.
 
 [![release](https://img.shields.io/github/v/release/k4wai1/jav?style=flat-square&labelColor=F8F9FA&color=DCECE7)](https://github.com/k4wai1/jav/releases)
 [![tools](https://img.shields.io/badge/tools-38-E8DFF5?style=flat-square&labelColor=F8F9FA)](#tools--38-in-4-groups)
@@ -90,9 +90,23 @@ Then point your Director at `jav` over stdio:
 
 That's it — no `.env`, no restart: `jav` (re)reads
 `~/.config/jav/config.json` (`0600`) hot. Remote pairing uses
-`wss://<tailnet-ip>:38472/`; over USB use `jav pair usb <TOKEN>` with
+`wss://<tailnet-or-lan-ip>:38472/`; over USB use `jav pair usb <TOKEN>` with
 `adb forward tcp:38472 tcp:38472`. Shizuku is started by you — Jav never
 starts it.
+
+Several phones, one config — hot-swappable without restarting the MCP:
+
+```bash
+jav pair auto <TOKEN>                     # discover on the LAN (mDNS)
+jav pair --name pixel 192.168.1.40 <TOKEN>
+jav pair --list                           # * = active device
+jav pair --use pixel                      # hot switch (or JAV_DEVICE=pixel)
+jav pair --remove pixel                   # rm / unpair also work
+```
+
+Pairing the same phone over Tailnet first and then Wi-Fi keeps the previous
+route as `fallback_urls`, so `jav` fails over automatically when the primary
+is down.
 
 <details>
 <summary>From source instead of Releases</summary>
@@ -170,6 +184,35 @@ only execute after `confirm:true`.
 
 ## What changed
 
+### v2.3.0 — multi-device, route failover, LAN + mDNS
+
+- **No ADB needed on the host (v2.0.0).** `list_packages` and screen
+  dimensions travel over the WebSocket (`list_packages` native method,
+  `refreshScreenSize`/`ensureScreenSize`); `EnsureForward()` is a no-op on
+  Android/Termux and the client uses explicit DNS (`1.1.1.1`/`8.8.8.8`) when
+  the OS has no resolver. Phone clipboard goes through the native path.
+- **Private LAN + mDNS (v2.1.0).** `NetworkDetector` finds the tailnet
+  (`100.64/10`) and RFC 1918 Wi-Fi/ethernet addresses; one WSS listener is
+  bound per detected IP (**never `0.0.0.0`**), plus `_jav-mcp._tcp` mDNS
+  advertisement (`jav pair auto`) and WakeLock/WifiLock so deep sleep does not
+  strangle the server. A new connection now **evicts** the previous one
+  (`4002 EVICTED`) with ping-pong, instead of leaving a dead single-client
+  slot behind.
+- **Multi-device (v2.2.0).** `ClientRegistry` is the single source of truth
+  across loopback and every WSS listener; `config.json` stores
+  `devices` + `active_device` (v1.2.x flat configs migrate in memory to
+  `default`). Hot switch with `jav pair --list/--use`, `JAV_DEVICE`, or
+  `device_status(select_device=…)`.
+- **Hardening (v2.3.0).** `jav pair --remove|rm|unpair <alias>` completes the
+  lifecycle (the next alias is promoted, or none stays active). An unknown
+  `JAV_DEVICE` returns `VALIDATION_ERROR` **before opening a socket** and the
+  in-memory root credentials are cleared (fail-closed, never leaks traffic to
+  the last phone). Auto aliases no longer collide (`pixel-9`, `pixel-9-2`),
+  and re-pairing the same phone on another route keeps the old URL in
+  `fallback_urls` (max 4) for automatic Tailnet ↔ LAN ↔ USB failover.
+  `revokeAll()` also closes in-flight `candidate` connections, and one
+  `CommandDispatcher` is shared by all listeners.
+
 ### v1.2.5 — clipboard UID-shell, `__PASTE__`, caps, keystore
 
 - **Device clipboard works in the background (Shizuku UID-shell, scrcpy
@@ -212,11 +255,12 @@ https://github.com/k4wai1/jav/releases/tag/v1.2.0).
 - **`SHIZUKU_UNAVAILABLE`** — start Shizuku yourself; the app never starts it.
   Without it N0 still works, `open_app`/`screenshot` fallbacks fail honestly.
 - **`ACCESSIBILITY_DISABLED`** — enable Jav in Settings → Accessibility.
-- **`BUSY: 4001`** — a previous client didn't close cleanly; v1.2.1+ closes
-  gracefully. Wait ~2 min or restart the app.
-- **WSS won't connect over Tailnet** — the phone must have a `100.64.x.x`
-  address; otherwise only the loopback listener comes up. Check the pinned
-  fingerprint (`CN=jav.local`) in `~/.config/jav/config.json`.
+- **`BUSY: 4001` / `EVICTED: 4002`** — v2.1.0+ evicts the stale client and
+  takes the new one; if a very old client is still connected, restart the app.
+- **WSS won't connect** — the phone needs a tailnet (`100.64.x.x`) or a
+  private LAN address; otherwise only the loopback listener comes up. Try
+  `jav pair auto <TOKEN>` (mDNS `_jav-mcp._tcp`) or `jav pair --list`. Check
+  the pinned fingerprint (`CN=jav.local`) in `~/.config/jav/config.json`.
 
 ## Developer & License
 
@@ -269,8 +313,22 @@ jav pair
 
 Apunta tu Director a `jav` por stdio (`{ "command": ["jav"] }`). La config
 `~/.config/jav/config.json` (`0600`) se relee **en caliente**; remoto =
-`wss://<ip-tailnet>:38472/`, USB = `jav pair usb <TOKEN>` (+ `adb forward`).
+`wss://<ip-tailnet-o-lan>:38472/`, USB = `jav pair usb <TOKEN>` (+ `adb forward`).
 Shizuku lo arrancas tú; Jav nunca lo inicia.
+
+Varios teléfonos en una sola config, con cambio en caliente:
+
+```bash
+jav pair auto <TOKEN>                     # descubre en la LAN (mDNS)
+jav pair --name pixel 192.168.1.40 <TOKEN>
+jav pair --list                           # * = dispositivo activo
+jav pair --use pixel                      # cambio en caliente (o JAV_DEVICE=pixel)
+jav pair --remove pixel                   # también rm / unpair
+```
+
+Si vinculas el mismo teléfono primero por Tailnet y luego por Wi-Fi, la ruta
+anterior queda en `fallback_urls` y `jav` hace failover automático si la
+primaria no responde.
 
 ## Herramientas — 38 en 4 grupos
 
@@ -296,14 +354,22 @@ cargan **bajo demanda** como Resources (`android://tool/<name>`,
 </p>
 
 Token obligatorio en todos los binds (loopback incluido), WSS con pinning TOFU
-en el tailnet (nunca `0.0.0.0`), lockout 5 fallos/60 s → 5 min, `shell` con
-denylist de irreversibles + grant interactivo (1 cmd / 5 min / 30 min), audit
-ring de 500 en el dispositivo (hashes de 16 hex, nunca args/token en claro) y
-Kill Switch (tile QS + notificación). Detalle en [Protocol](docs/PROTOCOL.md) y
-[Arquitectura](ARCHITECTURE.md).
+en tailnet o LAN privada (nunca `0.0.0.0`), lockout 5 fallos/60 s → 5 min,
+`shell` con denylist de irreversibles + grant interactivo (1 cmd / 5 min /
+30 min), audit ring de 500 en el dispositivo (hashes de 16 hex, nunca
+args/token en claro) y Kill Switch (tile QS + notificación). Detalle en
+[Protocol](docs/PROTOCOL.md) y [Arquitectura](ARCHITECTURE.md).
 
 ## Cambios recientes
 
+- **v2.3.0** — multidispositivo completo (`--name`/`--list`/`--use`/`--remove`,
+  `JAV_DEVICE` fail-closed) y **failover automático Tailnet ↔ LAN ↔ USB** con
+  `fallback_urls`; alias sin colisión (`pixel-9`/`pixel-9-2`).
+- **v2.1.0–v2.2.0** — WSS por IP privada detectada (CGNAT y RFC 1918, nunca
+  `0.0.0.0`) + mDNS `_jav-mcp._tcp` (`jav pair auto`) + WakeLock/WifiLock;
+  `ClientRegistry` único y evicción `4002 EVICTED` en vez de `BUSY`.
+- **v2.0.0** — sin ADB en el host: `list_packages` y dimensiones por WS, DNS
+  explícito en Termux/Android y clipboard por vía nativa.
 - **v1.2.5** — clipboard en background por UID shell (Shizuku, técnica scrcpy,
   sin borrar el clip), paste autocontenido `__PASTE__` en `type_text`, `caps`
   en `device_status` y keystore debug determinista (install -r in-place).
@@ -320,9 +386,11 @@ Kill Switch (tile QS + notificación). Detalle en [Protocol](docs/PROTOCOL.md) y
 - **`SHIZUKU_UNAVAILABLE`** — Shizuku no corre; arráncalo tú (Jav nunca lo
   inicia). Sin él, N0 sigue vivo; `open_app`/`screenshot` fallan honestos.
 - **`ACCESSIBILITY_DISABLED`** — activa Jav en Ajustes → Accesibilidad.
-- **`BUSY: 4001`** — cliente previo sin cierre limpio; v1.2.1+ cierra ordenado.
-- **WSS no conecta por Tailnet** — la IP del teléfono debe ser `100.64.x.x`;
-  si no, solo se levanta el listener loopback.
+- **`BUSY: 4001` / `EVICTED: 4002`** — v2.1.0+ desaloja al cliente anterior y
+  acepta el nuevo; si es un cliente muy viejo, reinicia la app.
+- **WSS no conecta** — el teléfono necesita IP tailnet (`100.64.x.x`) o LAN
+  privada; si no, solo se levanta el listener loopback. Prueba
+  `jav pair auto <TOKEN>` (mDNS `_jav-mcp._tcp`) o `jav pair --list`.
 
 ## Desarrollador y licencia
 

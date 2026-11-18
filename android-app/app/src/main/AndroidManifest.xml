@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v2.1.0: WakeLock parcial + WifiLock de baja latencia (deep sleep). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Catálogo native-apis N1: grants de usuario (runtime o acceso
          especial en Ajustes). Sin ellos cada método responde error honesto. -->

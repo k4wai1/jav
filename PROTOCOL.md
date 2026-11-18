@@ -7,12 +7,22 @@
 ## 1. Transporte
 
 - RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback, WS claro).
-  Listener B (opt-in, Fase 2b): `wss://<ip-tailnet>:38472` (WSS obligatorio;
-  cert self-signed `CN=jav.local`, pinning TOFU por SHA-256).
+  Listeners B/C (opt-in, Fase 2b + v2.1.0): `wss://<ip-tailnet>:38472` y
+  `wss://<ip-lan>:38472` (WSS obligatorio; cert self-signed `CN=jav.local`,
+  pinning TOFU por SHA-256). Solo se bindean IPs privadas detectadas
+  (CGNAT `100.64/10` o RFC 1918 en `wlan*`/`eth*`/`ap*`); **nunca `0.0.0.0`**.
+- **mDNS (v2.1.0):** la app anuncia `_jav-mcp._tcp.local.` (NsdManager,
+  puerto 38472) cuando hay LAN; `jav pair auto <token>` lo descubre (~800 ms).
 - Mensajes de texto, **una línea JSON por frame**. Frame máximo **4 MiB**
   (un PNG 720×1640 en base64 supera 1 MiB).
 - Rate limit: 50 req/s global, 5/s para `shell`.
-- **Single-client:** un solo cliente activo; el segundo recibe cierre `BUSY`.
+- Keepalive (v2.1.0): ping/pong de Java-WebSocket cada **10 s**; una conexión
+  muerta libera el slot en ~10 s (antes ~2 min de timeout TCP).
+- **Single-client:** un solo cliente autenticado. Una conexión nueva **no**
+  recibe `BUSY` de entrada: si presenta un `hello` válido, evicta y cierra
+  limpiamente la anterior (`4002 EVICTED`); si el `hello` es inválido se
+  cierra solo ella y el cliente legítimo conserva el slot. Una conexión
+  fantasma (sin `hello`) se evicta al llegar otra.
 
 ## 2. Handshake
 
@@ -97,7 +107,7 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 | `force_stop` | `{package}` | `{}` | shell, sin grant |
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |
 | `get_foreground` | `{}` | `{package, activity}` (v1.2.4: O(1), no consume `snapshot_id`) | read |
-| `list_packages` | `{filter?}` | `{packages[]}` (package visibility) | read |
+| `list_packages` | `{filter?}` | `{count, packages[]}` (**v2.0.0: nativo** `PackageManager.getInstalledPackages` vía WS, sin `adb` en el host; `filter` = `contains` case-insensitive; orden alfabético; APK <2.0.0 responde `METHOD_NOT_ALLOWED` → el cliente cae a `adb shell pm list packages`; package visibility por `<queries>`) | read |
 | `shell` | `{cmd, timeout_ms? 500..60000 default 15000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jav → `SHELL_DENYLIST`; sin grant → `SHELL_DENIED`; > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
 | `get_audit` | `{limit?: int=50 (1..200), since_seq?: int=0}` | `{total_buffered, returned, entries[]}` con cada entry `{seq, ts, method, scope, args_sha256 (16 hex SHA-256), result, origin}` (ring buffer, 500 entradas; nunca args en claro) | admin |
 

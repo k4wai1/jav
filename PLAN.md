@@ -364,6 +364,41 @@
   el **README rediseñado** (sin emojis decorativos, badges pastel, sección
   Jev/OpenRouter). `docs/BUILD.md §31`.
 
+### Fase v2.0.0 — independencia de ADB (2026-11-18)
+- [x] `list_packages` y dimensiones de pantalla por WS (`list_packages`
+  nativo, `refreshScreenSize`/`ensureScreenSize`); `EnsureForward()` no-op en
+  Android/Termux (`isAndroidOrTermux`); `pkg/jam/netclient.go` con DNS
+  explícito (1.1.1.1/8.8.8.8); `get_clipboard` por vía nativa.
+
+### Fase v2.1.0 — LAN + mDNS (2026-11-18)
+- [x] `net/NetworkDetector.kt`: CGNAT `100.64/10` + RFC 1918 en
+  `wlan*/eth*/ap*/swlan*`; un `JamWsServer` WSS por IP (nunca `0.0.0.0`),
+  WakeLock/WifiLock, mDNS `_jav-mcp._tcp` (`NsdManager`).
+- [x] Cliente: `pkg/jam/mdns.go` + `jav pair auto`; ping-pong
+  (`connectionLostTimeout = 10`) y evicción `4002 EVICTED` (el slot no queda
+  muerto por un cierre TCP abrupto).
+
+### Fase v2.2.0 — multidispositivo (2026-11-18)
+- [x] `ClientRegistry` único punto de verdad (conteo/scopes/broadcast/revoke)
+  compartido entre loopback y WSS.
+- [x] `DeviceEntry`/`devices`/`active_device` con migración en memoria;
+  `JAV_DEVICE` prioritario; `--name`/`--list`/`--use`;
+  `device_status(select_device=…)`; `OnDeviceSwitch` + `ResetSessionState`.
+
+### Fase v2.3.0 — endurecimiento + failover (2026-11-18)
+- [x] `JAV_DEVICE` inexistente → `VALIDATION_ERROR` **antes** de abrir socket
+  y campos raíz limpios (nunca fuga al último teléfono).
+- [x] Alias sin colisión (`pixel-9`/`pixel-9-2`, reutilización por
+  `CertFingerprint`) + `fallback_urls` (≤4) y failover automático en `Dial()`
+  cuando la ruta primaria da `isRefused`.
+- [x] `RemoveDevice` + `jav pair --remove|rm|unpair`; `--name` sin valor →
+  uso + exit 2; selección `1..N` del `pair` interactivo (mDNS).
+- [x] `revokeAll()` cierra el `candidate` pendiente; un `CommandDispatcher`
+  por `JevForegroundService` (loopback + WSS comparten contadores).
+- [x] Tests: Go `config_test.go` (4) y JVM `ClientRegistryTest` (5) →
+  **Go 7 paquetes ok**, **Kotlin 103/103**, `audit-mcp` **12/12**.
+  Versión `2.3.0` / `versionCode 8` (`docs/BUILD.md §32`).
+
 ## Próxima tarea (director v5 vigente; loop congelado)
 
 1. `@judge`: cierre formal v5 — `uv run pytest -q` (148 en verde) +
@@ -377,8 +412,8 @@
    §11.4 (director decide / Jev señala / Jav ejecuta).
 4. Explícito: **sin paquetes/contactos prefijados**; acción crítica/irreversible
    solo con preview + `confirm:true` del operador, auditada en forense.
-5. Release: evaluar tag `v1.0.6` para publicar la APK con `ClickAncestor` +
-   anti-ticker (releases GitHub). Requiere antes la deuda P0 (token en logcat).
+5. Release: tag `v2.3.0` cuando el operador cierre la certificación en vivo
+   (build local `docs/BUILD.md §32`; sin deuda P0 abierta).
 
 ## Deuda / anotaciones (AGENTS.md §9)
 - Nombre asentado 2026-10-07 y **ejecutado 2026-10-16**: **Jav** = proyecto/runtime (`github.com/k4wai1/jav`); **Jev** = backend táctico (`JEV_MODEL`); app = `Jav`, paquete `dev.k4wai1.jav`; env `JAV_*` canónico con alias `JEV_*` (ver `docs/specs/ecosystem.md` §4). `mcp-server/` (Python), `logs/run-*.jsonl` y golden testdata conservan el nombre viejo como forense.

@@ -27,6 +27,8 @@ type wsHarness struct {
 	rejectHello   bool
 	// v1.2.5: caps opcionales en el hello (nil = app <1.2.5 sin caps).
 	helloCaps map[string]any
+	// v2.3.0: metadatos de `get_device_info` (modelo → alias automático).
+	deviceInfo map[string]any
 }
 
 func newWsHarness(t *testing.T) *wsHarness {
@@ -90,9 +92,18 @@ func newWsHarness(t *testing.T) *wsHarness {
 				_ = conn.WriteJSON(reply)
 				continue
 			}
+			result := map[string]any{"method": method}
+			h.mu.Lock()
+			if method == "get_device_info" && h.deviceInfo != nil {
+				result = map[string]any{}
+				for k, v := range h.deviceInfo {
+					result[k] = v
+				}
+			}
+			h.mu.Unlock()
 			_ = conn.WriteJSON(map[string]any{
 				"jsonrpc": "2.0", "id": id, "ok": true,
-				"result": map[string]any{"method": method},
+				"result": result,
 			})
 		}
 	}))
@@ -107,6 +118,21 @@ func (h *wsHarness) counts() (hellos, conns, graceful int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.hellos, h.conns, h.gracefulClose
+}
+
+// waitGraceful espera (≤2 s) a que el servidor registre `want` cierres
+// ordenados. Bajo carga (suite completa) el eco del frame `close` puede
+// llegar después del deadline del cliente; el test no debe asumir
+// scheduling inmediato.
+func (h *wsHarness) waitGraceful(want int) int {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		_, _, g := h.counts()
+		if g >= want || time.Now().After(deadline) {
+			return g
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // pointClientAt apunta el cliente a este harness en un archivo de config
@@ -263,8 +289,92 @@ func TestResetSharedSendsCloseFrame(t *testing.T) {
 		t.Fatalf("dial: %v", jerr)
 	}
 	resetShared()
-	_, _, graceful := h.counts()
-	if graceful != 1 {
+	if graceful := h.waitGraceful(1); graceful != 1 {
 		t.Fatalf("gracefulCloses=%d, esperado 1 (frame close ordenado)", graceful)
+	}
+}
+
+// v2.0.0: ListPackages envía el método WS `list_packages` con su filtro
+// (sin `adb` en el host; funciona en Termux/WSS).
+func TestListPackagesSendsWSMethod(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	res, jerr := c.ListPackages("foo")
+	if jerr != nil {
+		t.Fatalf("ListPackages: %v", jerr)
+	}
+	if got, _ := res["method"].(string); got != "list_packages" {
+		t.Fatalf("method=%q, esperado list_packages", got)
+	}
+}
+
+// v2.2.0: dos teléfonos vinculados, cambio de foco en caliente y cierre
+// ordenado de la sesión anterior (sin fugas de estado entre dispositivos).
+func TestMultiDevicePairAndSelect(t *testing.T) {
+	h1 := newWsHarness(t)
+	defer h1.srv.Close()
+	h2 := newWsHarness(t)
+	defer h2.srv.Close()
+
+	t.Setenv("JAV_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	t.Setenv("JAV_WS_URL", "")
+	t.Setenv("JAV_TOKEN", "")
+	t.Setenv("JAV_DEVICE", "")
+	t.Setenv("JAV_CERT_FINGERPRINT", "")
+	resetShared()
+	t.Cleanup(resetShared)
+
+	if _, err := PairNamed("phone-a", h1.url(), "tok-a"); err != nil {
+		t.Fatalf("pair phone-a: %v", err)
+	}
+	if _, err := PairNamed("phone-b", h2.url(), "tok-b"); err != nil {
+		t.Fatalf("pair phone-b: %v", err)
+	}
+	if got := ActiveDeviceName(); got != "phone-b" {
+		t.Fatalf("active=%q, esperado phone-b", got)
+	}
+	if names := PairedDeviceNames(); len(names) != 2 ||
+		names[0] != "phone-a" || names[1] != "phone-b" {
+		t.Fatalf("paired=%v, esperado [phone-a phone-b]", names)
+	}
+
+	// Sesión activa: el tráfico va al phone-b.
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial phone-b: %v", jerr)
+	}
+	if _, jerr := c.Call("get_battery", nil); jerr != nil {
+		t.Fatalf("call phone-b: %v", jerr)
+	}
+	if hellos, _, _ := h2.counts(); hellos != 2 {
+		t.Fatalf("h2 hellos=%d, esperado 2 (pair + sesión)", hellos)
+	}
+	if hellos, _, _ := h1.counts(); hellos != 1 {
+		t.Fatalf("h1 hellos=%d, esperado 1 (solo pair)", hellos)
+	}
+
+	// Cambio de foco: la sesión de h2 se cierra con frame close ordenado.
+	_, _, gracefulBefore := h2.counts()
+	if _, err := SelectDevice("phone-a"); err != nil {
+		t.Fatalf("select phone-a: %v", err)
+	}
+	if got := ActiveDeviceName(); got != "phone-a" {
+		t.Fatalf("active=%q tras select, esperado phone-a", got)
+	}
+	if _, jerr := c.Call("get_battery", nil); jerr != nil {
+		t.Fatalf("call phone-a: %v", jerr)
+	}
+	if hellos, _, _ := h1.counts(); hellos != 2 {
+		t.Fatalf("h1 hellos=%d, esperado 2 (pair + nueva sesión)", hellos)
+	}
+	if after := h2.waitGraceful(gracefulBefore + 1); after != gracefulBefore+1 {
+		t.Fatalf("h2 no cerró la sesión ordenadamente: before=%d after=%d",
+			gracefulBefore, after)
 	}
 }

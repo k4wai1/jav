@@ -118,9 +118,10 @@ class MainActivity : AppCompatActivity() {
         tvState.setTextColor(if (on) colOk else colFail)
         findViewById<TextView>(R.id.tvServerBind).text =
             "ws://127.0.0.1:" + JevForegroundService.PORT + "/"
-        // Fase 2b: listener WSS del tailnet (solo si hay IP 100.64/10).
+        // Fase 2b + v2.1.0: listeners WSS (tailnet `100.64/10` y LAN Wi-Fi).
+        val wss = JevForegroundService.wssUrls()
         findViewById<TextView>(R.id.tvServerTailnet).text =
-            JevForegroundService.tailnetUrl()?.let { "wss: $it" } ?: "tailnet: no detectada"
+            if (wss.isEmpty()) "wss: no detectada" else wss.joinToString(" · ")
         val n = JevForegroundService.clientCount()
         val authed = JevForegroundService.clientAuthed()
         findViewById<TextView>(R.id.tvServerClients).text =

@@ -196,6 +196,29 @@ object NativeDevice {
         }
     }
 
+    /**
+     * v2.0.0: paquetes instalados sin `adb` (Termux/WSS sin USB). Usa
+     * `PackageManager.getInstalledPackages(0)`; con las `<queries>` del
+     * manifest (ACTION_MAIN) la visibilidad de paquetes alcanza a los
+     * lanzables. `filter` vacío = todos; si no, `contains` lower-case.
+     */
+    @Suppress("DEPRECATION")
+    fun listPackages(ctx: Context, filter: String): JsonObject {
+        val fl = filter.trim().lowercase()
+        val names = ArrayList<String>()
+        for (info in ctx.packageManager.getInstalledPackages(0)) {
+            val name = info.packageName
+            if (name.isNullOrEmpty()) continue
+            if (fl.isNotEmpty() && !name.lowercase().contains(fl)) continue
+            names.add(name)
+        }
+        names.sort()
+        return buildJsonObject {
+            put("count", names.size)
+            put("packages", buildJsonArray { names.forEach { add(it) } })
+        }
+    }
+
     /** `settings_get` (System/Secure/Global en lectura; escritura → `settings_put`). */
     fun settingsGet(ctx: Context, namespace: String, key: String): JsonObject {
         if (!NatPolicies.getAllowed(namespace)) {

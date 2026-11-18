@@ -1276,3 +1276,45 @@ reason=denylist_irreversible`. `make build` recomienda el binario
 con Gradle y pasó con la máquina libre) + SVG pastel estáticos
 `docs/assets/jav-{architecture,security}.svg` (XML validado) embebidos en
 `README.md`; benchmarks en `PERFORMANCE.md §10` y `TASK_HISTORY.md §11`.
+
+## 32. v2.3.0 — endurecimiento multidispositivo + failover de rutas + higiene `ClientRegistry` (2026-11-18)
+
+**Alcance** (`AGENTS.md` enmienda v2.0.0→v2.3.0 consolidada): fail-closed de
+`JAV_DEVICE`, alias sin colisión, `fallback_urls` por dispositivo con failover
+automático, `RemoveDevice` + `jav pair --remove`, validación de `--name`,
+selección `1..N` en el `pair` interactivo, un `CommandDispatcher` por servicio
+y cierre del `candidate` en `revokeAll()`. Sin tools nuevas (38).
+
+**Tests añadidos**
+
+| Suite | Caso | Cubre |
+| --- | --- | --- |
+| Go `pkg/jam/config_test.go` | `TestLoadConfigMigratesFlatV1` | migración en memoria v1.2.x → `default`, disco intacto |
+| Go | `TestJavDeviceEnvOverrideAndInvalidFailsHonest` | `JAV_DEVICE` válido enruta sin tocar `active_device`; inválido → `VALIDATION_ERROR` sin abrir socket |
+| Go | `TestPairNamedCollisionAndFallbackURLs` | `pixel-9`/`pixel-9-2`; misma ruta nueva conserva la vieja en `FallbackURLs` (≤4) y `Dial()` cae sola |
+| Go | `TestRemoveDevicePromotesNext` | promoción alfabética, cierre ordenado de la sesión previa, último par deja config vacía |
+| JVM | `ClientRegistryTest` (5) | `clientCount`/`clientAuthed`, broadcast solo autenticado y abierto, `revokeAll` cierra `active`+`candidate` (proxy dinámico de `WebSocket`, sin dependencias) |
+
+**Comandos y resultados**
+
+```bash
+gofmt -l cmd/ pkg/                  # (vacío)
+go vet ./...                        # (sin salida)
+go test -count=1 ./...              # 7 paquetes ok + 4 [no test files]
+make build                          # dist/jav-linux-amd64 (main.version=2.3.0)
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64
+# AUDIT OK: 12/12 PASS
+# tools-count-38 · instructions 216≤220 · carga ~1640 tokens ≤3000
+(cd android-app && ./gradlew testDebugUnitTest --console=plain)
+# BUILD SUCCESSFUL · tests=103 failures=0 errors=0 skipped=0
+```
+
+**Nota de build (caché incremental Kotlin):** el primer
+`testDebugUnitTest` falló con `Unresolved reference: photoResult` en
+`CommandDispatcher.kt` pese a existir en `nat/CameraCapture.kt`; era caché
+incremental corrupta (`app/build/kotlin`). Se borró `app/build/kotlin` +
+`app/build/classes/kotlin` y la compilación completa pasó a la primera
+(3 m 35 s). No se tocó código de producción por ese falso positivo.
+
+**Tiempos locales** (JDK 21, SDK 34): compilación Kotlin completa
+**3 m 35 s**; `testDebugUnitTest` **2 m 30 s** (19 tareas up-to-date).

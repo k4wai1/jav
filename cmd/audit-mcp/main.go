@@ -90,7 +90,7 @@ var sensitive = map[string]bool{
 }
 
 var expected = map[string]toolExp{
-	"device_status":        {nil, map[string]string{}},
+	"device_status":        {nil, map[string]string{"select_device": "string"}},
 	"list_packages":        {nil, map[string]string{"filter": "string"}},
 	"get_foreground":       {nil, map[string]string{}},
 	"open_app":             {[]string{"package"}, map[string]string{"package": "string"}},

@@ -81,21 +81,21 @@ func defTool(name, desc string, required []string, props map[string]any, h Handl
 
 const dDeviceStatus = `Estado de la conexion con Jav.
 
-Descripcion: Scopes del token, version de la app, caps del dispositivo (grants/estado v1.2.5) y app/activity en foreground.
-Parametros: Ninguno.
-Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, caps{accessibility, shizuku, shell_grant, usage_access, notification_listening, contacts, calendar, location, camera}, foreground{package, activity}, cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
+Descripcion: Scopes del token, version de la app, caps del dispositivo (grants/estado v1.2.5), app/activity en foreground y dispositivos vinculados (multidispositivo v2.2.0).
+Parametros: select_device (str): alias opcional del dispositivo a activar en caliente ("" = mantener actual).
+Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, caps{accessibility, shizuku, shell_grant, usage_access, notification_listening, contacts, calendar, location, camera}, foreground{package, activity}, active_device, paired_devices[], cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
 Permisos/Grants: conexion Jav + accesibilidad para foreground; scope read.
-Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false; caps es el estado del hello: app <1.2.5 -> {} (no se inventa); un grant concedido despues del hello no se refleja hasta reconectar.
+Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false; caps es el estado del hello: app <1.2.5 -> {} (no se inventa); un grant concedido despues del hello no se refleja hasta reconectar; select_device inexistente -> VALIDATION_ERROR (nunca se adivina).
 Cuándo NO usar: NO usar para un dato concreto → usa la tool nativa (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO cachear el foreground → re-lee con get_foreground tras cada mutación.
-Ejemplo: device_status() → {scopes[], app_version, caps{}, foreground{package, activity}}`
+Ejemplo: device_status(select_device="pixel") → {active_device:"pixel", paired_devices["pixel","tecno"], foreground{...}}`
 
-const dListPackages = `Lista paquetes instalados (host adb shell pm list packages).
+const dListPackages = `Lista paquetes instalados (nativo por WS; fallback adb host).
 
-Descripcion: Enumera paquetes visibles en el host adb; no pasa por el WS de Jav.
+Descripcion: Enumera paquetes instalados desde el propio teléfono (PackageManager vía WS, v2.0.0: funciona en Termux/WSS sin USB). Solo si la APK es <2.0.0 (METHOD_NOT_ALLOWED) o no hay sesión WS cae a «adb shell pm list packages» del host.
 Parametros: filter (str): subcadena case-insensitive; "" = todos.
 Retorno: {ok, verified, evidence, hint}; evidence = {count, packages[]}.
-Permisos/Grants: adb del host; sin scope Jav.
-Errores/gotchas: host sin adb o dispositivo desconectado -> fallo; por la visibilidad de paquetes la lista puede ser parcial.
+Permisos/Grants: scope read; la app usa las <queries> del manifest (ACTION_MAIN). Sin adb en el host.
+Errores/gotchas: sin sesión WS y sin adb -> ok:false; por la visibilidad de paquetes la lista puede ser parcial.
 Cuándo NO usar: NO adivinar el paquete → el paquete lo aporta el operador y se verifica con list_packages; NO asumir lista total → puede ser parcial por visibilidad de paquetes.
 Ejemplo: list_packages(filter="a.b") → {count, packages[]}`
 
@@ -479,7 +479,7 @@ func RegisterAll(s *server.MCPServer) {
 }
 
 var toolDefs = []toolDef{
-	{"device_status", dDeviceStatus, nil, map[string]any{}, hDeviceStatus},
+	{"device_status", dDeviceStatus, nil, map[string]any{"select_device": strProp("select_device", "")}, hDeviceStatus},
 	{"list_packages", dListPackages, nil, map[string]any{"filter": strProp("filter", "")}, hListPackages},
 	{"get_foreground", dGetForeground, nil, map[string]any{}, hGetForeground},
 	{"open_app", dOpenApp, []string{"package"}, map[string]any{"package": strReq("package")}, hOpenApp},

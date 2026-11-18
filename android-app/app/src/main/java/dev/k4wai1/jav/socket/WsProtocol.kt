@@ -94,6 +94,14 @@ data class ScreenshotParams(val format: String = "png", val quality: Int = 80)
 data class SetClipboardParams(val text: String = "")
 
 /**
+ * Params de `list_packages` (v2.0.0): lista nativa por PackageManager,
+ * sin `adb` en el host. `filter` vacío = todos; si no, `contains`
+ * case-insensitive sobre el nombre del paquete.
+ */
+@Serializable
+data class ListPackagesParams(val filter: String = "")
+
+/**
  * Params de `shell` (Fase 6b, carril N2). `cmd` arbitrario con UID shell
  * vía Shizuku; exige grant interactivo y `confirm` para la denylist.
  */

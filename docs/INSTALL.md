@@ -52,11 +52,41 @@ Sin `.env` y sin reiniciar el cliente MCP.
 ```sh
 # remoto por Tailnet (WSS + Auto-TOFU del certificado):
 jav pair 100.x.y.z <TOKEN>
+# descubre por mDNS en la LAN (_jav-mcp._tcp) y vincula:
+jav pair auto <TOKEN>
 # por USB/loopback (adb forward tcp:38472):
 jav pair usb <TOKEN>
 # opcional: guarda también la key de IA en la misma config:
 jav pair 100.x.y.z <TOKEN> <OPENROUTER_API_KEY>
 ```
+
+**Multidispositivo (v2.2.0):** cada vinculación guarda un `DeviceEntry`
+con alias; el activo se elige sin reiniciar el MCP.
+
+```sh
+jav pair --name pixel 100.x.y.z <TOKEN>   # vincula bajo un alias
+jav pair --list                           # * = dispositivo activo
+jav pair --use pixel                      # cambia de foco en caliente
+jav pair --remove pixel                   # desvincula (rm / unpair también)
+# o por entorno: JAV_DEVICE=pixel jav   (prioridad sobre active_device)
+```
+
+- **Fallback de rutas (v2.3.0):** si vinculas el mismo teléfono primero por
+  Tailnet y luego por LAN Wi-Fi (o USB), el `ws_url` nuevo pasa a primario y
+  las rutas anteriores quedan en `fallback_urls` (máx. 4). Si la primaria no
+  responde (`connection refused`/timeout) y no fijaste `JAV_WS_URL`, `jav`
+  reintenta solo por las anteriores.
+- **Alias automático:** sin `--name` se deriva del modelo (`pixel-9`). Si ya
+  existe otro teléfono con ese alias, se usa `pixel-9-2`, `pixel-9-3`… sin
+  pisarlo; el mismo teléfono (mismo `cert_fingerprint`) reutiliza su alias.
+- **`JAV_DEVICE` inexistente** → `VALIDATION_ERROR` antes de abrir socket:
+  nunca se envía tráfico al último teléfono por accidente.
+- **`--remove`:** si quitas el activo, se promociona el siguiente alias en
+  orden alfabético (o queda «sin dispositivos activos»); la sesión WS se
+  cierra en caliente.
+
+`device_status(select_device="pixel")` hace el mismo cambio desde el agente
+y devuelve `active_device` + `paired_devices[]`.
 
 Escribe `~/.config/jav/config.json` (`chmod 0600`, directorio `0700`):
 

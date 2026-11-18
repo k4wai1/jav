@@ -1,12 +1,30 @@
 package director
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/k4wai1/jav/pkg/jam"
 	"github.com/k4wai1/jav/pkg/jev"
 	"github.com/k4wai1/jav/pkg/normalizer"
 )
+
+// TestMain aísla la config real (~/.config/jav/config.json): si existe en la
+// máquina, sus keys harían que los tests "sin key" manden Authorization real
+// o salgan a red. Mismo patrón que pkg/jam y pkg/jev (v2.2.0).
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "jav-director-test")
+	if err == nil {
+		_ = os.Setenv("JAV_CONFIG", filepath.Join(dir, "config.json"))
+		_ = os.Setenv("JAV_DEVICE", "")
+	}
+	code := m.Run()
+	if err == nil {
+		_ = os.RemoveAll(dir)
+	}
+	os.Exit(code)
+}
 
 func TestBuildResolveStateBlind(t *testing.T) {
 	serial := []jev.SerialRow{{0, "Button", "top-left", "click", "ok"}}

@@ -245,7 +245,18 @@ func jamCallLatency(method string, params map[string]any) jam.Envelope {
 	return jam.OK(verified, ev, "")
 }
 
-// --- Dimensiones de pantalla (cache `adb shell wm size`) ---
+// --- Dimensiones de pantalla (WS primero, `adb shell wm size` como fallback) ---
+
+// init (v2.2.0): al cambiar de dispositivo en caliente se invalida el
+// tracking de UI y la caché de dimensiones (nunca reutilizar estado ajeno).
+func init() {
+	jam.OnDeviceSwitch = func() {
+		uitrack.Reset()
+		screenMu.Lock()
+		screenW, screenH, screenLoaded = 0, 0, false
+		screenMu.Unlock()
+	}
+}
 
 var (
 	screenMu     sync.Mutex
@@ -254,7 +265,42 @@ var (
 	screenLoaded bool
 )
 
+// intFromAny convierte a int valores numéricos de JSON (float64) o Go.
+func intFromAny(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case float32:
+		return int(n)
+	}
+	return 0
+}
+
+// refreshScreenSize resuelve las dimensiones de pantalla sin `adb`
+// obligatorio (v2.0.0):
+//  1. WebSocket (`get_device_info`), si hay token configurado.
+//  2. Fallback host `adb shell wm size` (USB / APK antigua).
+//
+// Solo deja dimensiones válidas en caché (nunca 0x0): `screenLoaded` se
+// marca únicamente al confirmar w>0 && h>0.
 func refreshScreenSize() {
+	if jam.TokenOrEmpty() != "" {
+		if c, jerr := jam.Dial(); jerr == nil {
+			if info, jerr := c.Call("get_device_info", nil); jerr == nil {
+				w := intFromAny(info["screen_w"])
+				h := intFromAny(info["screen_h"])
+				if w > 0 && h > 0 {
+					screenW, screenH = w, h
+					screenLoaded = true
+					return
+				}
+			}
+		}
+	}
 	out, err := exec.Command("adb", "shell", "wm", "size").Output()
 	if err != nil {
 		return
@@ -265,7 +311,23 @@ func refreshScreenSize() {
 		h := atoi(string(m[2]))
 		if w > 0 && h > 0 {
 			screenW, screenH = w, h
+			screenLoaded = true
 		}
+	}
+}
+
+// ensureScreenSize refresca solo si aún no hay dimensiones válidas (nunca
+// cachea 0x0 de forma permanente si la primera llamada fue sin dispositivo).
+func ensureScreenSize() {
+	screenMu.Lock()
+	defer screenMu.Unlock()
+	if screenW > 0 && screenH > 0 {
+		screenLoaded = true
+		return
+	}
+	refreshScreenSize()
+	if screenW > 0 && screenH > 0 {
+		screenLoaded = true
 	}
 }
 
@@ -286,9 +348,11 @@ func nowMs() int64 { return time.Now().UnixMilli() }
 func ScreenWidth() int {
 	screenMu.Lock()
 	defer screenMu.Unlock()
-	if !screenLoaded {
+	if !screenLoaded || screenW <= 0 || screenH <= 0 {
 		refreshScreenSize()
-		screenLoaded = true
+		if screenW > 0 && screenH > 0 {
+			screenLoaded = true
+		}
 	}
 	return screenW
 }
@@ -297,9 +361,11 @@ func ScreenWidth() int {
 func ScreenHeight() int {
 	screenMu.Lock()
 	defer screenMu.Unlock()
-	if !screenLoaded {
+	if !screenLoaded || screenW <= 0 || screenH <= 0 {
 		refreshScreenSize()
-		screenLoaded = true
+		if screenW > 0 && screenH > 0 {
+			screenLoaded = true
+		}
 	}
 	return screenH
 }
@@ -315,6 +381,9 @@ func readScreenState() jam.Envelope {
 	if jerr != nil {
 		return jam.JamFail(jerr)
 	}
+	// v2.0.0: si faltan dimensiones (Termux/WSS sin USB), reintenta aquí
+	// antes de normalizar para que ZoneOf no devuelva "unknown" en todo.
+	ensureScreenSize()
 	st := normalizer.Normalize(dump, normalizer.MaxCandidates, ScreenHeight(), ScreenWidth())
 	cands := make([]map[string]any, 0, len(st.Candidates))
 	for _, cd := range st.Candidates {

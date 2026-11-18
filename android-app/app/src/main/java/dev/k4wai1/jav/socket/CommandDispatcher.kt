@@ -142,6 +142,7 @@ class CommandDispatcher(private val appContext: Context) {
                 "get_storage" -> storage(req)
                 "get_cpu" -> cpu(req)
                 "get_device_info" -> okResponse(req.id, NativeDevice.getDeviceInfo(appContext))
+                "list_packages" -> listPackages(req)
                 "settings_get" -> settingsGet(req)
                 "open_url" -> openUrl(req)
                 "send_intent" -> sendIntent(req)
@@ -334,6 +335,12 @@ class CommandDispatcher(private val appContext: Context) {
     private fun storage(req: WsRequest): String {
         val p = decodeParams<DetailParams>(req)
         return okResponse(req.id, NativeDevice.getStorage(p.detail))
+    }
+
+    /** v2.0.0: lista de paquetes nativa (sin `adb` en el host). */
+    private fun listPackages(req: WsRequest): String {
+        val p = decodeParams<ListPackagesParams>(req)
+        return okResponse(req.id, NativeDevice.listPackages(appContext, p.filter))
     }
 
     private fun cpu(req: WsRequest): String {
@@ -562,12 +569,12 @@ class CommandDispatcher(private val appContext: Context) {
         private val N0_METHODS = setOf(
             "get_battery", "get_memory", "get_storage", "get_cpu",
             "get_device_info", "settings_get", "open_url", "send_intent",
-            "get_clipboard"
+            "get_clipboard", "list_packages"
         )
 
         /** Lecturas puras (sin efecto): scope `read` en el audit. */
         private val READ_METHODS = setOf(
-            "dump_ui", "wait_for_node", "get_foreground", "screenshot"
+            "dump_ui", "wait_for_node", "get_foreground", "screenshot", "list_packages"
         )
 
         /**

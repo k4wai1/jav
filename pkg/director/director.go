@@ -401,6 +401,39 @@ func NewClipboardSlot(text string) map[string]any {
 // RunFunc hook inyectable para adb host (tests).
 type RunFunc func(cmd []string) (string, error)
 
+// readClipboardJav lee el clip primario desde el propio teléfono
+// (`get_clipboard` v1.2.5+). Devuelve (envelope, true) solo si la vía WS
+// está disponible y el texto pasa la verificación por forma; en cualquier
+// otro caso (sin token, sin conexión, método ausente, clip sin enlace)
+// devuelve (nil, false) para que el caller caiga al host `dumpsys`.
+func readClipboardJav() (jam.Envelope, bool) {
+	if jam.TokenOrEmpty() == "" {
+		return nil, false
+	}
+	c, jerr := jam.Dial()
+	if jerr != nil {
+		return nil, false
+	}
+	defer c.Close()
+	res, jerr := c.Call("get_clipboard", nil)
+	if jerr != nil {
+		return nil, false
+	}
+	text, _ := res["text"].(string)
+	if ClipboardError(text) != nil {
+		return nil, false
+	}
+	via, _ := res["via"].(string)
+	if via == "" {
+		via = ViaJamAPI
+	}
+	slot := NewClipboardSlot(text)
+	return jam.OK(false, map[string]any{
+		"text": text, "clipboard_len": slot["len"],
+		"clipboard_sha256": slot["sha256"], "via": via,
+	}, "inject as opaque slot 'clipboard' via ACTION_SET_TEXT"), true
+}
+
 func defaultRun(cmd []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -408,8 +441,16 @@ func defaultRun(cmd []string) (string, error) {
 	return string(out), err
 }
 
-// ReadClipboard lee el clipboard en el host adb y lo verifica por forma.
+// ReadClipboard lee el clipboard y lo verifica por forma. En producción
+// (`run == nil`) intenta primero la vía nativa de Jav por WebSocket
+// (v2.0.0: sin `adb`, válido en Termux/WSS); el host `dumpsys` queda como
+// fallback. Con `run` inyectado (tests) se mantiene el flujo adb exacto.
 func ReadClipboard(run RunFunc, fallbackText string) jam.Envelope {
+	if run == nil {
+		if env, ok := readClipboardJav(); ok {
+			return env
+		}
+	}
 	if run == nil {
 		run = defaultRun
 	}

@@ -97,7 +97,8 @@ type S2ChatMessage struct {
 type DoFunc func(*http.Request) (*http.Response, error)
 
 // S2Chat ejecuta `POST {base}/chat/completions` y devuelve
-// `choices[0].message.content`. `do == nil` usa `http.DefaultClient.Do`.
+// `choices[0].message.content`. `do == nil` usa `jam.HTTPClient.Do`
+// (resolver DNS resiliente en Android/Termux).
 // Devuelve *S2NoKey (config), *S2EmptyResponse (content vacío) o un error de
 // transporte/HTTP.
 func S2Chat(ctx context.Context, messages []S2ChatMessage, temperature float64, maxTokens int, do DoFunc) (string, error) {
@@ -106,7 +107,7 @@ func S2Chat(ctx context.Context, messages []S2ChatMessage, temperature float64, 
 		return "", err
 	}
 	if do == nil {
-		do = http.DefaultClient.Do
+		do = jam.HTTPClient.Do
 	}
 	if ctx == nil {
 		ctx = context.Background()
