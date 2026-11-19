@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/k4wai1/jav/pkg/cost"
 	"github.com/k4wai1/jav/pkg/jam"
 	"github.com/k4wai1/jav/pkg/jev"
 	"github.com/k4wai1/jav/pkg/normalizer"
@@ -263,6 +264,7 @@ func TestResolveLowConfTopCandidates(t *testing.T) {
 
 func TestResolveNoneTopCandidates(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test-key-sin-red")
+	cost.ResetSession()
 	serial := []jev.SerialRow{{0, "a", "top-left", "x", "a"}}
 	out, err := ResolveElement("Tap a", serial, 7, "com.example", nil,
 		func(state map[string]any, qs map[string]map[string]any) (map[string]jev.Answer, map[string]any, error) {
@@ -278,6 +280,16 @@ func TestResolveNoneTopCandidates(t *testing.T) {
 	top, _ := out["top_candidates"].([]TopCandidate)
 	if len(top) != 1 || top[0].Idx != 0 || top[0].Prob != 0.05 {
 		t.Fatalf("NONE excluido aun siendo máximo: %+v", out["top_candidates"])
+	}
+	// v2.5.0: NONE también consume tokens y debe registrarse (bug v2.4.0).
+	if _, ok := out["cost_usd"]; !ok {
+		t.Fatalf("NONE debe llevar cost_usd: %v", out)
+	}
+	if _, ok := out["usage"]; !ok {
+		t.Fatalf("NONE debe llevar usage: %v", out)
+	}
+	if calls, _ := cost.SessionSummary()["calls"].(int); calls != 1 {
+		t.Fatalf("cost.SessionSummary calls=%d, esperado 1 (NONE trackeado)", calls)
 	}
 }
 

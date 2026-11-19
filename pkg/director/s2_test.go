@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/k4wai1/jav/pkg/jev"
 )
 
 // Aceptación ai-providers §5 #4: S2 contra base local sin key → comando
@@ -146,5 +148,166 @@ func TestS2EndpointDefault(t *testing.T) {
 	}
 	if !strings.HasSuffix(S2Endpoint(), "/chat/completions") {
 		t.Fatalf("endpoint: %s", S2Endpoint())
+	}
+}
+
+// --- v2.5.0: grounding agnóstico en resolve_element ---------------------
+
+// s2Server sirve un `chat/completions` local que devuelve `content` fijo.
+func s2Server(t *testing.T, content string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"message": map[string]any{"content": content},
+			}},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// pointS2At fija una base local explícita (sin key) y el modelo.
+func pointS2At(t *testing.T, base string) {
+	t.Helper()
+	t.Setenv("JAV_AI_BASE_URL", base)
+	t.Setenv("JAV_AI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("JAV_AI_MODEL", "local/model")
+}
+
+func s2Serial() []jev.SerialRow {
+	return []jev.SerialRow{
+		{0, "Button", "top-left", "click", "ok"},
+		{1, "Button", "top-left", "click", "cancel"},
+	}
+}
+
+func TestS2CanResolveRequiresExplicitConfig(t *testing.T) {
+	t.Setenv("JAV_AI_BASE_URL", "")
+	t.Setenv("JAV_AI_API_KEY", "")
+	t.Setenv("OPENROUTER_API_KEY", "")
+	t.Setenv("JAV_AI_MODEL", "")
+	if S2CanResolve() {
+		t.Fatalf("sin config explícita S2CanResolve debe ser false")
+	}
+	// Base local explícita sin key → groundable.
+	pointS2At(t, "http://127.0.0.1:11434/v1")
+	if !S2CanResolve() {
+		t.Fatalf("base local explícita debe permitir grounding")
+	}
+	// Key + modelo remotos → groundable.
+	t.Setenv("JAV_AI_BASE_URL", "https://example.invalid/v1")
+	t.Setenv("JAV_AI_API_KEY", "k")
+	if !S2CanResolve() {
+		t.Fatalf("key+modelo explícitos deben permitir grounding")
+	}
+}
+
+func TestResolveElementWithS2Success(t *testing.T) {
+	cases := map[string]string{
+		"plain":  `{"choice": 1, "confidence": 0.92}`,
+		"fenced": "```json\n{\"choice\": 1, \"confidence\": 0.92}\n```",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := s2Server(t, content)
+			pointS2At(t, srv.URL)
+			out := ResolveElementWithS2(context.Background(), "Tap cancel", s2Serial(),
+				9, "com.example", nil, 0.70, nil)
+			if ok, _ := out["ok"].(bool); !ok {
+				t.Fatalf("%s: ok true: %v", name, out)
+			}
+			if out["idx"] != 1 {
+				t.Fatalf("%s: idx 1: %v", name, out)
+			}
+			if out["backend"] != "openai-compat" {
+				t.Fatalf("%s: backend: %v", name, out["backend"])
+			}
+			if out["model"] != "local/model" {
+				t.Fatalf("%s: model: %v", name, out["model"])
+			}
+			if fb, _ := out["fallback_required"].(bool); fb {
+				t.Fatalf("%s: sin fallback: %v", name, out)
+			}
+		})
+	}
+}
+
+func TestResolveElementWithS2LowConfAndNone(t *testing.T) {
+	cases := []struct {
+		name       string
+		content    string
+		wantReason string
+		wantConf   bool
+	}{
+		{"low-conf", `{"choice": 0, "confidence": 0.40}`, "LOW_CONF", true},
+		{"none", `{"choice": "NONE", "confidence": 0.90}`, "NO_TARGET", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := s2Server(t, c.content)
+			pointS2At(t, srv.URL)
+			out := ResolveElementWithS2(context.Background(), "Tap cancel", s2Serial(),
+				9, "com.example", nil, 0.70, nil)
+			if ok, _ := out["ok"].(bool); ok {
+				t.Fatalf("%s: ok debe ser false: %v", c.name, out)
+			}
+			if out["idx"] != nil {
+				t.Fatalf("%s: idx debe ser nil: %v", c.name, out)
+			}
+			if fb, _ := out["fallback_required"].(bool); !fb {
+				t.Fatalf("%s: fallback_required true: %v", c.name, out)
+			}
+			reason, _ := out["reason"].(string)
+			if !strings.Contains(reason, c.wantReason) {
+				t.Fatalf("%s: reason con %q: %v", c.name, c.wantReason, out)
+			}
+			_, hasConf := out["conf"]
+			if hasConf != c.wantConf {
+				t.Fatalf("%s: conf presente=%v, esperado %v: %v", c.name, hasConf, c.wantConf, out)
+			}
+		})
+	}
+}
+
+func TestResolveElementWithS2Hallucination(t *testing.T) {
+	cases := map[string]string{
+		"index-out-of-table": `{"choice": 99, "confidence": 0.9}`,
+		"invalid-json":       "not-json",
+		"bad-confidence":     `{"choice": 0, "confidence": 2}`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := s2Server(t, content)
+			pointS2At(t, srv.URL)
+			out := ResolveElementWithS2(context.Background(), "Tap cancel", s2Serial(),
+				9, "com.example", nil, 0.70, nil)
+			if _, usable := out["idx"]; usable && out["idx"] != nil {
+				t.Fatalf("%s: nunca idx utilizable: %v", name, out)
+			}
+			reason, _ := out["reason"].(string)
+			if !strings.Contains(reason, "S2_HALLUCINATION") {
+				t.Fatalf("%s: reason S2_HALLUCINATION: %v", name, out)
+			}
+		})
+	}
+}
+
+// Sin key S1 y con base local: ResolveElement (ask nil) delega en S2.
+func TestResolveElementDelegatesToS2WhenNoS1(t *testing.T) {
+	srv := s2Server(t, `{"choice": 1, "confidence": 0.90}`)
+	pointS2At(t, srv.URL)
+	out, err := ResolveElement("Tap cancel", s2Serial(), 9, "com.example", nil,
+		nil, nil, "r-s2")
+	if err != nil {
+		t.Fatalf("nunca error fatal: %v", err)
+	}
+	if ok, _ := out["ok"].(bool); !ok {
+		t.Fatalf("debe resolver vía S2: %v", out)
+	}
+	if out["backend"] != "openai-compat" || out["idx"] != 1 {
+		t.Fatalf("backend/idx inesperados: %v", out)
 	}
 }

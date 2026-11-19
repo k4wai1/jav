@@ -80,8 +80,8 @@ Vacío en los cuatro → default final `z-ai/glm-5.3-flash`
 
 ### 2.2 Estado de implementación honesto (Go v1)
 
-**Actualizado 2026-10-15.** La resolución de `JAV_AI_*` vive en
-`pkg/director/s2.go` (aditiva, sin cablear a ningún flujo):
+**Actualizado 2026-11-19 (v2.5.0).** La resolución de `JAV_AI_*` vive en
+`pkg/director/s2.go`:
 
 - `S2BaseURL()` (`JAV_AI_BASE_URL`, default `https://openrouter.ai/api/v1`),
   `S2Endpoint()` (`{base}/chat/completions`), `S2Key()` (`JAV_AI_API_KEY` →
@@ -91,12 +91,43 @@ Vacío en los cuatro → default final `z-ai/glm-5.3-flash`
   inyectable (`DoFunc`); content vacío → `*S2EmptyResponse`;
   `S2ParseCommand(content)` → `*S2BadCommand` si no es objeto JSON.
 - El **modelo** lo resuelve `pkg/cost.S2ModelID()` (cadena §2.1).
+- `S2CanResolve()` (v2.5.0) decide si hay configuración **explícita** de
+  grounding: base local explícita (key opcional) o key S2 + al menos un
+  parámetro `JAV_AI_*` explícito.
 
-Hoy `resolve_element` (S1) **no** usa esta superficie: la vía operativa S2
-sigue siendo el director externo (OpenCode). El slug por OpenRouter (p.ej.
-`deepseek/deepseek-chat`) y la base local/remota los elige el operador por
-env; `s2.go` los resuelve y valida con errores honestos. `pkg/jev` (S1)
-**nunca** lee `JAV_AI_*` (aceptación §5 #1).
+### 2.3 Grounding agnóstico en `resolve_element` (v2.5.0)
+
+`resolve_element` mantiene **Jev (S1) como backend principal**
+(`backend: "jev-decisions"`). El respaldo OpenAI-compatible se activa solo
+cuando:
+
+- `jev.IsMock()` (sin `OPENROUTER_API_KEY`), **o**
+- el operador fija `JAV_RESOLVE_BACKEND=openai`,
+
+y `S2CanResolve()` es `true`. Entonces delega en
+`ResolveElementWithS2(...)`, que reutiliza el estado ciego
+(`BuildResolveStateWithTried`: saneamiento de labels, glifos y flags
+`tried`) y pide al chat-model **solo**:
+
+```json
+{"choice": <int|"NONE">, "confidence": <float 0..1>}
+```
+
+Validación estricta (nunca un `idx` inventado):
+
+| Caso | Resultado |
+|---|---|
+| `choice` fuera de `criteria` o no entero | `S2_HALLUCINATION` |
+| `confidence` no finita o fuera de `[0,1]` | `S2_HALLUCINATION` |
+| `choice == "NONE"` | `NO_TARGET` |
+| `confidence < tau` | `LOW_CONF` (con `conf` visible) |
+| éxito | `{ok:true, idx, conf, snapshot_id, backend:"openai-compat", model}` |
+
+Un fallo de transporte/config → `S2_UNAVAILABLE` (honesto). Con
+`JAV_RESOLVE_BACKEND=openai` y sin configuración usable → `S2_UNAVAILABLE`
+explícito; sin forzar y sin S1 → se conserva `S1_UNAVAILABLE`. Si el
+caller inyecta `ask` (Director/tests), **nunca** se sale a red: S1 manda.
+`pkg/jev` (S1) sigue **sin** leer `JAV_AI_*` (aceptación §5 #1).
 
 ## 3. Tabla qué-puede-ser-qué (ejemplos REALES)
 
@@ -129,7 +160,12 @@ abierta por diseño.
 
 1. `grep -rn 'JAV_AI_' cmd/ pkg/ --include='*.go'` → S1 (`pkg/jev`) **vacío**: S1 no lee `JAV_AI_*`.
 2. `JEV_MODEL` solo acepta slugs Jev documentados en §3; test con `JEV_MODEL=gpt-4o-mini` (u otro chat-model) → `JevHallucination`, cero mutaciones.
-3. `resolve_element` sin `OPENROUTER_API_KEY` → error honesto, nunca `{idx}` utilizable.
+3. `resolve_element` sin `OPENROUTER_API_KEY` y **sin** backend
+   OpenAI-compatible configurado (`S2CanResolve() == false`) → error
+   honesto `S1_UNAVAILABLE`, nunca `{idx}` utilizable. Con backend
+   configurado (base local o key+modelo), el grounding S2 valida
+   `choice ∈ tabla`, `confidence ∈ [0,1]` y `tau`; cualquier anomalía →
+   Fallback Soberano (`S2_HALLUCINATION`/`LOW_CONF`/`NO_TARGET`).
 4. S2 contra base local sin key (stub de `chat/completions` en loopback) → comando válido parseado; contra base remota sin key → error honesto.
 5. Cadena §2.1: cada nivel de la cadena gana al siguiente (test por env).
 6. `uv`-equivalente Go: `go test ./...` verde antes y después.

@@ -31,6 +31,10 @@ type wsHarness struct {
 	deviceInfo map[string]any
 	// v2.3.1: evento asíncrono a intercalar ANTES de la respuesta.
 	preEvent map[string]any
+	// v2.4.0: resultado de `get_caps` (nil = app <2.4.0 → METHOD_NOT_ALLOWED).
+	capsResult map[string]any
+	// v2.4.0: simula una APK <2.4.0 que rechaza `get_caps`.
+	rejectCaps bool
 }
 
 func newWsHarness(t *testing.T) *wsHarness {
@@ -96,14 +100,33 @@ func newWsHarness(t *testing.T) *wsHarness {
 			}
 			result := map[string]any{"method": method}
 			h.mu.Lock()
-			if method == "get_device_info" && h.deviceInfo != nil {
-				result = map[string]any{}
-				for k, v := range h.deviceInfo {
-					result[k] = v
+			switch method {
+			case "get_device_info":
+				if h.deviceInfo != nil {
+					result = map[string]any{}
+					for k, v := range h.deviceInfo {
+						result[k] = v
+					}
+				}
+			case "get_caps":
+				if h.capsResult != nil {
+					result = map[string]any{"caps": h.capsResult}
+				}
+			case "enable_accessibility":
+				result = map[string]any{
+					"enabled": true, "connected": true, "via": "shizuku",
 				}
 			}
 			ev := h.preEvent
+			rejectCaps := h.rejectCaps
 			h.mu.Unlock()
+			if method == "get_caps" && rejectCaps {
+				_ = conn.WriteJSON(map[string]any{
+					"jsonrpc": "2.0", "id": id, "ok": false,
+					"code": "METHOD_NOT_ALLOWED", "error": "método desconocido: get_caps",
+				})
+				continue
+			}
 			// v2.3.1: evento asíncrono sin `id` antes de la respuesta real.
 			if ev != nil {
 				_ = conn.WriteJSON(ev)
@@ -367,6 +390,12 @@ func TestMultiDevicePairAndSelect(t *testing.T) {
 	}
 
 	// Cambio de foco: la sesión de h2 se cierra con frame close ordenado.
+	// El cierre del `pair` es asíncrono: se espera a que el servidor lo
+	// registre antes de medir, para no confundirlo con el de la sesión
+	// (el eco puede llegar en el mismo intervalo de sondeo: 0→2).
+	if g := h2.waitGraceful(1); g != 1 {
+		t.Fatalf("h2 no registró el cierre ordenado del pair: %d", g)
+	}
 	_, _, gracefulBefore := h2.counts()
 	if _, err := SelectDevice("phone-a"); err != nil {
 		t.Fatalf("select phone-a: %v", err)
@@ -380,9 +409,71 @@ func TestMultiDevicePairAndSelect(t *testing.T) {
 	if hellos, _, _ := h1.counts(); hellos != 2 {
 		t.Fatalf("h1 hellos=%d, esperado 2 (pair + nueva sesión)", hellos)
 	}
-	if after := h2.waitGraceful(gracefulBefore + 1); after != gracefulBefore+1 {
+	if after := h2.waitGraceful(gracefulBefore + 1); after < gracefulBefore+1 {
 		t.Fatalf("h2 no cerró la sesión ordenadamente: before=%d after=%d",
 			gracefulBefore, after)
+	}
+}
+
+// v2.4.0 (Fase 4): `get_caps` refresca los caps EN VIVO (aunque el hello
+// trajera accessibility=false) y `enable_accessibility` devuelve el estado
+// de la reparación. Son las dos piezas que desacoplan `device_status` del
+// servicio de accesibilidad.
+func TestGetCapsAndEnableAccessibility(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.helloCaps = map[string]any{"accessibility": false, "shizuku": true}
+	h.mu.Lock()
+	h.capsResult = map[string]any{"accessibility": true, "shizuku": true}
+	h.mu.Unlock()
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	if c.Caps["accessibility"] {
+		t.Fatalf("caps del hello: accessibility debe ser false, got %v", c.Caps)
+	}
+
+	caps, jerr := c.GetCaps()
+	if jerr != nil {
+		t.Fatalf("GetCaps: %v", jerr)
+	}
+	if !caps["accessibility"] || !caps["shizuku"] {
+		t.Fatalf("caps vivos mal parseados: %v", caps)
+	}
+	if !c.Caps["accessibility"] {
+		t.Fatalf("GetCaps no actualizó c.Caps: %v", c.Caps)
+	}
+
+	rep, jerr := c.EnableAccessibility()
+	if jerr != nil {
+		t.Fatalf("EnableAccessibility: %v", jerr)
+	}
+	if enabled, _ := rep["enabled"].(bool); !enabled {
+		t.Fatalf("enable_accessibility no devolvió enabled: %v", rep)
+	}
+	if via, _ := rep["via"].(string); via != "shizuku" {
+		t.Fatalf("via=%q, esperado shizuku", via)
+	}
+}
+
+// v2.4.0: una APK <2.4.0 responde METHOD_NOT_ALLOWED a `get_caps`; el
+// cliente debe propagar el código para que `device_status` caiga a los
+// caps del hello sin inventar estado.
+func TestGetCapsMethodNotAllowed(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.rejectCaps = true
+	h.pointClientAt(t)
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	if _, jerr := c.GetCaps(); jerr == nil || jerr.Code != "METHOD_NOT_ALLOWED" {
+		t.Fatalf("GetCaps app vieja: jerr=%v, esperado METHOD_NOT_ALLOWED", jerr)
 	}
 }
 

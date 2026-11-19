@@ -81,13 +81,13 @@ func defTool(name, desc string, required []string, props map[string]any, h Handl
 
 const dDeviceStatus = `Estado de la conexion con Jav.
 
-Descripcion: Scopes del token, version de la app, caps del dispositivo (grants/estado v1.2.5), app/activity en foreground y dispositivos vinculados (multidispositivo v2.2.0).
-Parametros: select_device (str): alias opcional del dispositivo a activar en caliente ("" = mantener actual).
-Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, caps{accessibility, shizuku, shell_grant, usage_access, notification_listening, contacts, calendar, location, camera}, foreground{package, activity}, active_device, paired_devices[], cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
-Permisos/Grants: conexion Jav + accesibilidad para foreground; scope read.
-Errores/gotchas: ACCESSIBILITY_DISABLED si la accesibilidad no esta conectada (el foreground puede venir vacio); conexion caida -> ok:false; caps es el estado del hello: app <1.2.5 -> {} (no se inventa); un grant concedido despues del hello no se refleja hasta reconectar; select_device inexistente -> VALIDATION_ERROR (nunca se adivina).
+Descripcion: Scopes del token, version de la app, caps del dispositivo (grants/estado v1.2.5), app/activity en foreground, dispositivos vinculados (multidispositivo v2.2.0) y diagnostico de preconfiguracion (v2.4.0: missing_caps + setup_hints; funciona con la accesibilidad apagada).
+Parametros: select_device (str): alias opcional del dispositivo a activar en caliente ("" = mantener actual); repair_accessibility (bool): intenta reparar la accesibilidad via Shizuku preservando los servicios ya habilitados (default false; un fallo NO aborta el diagnostico).
+Retorno: {ok, verified, evidence, hint}; evidence = {scopes[], app_version, caps{accessibility, shizuku, shell_grant, usage_access, notification_listening, contacts, calendar, location, camera}, missing_caps[], setup_hints[{cap, hint, actions[{tool, args}]}], foreground{package, activity}|null, foreground_error?, repair?, active_device, paired_devices[], cost{jev_cost_usd, s2_cost_usd, total_cost_usd, calls}}.
+Permisos/Grants: conexion Jav; scope read; repair_accessibility exige Shizuku vivo (scope admin).
+Errores/gotchas: con la accesibilidad apagada devuelve ok:true/verified:false, foreground:null y foreground_error=ACCESSIBILITY_DISABLED (caps, missing_caps y setup_hints siguen disponibles: ese es el diagnostico); repair_accessibility falla en evidence.repair sin abortar; caps se leen VIVOS con get_caps (v2.4.0), un fallo se reporta en caps_error y en apps <2.4.0 se caen a los del hello; app <1.2.5 -> caps {} (no se inventa); select_device inexistente -> VALIDATION_ERROR (nunca se adivina).
 Cuándo NO usar: NO usar para un dato concreto → usa la tool nativa (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO cachear el foreground → re-lee con get_foreground tras cada mutación.
-Ejemplo: device_status(select_device="pixel") → {active_device:"pixel", paired_devices["pixel","tecno"], foreground{...}}`
+Ejemplo: device_status(repair_accessibility=true) → {caps{accessibility:true, ...}, repair{ok:true, enabled:true}, missing_caps[], setup_hints[]}`
 
 const dListPackages = `Lista paquetes instalados (nativo por WS; fallback adb host).
 
@@ -182,12 +182,12 @@ Ejemplo: get_audit(limit=50, since_seq=0) → {total_buffered, returned, entries
 const dAdbShell = `Ejecuta un comando de shell con UID shell via Shizuku (scope admin).
 
 Descripcion: Carril privilegiado de ultimo recurso. Gate triple en Jav: rate limit 5 req/s, denylist de irreversibles y grant interactivo del operador. Los comandos que matan o desinstalan la propia Jav se rechazan siempre. Shizuku lo arranca el operador: nunca su.
-Parametros: cmd (str): comando a ejecutar (obligatorio); timeout_ms (int): 500..60000 (default 15000); confirm (bool): aprueba un comando de la denylist irreversible.
-Retorno: {ok, verified, evidence, hint}; denylist sin confirm -> evidence={planned:true, preview{cmd_sha256, reason}, hint}; con exito -> evidence={exit_code, stdout, stderr}.
+Parametros: cmd (str): comando a ejecutar (obligatorio); timeout_ms (int): 500..90000 (default 65000; cubre el grant interactivo y la ejecucion); confirm (bool): aprueba un comando de la denylist irreversible.
+Retorno: {ok, verified, evidence, hint}; sin grant -> evidence={planned:true, grant_pending:true, cmd_sha256} (no bloquea: aprueba y repite el MISMO comando); denylist sin confirm -> evidence={planned:true, preview{cmd_sha256, reason}, hint}; con exito -> evidence={exit_code, stdout, stderr}.
 Permisos/Grants: scope admin; Shizuku disponible; grant interactivo (1 comando con SHA-256 exacto, 5 min o 30 min) salvo denegacion.
-Errores/gotchas: SHIZUKU_UNAVAILABLE sin Shizuku; SHELL_DENYLIST si el comando es irreversible sin confirm; SHELL_DENIED si el operador deniega o vence el grant (60 s); RATE_LIMITED por encima de 5 req/s; TIMEOUT si excede timeout_ms.
+Errores/gotchas: SHIZUKU_UNAVAILABLE sin Shizuku; SHELL_DENYLIST si el comando es irreversible sin confirm; SHELL_DENIED si el operador deniega el grant; RATE_LIMITED por encima de 5 req/s; TIMEOUT si excede timeout_ms. El grant no bloquea la conexion: sin el, la respuesta es planned y el agente reintenta tras aprobar.
 Cuándo NO usar: NO usar para datos nativos → carril N0/N1 primero (get_battery, get_memory, get_storage, get_cpu, get_device_info); NO usar para acciones de UI → tap_node/type_text; NO reenviar un preview distinto con el confirm anterior.
-Ejemplo: adb_shell(cmd="df -k /data /sdcard", timeout_ms=15000) → {planned:true, preview, hint} en denylist sin confirm; {exit_code, stdout, stderr} tras el grant`
+Ejemplo: adb_shell(cmd="df -k /data /sdcard", timeout_ms=65000) → {planned:true, grant_pending:true} sin grant; {exit_code, stdout, stderr} tras aprobar`
 
 const dTypeText = `Escribe en un campo ya enfocado (semantica REPLACE).
 
@@ -479,7 +479,9 @@ func RegisterAll(s *server.MCPServer) {
 }
 
 var toolDefs = []toolDef{
-	{"device_status", dDeviceStatus, nil, map[string]any{"select_device": strProp("select_device", "")}, hDeviceStatus},
+	{"device_status", dDeviceStatus, nil, map[string]any{
+		"select_device":        strProp("select_device", ""),
+		"repair_accessibility": boolProp("repair_accessibility", false)}, hDeviceStatus},
 	{"list_packages", dListPackages, nil, map[string]any{"filter": strProp("filter", "")}, hListPackages},
 	{"get_foreground", dGetForeground, nil, map[string]any{}, hGetForeground},
 	{"open_app", dOpenApp, []string{"package"}, map[string]any{"package": strReq("package")}, hOpenApp},
@@ -503,7 +505,7 @@ var toolDefs = []toolDef{
 	{"get_audit", dGetAudit, nil, map[string]any{
 		"limit": intProp("limit", 50), "since_seq": intProp("since_seq", 0)}, hGetAudit},
 	{"adb_shell", dAdbShell, []string{"cmd"}, map[string]any{
-		"cmd": strReq("cmd"), "timeout_ms": intProp("timeout_ms", 15000),
+		"cmd": strReq("cmd"), "timeout_ms": intProp("timeout_ms", 65000),
 		"confirm": boolProp("confirm", false)}, hAdbShell},
 	{"get_battery", dGetBattery, nil, map[string]any{}, hGetBattery},
 	{"get_memory", dGetMemory, nil, map[string]any{}, hGetMemory},

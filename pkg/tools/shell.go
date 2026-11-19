@@ -25,8 +25,9 @@ func hAdbShell(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if timeoutMs < 500 {
 		timeoutMs = 500
 	}
-	// El grant interactivo bloquea hasta 60 s en el teléfono: el default
-	// debe cubrirlo (antes 15 s → cierre 1006 y hint engañoso).
+	// v2.3.1: el grant ya NO bloquea el WS (sin grant → planned +
+	// grant_pending). El default sigue cubriendo comandos largos tras
+	// aprobar, sin forzar al agente a subirlo en cada llamada.
 	if timeoutMs > 90000 {
 		timeoutMs = 90000
 	}

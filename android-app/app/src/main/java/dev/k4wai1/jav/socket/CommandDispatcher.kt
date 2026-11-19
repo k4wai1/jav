@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import dev.k4wai1.jav.BuildConfig
 import dev.k4wai1.jav.nat.CameraCapture
@@ -87,7 +88,7 @@ class CommandDispatcher(private val appContext: Context) {
                 protocol_version = PROTOCOL_VERSION,
                 app_version = BuildConfig.VERSION_NAME,
                 scopes = scopes.toList(),
-                caps = capsMap()
+                caps = currentCaps()
             )
         )
         audit("hello", req, "OK", origin)
@@ -99,8 +100,12 @@ class CommandDispatcher(private val appContext: Context) {
      * los fija al conectar, pero `shell_grant` cambia con el grant
      * interactivo; `get_foreground` los reenvía para que `device_status`
      * no muestre un grant apagado mientras los comandos ya pasan.
+     *
+     * v2.4.0 (Fase 4): ÚNICA fuente del mapa, usada por `hello`, por
+     * `get_foreground` y por el nuevo `get_caps`, que NO exige el servicio
+     * de accesibilidad (el diagnóstico funciona con la a11y apagada).
      */
-    private fun capsMap(): Map<String, Boolean> {
+    private fun currentCaps(): Map<String, Boolean> {
         val acc = JevAccessibilityService.instance != null
         val shizuku = try {
             Shizuku.pingBinder()
@@ -140,6 +145,9 @@ class CommandDispatcher(private val appContext: Context) {
                 "press_home" -> globalHome(req)
                 "wait_for_node" -> waitFor(req)
                 "get_foreground" -> foreground(req)
+                // v2.4.0 (Fase 4): diagnóstico sin accesibilidad + reparación.
+                "get_caps" -> getCaps(req)
+                "enable_accessibility" -> enableAccessibility(req)
                 "open_app" -> openApp(req)
                 "force_stop" -> forceStop(req)
                 "screenshot" -> screenshot(req)
@@ -293,12 +301,105 @@ class CommandDispatcher(private val appContext: Context) {
 
     private fun foreground(req: WsRequest): String {
         val (pkg, act) = svc().getForeground()
-        val caps = capsMap()
+        val caps = currentCaps()
         return okResponse(req.id, buildJsonObject {
             put("package", pkg)
             put("activity", act)
             // v2.3.1: caps vivos (el hello es una foto del arranque).
             put("caps", buildJsonObject { caps.forEach { (k, v) -> put(k, v) } })
+        })
+    }
+
+    /**
+     * v2.4.0 (Fase 4): caps VIVOS sin `svc()`. A diferencia de
+     * `get_foreground`, funciona con la accesibilidad apagada, que es
+     * justo el estado que hay que diagnosticar (antes `device_status`
+     * abortaba y el agente no veía por qué).
+     */
+    private fun getCaps(req: WsRequest): String {
+        val caps = currentCaps()
+        return okResponse(req.id, buildJsonObject {
+            put("caps", buildJsonObject { caps.forEach { (k, v) -> put(k, v) } })
+        })
+    }
+
+    /**
+     * v2.4.0 (Fase 4): repara la accesibilidad vía Shizuku (UID shell).
+     * Preserva los servicios ya habilitados (`mergeAccessibilityService`,
+     * puro y testeado) y añade el de Jav sin duplicarlo. Sin `su` jamás:
+     * la única puerta privilegiada es Shizuku (AGENTS.md §2). Nunca pide
+     * confirmación: la política la decide el agente/operador.
+     */
+    private fun enableAccessibility(req: WsRequest): String {
+        if (JevAccessibilityService.instance != null) {
+            return okResponse(req.id, buildJsonObject {
+                put("already_enabled", true)
+                put("enabled", true)
+                put("connected", true)
+                put("via", "already")
+            })
+        }
+        if (!ShizukuBridge.isRunning()) {
+            throw JamError(
+                "Shizuku no está iniciado. Ábrelo, arráncalo y reintenta.",
+                "SHIZUKU_UNAVAILABLE"
+            )
+        }
+        if (!ShizukuBridge.hasPermission()) {
+            throw JamError(
+                "Permiso Shizuku denegado. Concédelo a Jav en la pantalla principal.",
+                "SHIZUKU_DENIED"
+            )
+        }
+        val component = BuildConfig.APPLICATION_ID + "/" +
+            JevAccessibilityService::class.java.name
+        val current = try {
+            Settings.Secure.getString(
+                appContext.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ).orEmpty()
+        } catch (t: Throwable) {
+            ""
+        }
+        val merged = ShellPolicy.mergeAccessibilityService(current, component)
+        // Gotcha real (docs/TESTING.md §2–§3): en varias ROMs el master
+        // switch debe escribirse ANTES de la lista o el servicio no enlaza.
+        val putEnabled = ShizukuBridge.exec(
+            listOf("settings", "put", "secure", "accessibility_enabled", "1")
+        )
+        if (putEnabled.exitCode != 0) {
+            throw JamError(
+                "settings put accessibility_enabled falló: " +
+                    putEnabled.stderr.trim(),
+                "INTERNAL_ERROR"
+            )
+        }
+        val putServices = ShizukuBridge.exec(
+            listOf("settings", "put", "secure", "enabled_accessibility_services", merged)
+        )
+        if (putServices.exitCode != 0) {
+            throw JamError(
+                "settings put enabled_accessibility_services falló: " +
+                    putServices.stderr.trim(),
+                "INTERNAL_ERROR"
+            )
+        }
+        // El binding del servicio es asíncrono: sondea ≤2 s (150 ms).
+        val deadline = System.currentTimeMillis() + 2_000L
+        while (JevAccessibilityService.instance == null &&
+            System.currentTimeMillis() < deadline
+        ) {
+            try {
+                Thread.sleep(150L)
+            } catch (i: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
+        return okResponse(req.id, buildJsonObject {
+            put("enabled", true)
+            put("connected", JevAccessibilityService.instance != null)
+            put("via", "shizuku")
         })
     }
 
@@ -598,17 +699,19 @@ class CommandDispatcher(private val appContext: Context) {
 
         /** Lecturas puras (sin efecto): scope `read` en el audit. */
         private val READ_METHODS = setOf(
-            "dump_ui", "wait_for_node", "get_foreground", "screenshot", "list_packages"
+            "dump_ui", "wait_for_node", "get_foreground", "screenshot",
+            "list_packages", "get_caps"
         )
 
         /**
          * Scope de una entrada de audit (AGENTS.md §3.8):
          * read|ui|n0|n1|auth|admin. `hello` es auth; `get_audit`/`shell`/
-         * `kill_switch` son admin.
+         * `kill_switch`/`enable_accessibility` son admin.
          */
         fun scopeOf(method: String): String = when {
             method == "hello" -> "auth"
-            method == "get_audit" || method == "shell" || method == "kill_switch" -> "admin"
+            method == "get_audit" || method == "shell" ||
+                method == "kill_switch" || method == "enable_accessibility" -> "admin"
             method in READ_METHODS -> "read"
             method in UI_METHODS -> "ui"
             method in N1_METHODS -> "n1"

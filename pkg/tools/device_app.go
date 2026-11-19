@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -22,37 +23,156 @@ func hDeviceStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 				"usa un alias de paired_devices o vincula con jav pair --name <alias> <ip> <token>"))
 		}
 	}
-	t0 := nowMs()
 	c, jerr := jam.Dial()
 	if jerr != nil {
 		return result(jam.JamFail(jerr))
 	}
 	defer c.Close()
-	fg, jerr := c.GetForeground()
-	if jerr != nil {
-		return result(jam.JamFail(jerr))
+
+	evidence := map[string]any{}
+
+	// v2.4.0 (Fase 4): reparación asistida de accesibilidad ANTES de leer
+	// caps. Un fallo NO aborta el diagnóstico: se reporta en `repair` para
+	// que el agente vea el estado completo (p. ej. SHIZUKU_UNAVAILABLE).
+	if getBool(args, "repair_accessibility", false) {
+		if rep, rerr := c.EnableAccessibility(); rerr != nil {
+			evidence["repair"] = map[string]any{
+				"ok": false, "code": rerr.Code, "error": rerr.Message,
+			}
+		} else {
+			m := map[string]any{"ok": true}
+			for k, v := range rep {
+				m[k] = v
+			}
+			evidence["repair"] = m
+		}
 	}
-	_ = t0
-	// caps del hello (v1.2.5): evita que el agente adivine grants; app
-	// <1.2.5 o hello sin caps → objeto vacío (no se inventa estado).
+
+	// Caps VIVOS vía `get_caps` (v2.4.0): no exige accesibilidad, justo el
+	// estado que hay que diagnosticar. APK <2.4.0 (METHOD_NOT_ALLOWED) o
+	// fallo de red → caps del hello (no se inventa nada).
 	caps := c.Caps
+	if live, capsErr := c.GetCaps(); capsErr == nil {
+		caps = live
+	} else if capsErr.Code != "METHOD_NOT_ALLOWED" {
+		// Degradación visible: seguimos con los caps del hello, pero el
+		// agente ve por qué no son vivos (nunca se oculta el fallo).
+		evidence["caps_error"] = capsErr.Code
+	}
 	if caps == nil {
 		caps = map[string]bool{}
 	}
-	// v2.3.1: `get_foreground` devuelve caps EN VIVO (p. ej. shell_grant
-	// cambia con el grant interactivo); el hello es una foto del arranque.
-	if live, ok := fg["caps"].(map[string]any); ok {
-		for k, v := range live {
-			if b, ok := v.(bool); ok {
-				caps[k] = b
+
+	// Foreground es O(1) pero exige el servicio de accesibilidad. Si está
+	// apagado, `device_status` degrada honesto (ok:true, verified:false)
+	// en vez de abortar: caps, missing_caps y setup_hints siguen siendo
+	// útiles para repararlo.
+	verified := true
+	fg, ferr := c.GetForeground()
+	var foreground any = fg
+	if ferr != nil {
+		if ferr.Code != "ACCESSIBILITY_DISABLED" {
+			return result(jam.JamFail(ferr))
+		}
+		foreground = nil
+		evidence["foreground_error"] = "ACCESSIBILITY_DISABLED"
+		verified = false
+	} else {
+		// Compat v2.3.1: apps <2.4.0 no tienen `get_caps`; el foreground
+		// sigue siendo la fuente de caps vivos.
+		if live, ok := fg["caps"].(map[string]any); ok {
+			for k, v := range live {
+				if b, ok := v.(bool); ok {
+					caps[k] = b
+				}
 			}
 		}
 	}
-	return result(jam.OK(true, map[string]any{
-		"scopes": c.Scopes, "app_version": c.AppVersion, "foreground": fg,
-		"caps": caps, "cost": cost.SessionSummary(),
-		"active_device": jam.ActiveDeviceName(), "paired_devices": jam.PairedDeviceNames(),
-	}, ""))
+
+	evidence["scopes"] = c.Scopes
+	evidence["app_version"] = c.AppVersion
+	evidence["foreground"] = foreground
+	evidence["caps"] = caps
+	evidence["missing_caps"] = missingCaps(caps)
+	evidence["setup_hints"] = setupHints(caps)
+	evidence["cost"] = cost.SessionSummary()
+	evidence["active_device"] = jam.ActiveDeviceName()
+	evidence["paired_devices"] = jam.PairedDeviceNames()
+	return result(jam.OK(verified, evidence, ""))
+}
+
+// missingCaps lista las claves presentes en `caps` con valor `false`,
+// ordenadas alfabéticamente (diagnóstico estable entre llamadas). Las
+// claves ausentes NO se inventan (apps viejas sin ese cap).
+func missingCaps(caps map[string]bool) []string {
+	out := make([]string, 0, len(caps))
+	for k, v := range caps {
+		if !v {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// setupHints traduce cada permiso apagado a acciones concretas (Fase 4:
+// preconfiguración asistida). Solo emite hints para caps PRESENTES en el
+// mapa: ausente ≠ apagado. `shizuku` no trae acción ejecutable porque Jav
+// nunca arranca Shizuku (lo arranca el operador, AGENTS.md §2).
+func setupHints(caps map[string]bool) []map[string]any {
+	hints := make([]map[string]any, 0, 4)
+	if v, ok := caps["accessibility"]; ok && !v {
+		actions := []map[string]any{}
+		if caps["shizuku"] {
+			actions = append(actions, map[string]any{
+				"tool": "device_status",
+				"args": map[string]any{"repair_accessibility": true},
+			})
+		}
+		actions = append(actions, map[string]any{
+			"tool": "send_intent",
+			"args": map[string]any{
+				"action": "android.settings.ACCESSIBILITY_SETTINGS",
+			},
+		})
+		hints = append(hints, map[string]any{
+			"cap":     "accessibility",
+			"hint":    "habilita el servicio de accesibilidad de Jav",
+			"actions": actions,
+		})
+	}
+	if v, ok := caps["usage_access"]; ok && !v {
+		hints = append(hints, map[string]any{
+			"cap":  "usage_access",
+			"hint": "concede «Acceso a datos de uso»",
+			"actions": []map[string]any{{
+				"tool": "send_intent",
+				"args": map[string]any{
+					"action": "android.settings.USAGE_ACCESS_SETTINGS",
+				},
+			}},
+		})
+	}
+	if v, ok := caps["notification_listening"]; ok && !v {
+		hints = append(hints, map[string]any{
+			"cap":  "notification_listening",
+			"hint": "habilita el Acceso a notificaciones",
+			"actions": []map[string]any{{
+				"tool": "send_intent",
+				"args": map[string]any{
+					"action": "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS",
+				},
+			}},
+		})
+	}
+	if v, ok := caps["shizuku"]; ok && !v {
+		hints = append(hints, map[string]any{
+			"cap":     "shizuku",
+			"hint":    "Shizuku lo arranca el operador: ábrelo, arráncalo y reintenta (Jav nunca lo arranca)",
+			"actions": []map[string]any{},
+		})
+	}
+	return hints
 }
 
 func hListPackages(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

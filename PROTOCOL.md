@@ -196,6 +196,30 @@ N1 — con grant del usuario (estado en `hello.caps`):
 `{planned: true, preview, hint}` = planeado sin ejecutar: el wrapper MCP
 responde `ok: true, verified: false`; repetir con `confirm: true` ejecuta.
 
+### 4.2 Diagnóstico y preconfiguración asistida (v2.4.0)
+
+Carril de autodiagnóstico que **no exige** el servicio de accesibilidad
+conectado (ese es justo el estado a diagnosticar). `device_status`
+(`select_device`, `repair_accessibility`) los consume el cliente MCP.
+
+| Método | Params | Result | Scope |
+|---|---|---|---|
+| `get_caps` | `{}` | `{caps{accessibility, shizuku, shell_grant, usage_access, notification_listening, contacts, calendar, location, camera}}` — estado **vivo**; no llama a `svc()` | read |
+| `enable_accessibility` | `{}` | ya conectado → `{already_enabled:true, enabled:true, connected:true, via:"already"}`; reparado → `{enabled:true, connected, via:"shizuku"}` | admin |
+
+`enable_accessibility` usa Shizuku (UID shell, nunca `su`):
+`ShellPolicy.mergeAccessibilityService` preserva los servicios ya
+habilitados en `enabled_accessibility_services` y añade
+`<pkg>/<pkg>.service.JevAccessibilityService` sin duplicarlo; después
+escribe `accessibility_enabled=1` y sondea ≤2 s a que el servicio
+enlace. Sin Shizuku → `SHIZUKU_UNAVAILABLE`; permiso denegado →
+`SHIZUKU_DENIED`. Con la a11y apagada, `device_status` responde
+`ok:true, verified:false` con `foreground:null` y
+`foreground_error:"ACCESSIBILITY_DISABLED"`, más `missing_caps[]` y
+`setup_hints[]` (acciones concretas: `device_status(repair_accessibility=true)`
+y/o `send_intent` al panel correspondiente). Shizuku lo arranca el
+operador: Jav solo informa.
+
 ## 5. Esquema de nodo (`dump_ui`)
 
 `nodes` es un **array plano**; el parentesco va por `children: [id]`.

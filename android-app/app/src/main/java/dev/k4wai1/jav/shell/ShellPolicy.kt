@@ -125,4 +125,22 @@ object ShellPolicy {
     val RATE = SlidingWindowRateLimiter(max = 5, windowMs = 1000L)
 
     fun allowRequest(nowMs: Long = System.currentTimeMillis()): Boolean = RATE.allow(nowMs)
+
+    /**
+     * v2.4.0 (Fase 4): fusiona la lista `enabled_accessibility_services`
+     * (`pkg/cls:pkg/cls`) conservando los servicios ya habilitados y
+     * añadiendo [component] al final si no estaba. Limpia entradas vacías
+     * y duplicados sin reordenar lo existente. Puro JVM (testeable sin
+     * Android): la reparación vía Shizuku NUNCA debe pisar otros servicios.
+     */
+    fun mergeAccessibilityService(current: String, component: String): String {
+        val seen = LinkedHashSet<String>()
+        for (part in current.split(':')) {
+            val p = part.trim()
+            if (p.isNotEmpty()) seen.add(p)
+        }
+        val comp = component.trim()
+        if (comp.isNotEmpty()) seen.add(comp)
+        return seen.joinToString(":")
+    }
 }

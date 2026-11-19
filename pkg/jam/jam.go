@@ -92,10 +92,18 @@ func hintFor(code string) string {
 		return "espera y reintenta con backoff; segundo cliente recibe BUSY"
 	case "SHELL_DENIED", "SHELL_DENYLIST":
 		return "pide grant en el dispositivo (1 comando/5 min/30 min); denylist exige admin + confirm:true"
-	case "USAGE_ACCESS_DISABLED", "CONTACTS_PERMISSION_DENIED",
-		"CALENDAR_PERMISSION_DENIED", "NOTIFICATION_LISTENER_DISABLED",
+	// v2.4.0 (Fase 4): acciones de preconfiguración asistida. Cada hint
+	// enseña el panel concreto vía send_intent (apertura, nunca envío).
+	case "USAGE_ACCESS_DISABLED":
+		return `concede «Acceso a datos de uso»; o abre el panel con send_intent(action="android.settings.USAGE_ACCESS_SETTINGS")`
+	case "NOTIFICATION_LISTENER_DISABLED":
+		return `habilita el Acceso a notificaciones; o abre el panel con send_intent(action="android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")`
+	case "WRITE_SETTINGS_DISABLED":
+		return `concede «Modificar ajustes del sistema»; o abre el panel con send_intent(action="android.settings.action.MANAGE_WRITE_SETTINGS")`
+	case "CONTACTS_PERMISSION_DENIED",
+		"CALENDAR_PERMISSION_DENIED",
 		"MEDIA_SESSIONS_UNAVAILABLE", "LOCATION_PERMISSION_DENIED",
-		"CAMERA_DENIED", "WRITE_SETTINGS_DISABLED":
+		"CAMERA_DENIED":
 		return "concede el acceso en el dispositivo (estado visible en hello.caps) y reintenta; sin grant, error honesto"
 	case "NOTIFICATION_GONE", "NO_REMOTE_INPUT", "REPLY_FAILED",
 		"MEDIA_SESSION_GONE", "MEDIA_CONTROL_FAILED",
@@ -207,6 +215,7 @@ type Client struct {
 	// Caps del hello (v1.2.5): grants/estado del dispositivo al conectar
 	// (accessibility, shizuku, shell_grant, usage_access, contacts…).
 	// Nil si la app no los expone (versiones < 1.2.5).
+	// v2.4.0: `GetCaps()` los refresca en vivo (no es una foto del hello).
 	Caps map[string]bool
 	conn *websocket.Conn
 }
@@ -663,9 +672,41 @@ func (c *Client) GetAudit(limit int, sinceSeq int64) (map[string]any, *JamError)
 	return c.Call("get_audit", map[string]any{"limit": limit, "since_seq": sinceSeq})
 }
 
+// GetCaps lee los caps VIVOS del dispositivo (v2.4.0, método `get_caps`),
+// sin exigir el servicio de accesibilidad conectado. Actualiza `c.Caps` y
+// devuelve el mapa. APK <2.4.0 → METHOD_NOT_ALLOWED (el caller cae a
+// `c.Caps` del hello). Acepta `{caps:{...}}` y, por compatibilidad, un mapa
+// plano de booleanos en la raíz.
+func (c *Client) GetCaps() (map[string]bool, *JamError) {
+	res, jerr := c.Call("get_caps", nil)
+	if jerr != nil {
+		return nil, jerr
+	}
+	src := res
+	if nested, ok := res["caps"].(map[string]any); ok {
+		src = nested
+	}
+	caps := make(map[string]bool, len(src))
+	for k, v := range src {
+		if b, ok := v.(bool); ok {
+			caps[k] = b
+		}
+	}
+	c.Caps = caps
+	return caps, nil
+}
+
+// EnableAccessibility repara la accesibilidad de Jav vía Shizuku (v2.4.0,
+// scope admin). La app preserva los servicios ya habilitados y añade el
+// suyo sin duplicarlo; nunca usa `su`. Devuelve {enabled, connected, via}.
+func (c *Client) EnableAccessibility() (map[string]any, *JamError) {
+	return c.Call("enable_accessibility", nil)
+}
+
 // Shell ejecuta un comando con UID shell vía Shizuku (Fase 6b, scope admin).
-// La request puede bloquear hasta 60 s esperando el grant interactivo; el
-// readTimeout cubre grant + ejecución.
+// Desde v2.3.1 el grant no bloquea: sin él la app responde planned y el
+// agente repite el MISMO comando tras aprobar. El readTimeout cubre la
+// ejecución (hasta timeoutMs) con margen de transporte.
 func (c *Client) Shell(cmd string, timeoutMs int, confirm bool) (map[string]any, *JamError) {
 	if timeoutMs <= 0 {
 		timeoutMs = 15000

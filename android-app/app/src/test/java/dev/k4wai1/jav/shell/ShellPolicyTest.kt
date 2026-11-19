@@ -111,4 +111,44 @@ class ShellPolicyTest {
         assertEquals("self_package", ShellPolicy.denylistReason("am force-stop dev.k4wai1.jav"))
         assertEquals(null, ShellPolicy.denylistReason("ls /"))
     }
+
+    // v2.4.0 (Fase 4): la reparación vía Shizuku no debe pisar servicios
+    // ajenos ya habilitados.
+
+    private val JAV = "dev.k4wai1.jav/dev.k4wai1.jav.service.JevAccessibilityService"
+
+    @Test
+    fun mergeAccessibilityVacio() {
+        assertEquals(JAV, ShellPolicy.mergeAccessibilityService("", JAV))
+        assertEquals(JAV, ShellPolicy.mergeAccessibilityService("   ", JAV))
+    }
+
+    @Test
+    fun mergeAccessibilityYaPresenteNoDuplica() {
+        assertEquals(JAV, ShellPolicy.mergeAccessibilityService(JAV, JAV))
+        assertEquals(
+            JAV,
+            ShellPolicy.mergeAccessibilityService("  $JAV  ::", JAV)
+        )
+        // Duplicados previos también se limpian (uno solo).
+        assertEquals(
+            JAV,
+            ShellPolicy.mergeAccessibilityService("$JAV:$JAV", JAV)
+        )
+    }
+
+    @Test
+    fun mergeAccessibilityPreservaServiciosPrevios() {
+        val otro = "com.otro.app/com.otro.app.Servicio"
+        val tercero = "org.lector/org.lector.Lector"
+        assertEquals(
+            "$otro:$tercero:$JAV",
+            ShellPolicy.mergeAccessibilityService("$otro:$tercero", JAV)
+        )
+        // Si Jav ya estaba en medio, se conserva el orden y no se duplica.
+        assertEquals(
+            "$otro:$JAV:$tercero",
+            ShellPolicy.mergeAccessibilityService("$otro:$JAV:$tercero", JAV)
+        )
+    }
 }

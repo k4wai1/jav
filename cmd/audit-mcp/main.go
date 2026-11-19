@@ -90,7 +90,7 @@ var sensitive = map[string]bool{
 }
 
 var expected = map[string]toolExp{
-	"device_status":        {nil, map[string]string{"select_device": "string"}},
+	"device_status":        {nil, map[string]string{"select_device": "string", "repair_accessibility": "boolean"}},
 	"list_packages":        {nil, map[string]string{"filter": "string"}},
 	"get_foreground":       {nil, map[string]string{}},
 	"open_app":             {[]string{"package"}, map[string]string{"package": "string"}},
@@ -147,6 +147,7 @@ var protoNeedles = []string{
 	"list_packages", "shell", "METHOD_NOT_ALLOWED", "get_audit",
 	"snapshot_id", "STALE_SNAPSHOT", "SECURE_SURFACE", "4 MiB",
 	"send_intent", "settings_put", "planned",
+	"get_caps", "enable_accessibility", "repair_accessibility",
 }
 
 // ---------- utilidades JSON-RPC ----------

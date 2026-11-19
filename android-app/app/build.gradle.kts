@@ -12,8 +12,8 @@ android {
         applicationId = "dev.k4wai1.jav"
         minSdk = 29
         targetSdk = 34
-        versionCode = 9
-        versionName = "2.3.1"
+        versionCode = 11
+        versionName = "2.5.0"
     }
 
     // v1.2.5: keystore debug determinista commiteado (debug estándar AOSP:

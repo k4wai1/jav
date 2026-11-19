@@ -23,7 +23,7 @@ type toolMeta struct {
 // toolCatalog espeja la tabla declarativa de register.go (mismos 38 nombres).
 var toolCatalog = map[string]toolMeta{
 	// --- state: lectura de estado (carril nativo/read) ---
-	"device_status":   {"state", "estado Jav: scopes/versión/caps/foreground (read).", false},
+	"device_status":   {"state", "estado Jav: caps/foreground y diagnóstico+repair de a11y (read).", false},
 	"get_foreground":  {"state", "foreground: paquete+activity (read).", false},
 	"list_packages":   {"state", "paquetes instalados nativo WS; fallback adb (read).", false},
 	"get_battery":     {"state", "batería: nivel/carga/temp/saver (N0).", false},

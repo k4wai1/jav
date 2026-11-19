@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -27,9 +28,10 @@ import (
 // (screen_goal, tabla serializada, snapshot_id) y ejecuta una primitiva
 // por paso.
 //
-// `resolve_element` (S1) NO usa la superficie S2: `s2.go` resuelve base/key/
-// modelo (JAV_AI_*) y ejecuta chat/completions, pero no está cableado a
-// ningún flujo —la decisión de pasos sigue siendo del director externo.
+// `resolve_element` usa Jev (S1) como backend principal; desde v2.5.0 puede
+// delegar en la superficie S2 agnóstica (`ResolveElementWithS2`) cuando no
+// hay key S1 o el operador fija JAV_RESOLVE_BACKEND=openai. Sin goal global,
+// sin bucles: la decisión de pasos sigue siendo del Director externo.
 
 // --- Resolver ciego (UMA Choice) ---
 
@@ -229,6 +231,20 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 	// §1.1): fallback honesto, nunca un idx inventado. El stub {mock:true}
 	// de jev.Ask NO es una resolución válida y ningún tap/type puede
 	// ejecutarse sobre él. S1 nunca lee JAV_AI_*: solo OPENROUTER_API_KEY.
+	// v2.5.0: grounding agnóstico. Jev sigue siendo el backend PRINCIPAL;
+	// sin OPENROUTER_API_KEY (o con JAV_RESOLVE_BACKEND=openai) se puede
+	// delegar en un LLM OpenAI-compatible configurado (JAV_AI_*). Con
+	// `ask` inyectado NUNCA se sale a red: el caller controla S1.
+	forceS2 := strings.EqualFold(strings.TrimSpace(os.Getenv("JAV_RESOLVE_BACKEND")), "openai")
+	if ask == nil && (forceS2 || jev.IsMock()) {
+		if S2CanResolve() {
+			return ResolveElementWithS2(context.Background(), screenGoal, serial,
+				snapshotID, currentApp, firstResult, tau, nil), nil
+		}
+		if forceS2 {
+			return SovereignFallback("S2_UNAVAILABLE: JAV_RESOLVE_BACKEND=openai pero falta configuracion OpenAI-compatible (JAV_AI_BASE_URL/JAV_AI_MODEL/JAV_AI_API_KEY)", snapshotID), nil
+		}
+	}
 	if jev.IsMock() {
 		return SovereignFallback("S1_UNAVAILABLE: resolve_element desactivado sin OPENROUTER_API_KEY; rellena OPENROUTER_API_KEY (S1 solo acepta esa key, nunca JAV_AI_API_KEY)", snapshotID), nil
 	}
@@ -264,6 +280,14 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 			if len(top) > 0 {
 				fb["top_candidates"] = top
 			}
+			// v2.5.0: NONE también consume tokens; sin este Track el gasto
+			// desaparecía de cost.SessionSummary (bug de auditoría v2.4.0).
+			if tracker == nil {
+				tracker = cost.NewTracker(runID)
+			}
+			inTok, outTok, pcost := jev.UsageTokens(usage)
+			fb["cost_usd"] = tracker.Track(cost.JevModelID(), inTok, outTok, nil, "s1", pcost)
+			fb["usage"] = usage
 			return fb, nil
 		}
 		var n int
@@ -304,7 +328,8 @@ func ResolveElementWithTau(screenGoal string, serial []jev.SerialRow, snapshotID
 		"ok":  true,
 		"idx": idx, "conf": conf, "snapshot_id": snapshotID,
 		"fallback_required": false,
-		"usage":             usage, "cost_usd": stepCost,
+		"backend":           "jev-decisions", "model": cost.JevModelID(),
+		"usage": usage, "cost_usd": stepCost,
 	}
 	if mock {
 		if um, _ := usage["mock"].(bool); um {

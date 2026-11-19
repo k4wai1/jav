@@ -6,7 +6,7 @@
 > Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
 > (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v2.3.0)
+## Estado Operativo Actual (v2.5.0)
 
 | Área | Estado |
 | --- | --- |
@@ -671,3 +671,68 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    `APP_NOT_LAUNCHABLE`. Parsea en `nat/AppLaunch.kt` (JVM-testeable).
 5. Versión **2.3.1** (`versionCode 9`), tests: Go `pkg/jam` (+1 evento
    intercalado) y Kotlin `AppLaunchTest` (5). Sin tools nuevas (38).
+
+**2026-11-19 — v2.4.0 (Fase 4): autodiagnóstico real y preconfiguración asistida:**
+
+1. **El diagnóstico no depende de la accesibilidad.** `get_foreground`
+   exige `JevAccessibilityService` conectado; con la a11y apagada
+   `device_status` abortaba y el agente no veía la matriz `caps` (trampa
+   detectada al revisar v2.3.1). Nuevo método WS **`get_caps`** (scope
+   `read`, sin `svc()`) y `currentCaps()` como única fuente del mapa
+   (`hello`, `get_foreground`, `get_caps`). Go: `Client.GetCaps()`
+   refresca `c.Caps` en vivo; APK <2.4.0 (`METHOD_NOT_ALLOWED`) cae a los
+   caps del hello sin inventar.
+2. **`device_status` degrada honesto.** Si el foreground falla con
+   `ACCESSIBILITY_DISABLED`, responde `ok:true, verified:false` con
+   `foreground:null`, `foreground_error` y la matriz `caps` intacta;
+   añade `missing_caps[]` (claves presentes en false, ordenadas) y
+   `setup_hints[]` (acciones concretas). Claves ausentes no generan
+   hints (ausente ≠ apagado).
+3. **`repair_accessibility` (opt-in) + `enable_accessibility` (admin).**
+   Repara la a11y vía Shizuku (UID shell, **nunca `su`**) con
+   `ShellPolicy.mergeAccessibilityService` (puro, JVM-testeado) que
+   **preserva** los servicios ya habilitados y añade el de Jav sin
+   duplicarlo; luego `accessibility_enabled=1` y sondeo ≤2 s. Sin Shizuku
+   → `SHIZUKU_UNAVAILABLE`; permiso denegado → `SHIZUKU_DENIED`. Un fallo
+   de reparación se reporta en `evidence.repair` y **no** aborta
+   `device_status`. Shizuku lo arranca el operador.
+4. **Hints accionables.** `USAGE_ACCESS_DISABLED`,
+   `NOTIFICATION_LISTENER_DISABLED` y `WRITE_SETTINGS_DISABLED` enseñan
+   el panel por `send_intent` (apertura, nunca envío). El núcleo canónico
+   de `ACCESSIBILITY_DISABLED` queda intacto (`TestHintCoreUnchanged`); el
+   detalle extra vive en `device_status.setup_hints`.
+5. **Contrato sin tools nuevas:** siguen **38 tools**; el schema de
+   `device_status` añade `repair_accessibility` (bool, default false) y
+   `cmd/audit-mcp` espeja la tabla. Versión **2.4.0** (`versionCode 10`).
+
+**2026-11-19 — v2.5.0 (Fase 5): grounding agnóstico en `resolve_element` + fixes de auditoría v2.4.0:**
+
+1. **Orden de escritura de accesibilidad corregido.** `enableAccessibility`
+   escribe `accessibility_enabled 1` **antes** de
+   `enabled_accessibility_services` (gotcha real en varias ROMs,
+   `TESTING.md §2–§3`): el master switch primero o el servicio no enlaza.
+   `mergeAccessibilityService` sigue preservando los servicios previos.
+2. **Schema de `adb_shell` alineado con el handler.** `timeout_ms` default
+   **65000**, rango **500..90000**; la ficha documenta el grant **no
+   bloqueante** (`grant_pending:true`, aprobar y repetir el mismo comando).
+   Antes el schema anunciaba 15000/60000 y un grant que "vence a los 60 s".
+3. **Coste de `NONE` registrado.** En `ResolveElementWithTau`, la rama
+   `NONE` hace `tracker.Track(...)` y añade `cost_usd` + `usage` antes de
+   retornar: los tokens de una respuesta `NONE` ya no desaparecen de
+   `cost.SessionSummary()`.
+4. **Grounding agnóstico (respaldo de `resolve_element`).** Jev sigue
+   siendo el backend **principal** (`backend: "jev-decisions"`). Sin
+   `OPENROUTER_API_KEY` (o con `JAV_RESOLVE_BACKEND=openai`) y si
+   `S2CanResolve()` (base local explícita, o key S2 + `JAV_AI_*` explícito),
+   se delega en `ResolveElementWithS2`: mismo estado ciego (labels, glifos,
+   `tried`), prompt estricto de un solo objeto
+   `{"choice": <int|"NONE">, "confidence": <float>}` y validación dura
+   (`S2_HALLUCINATION` fuera de tabla/conf no finita, `NO_TARGET`, `LOW_CONF`
+   con `tau`, `S2_UNAVAILABLE` honesto). En éxito: `backend:"openai-compat"`
+   + `model`. `pkg/tools/resolve.go` propaga `backend`/`model` en `evidence`.
+5. **Aislamiento intacto.** `pkg/jev` **nunca** lee `JAV_AI_*` ni acepta
+   chat-models (`TestS1IgnoresJavAI`, `TestChatModelAsS1Fails` en verde). Si
+   el caller inyecta `ask`, no se sale a red: `TestResolveWithoutS1KeyFails`
+   conserva `S1_UNAVAILABLE` y el `ask` no se invoca.
+6. Versión **2.5.0** (`versionCode 11`), sin tools nuevas (38) y
+   `audit-mcp` 12/12. Contrato en `docs/specs/ai-providers.md §2.2–§2.3`.

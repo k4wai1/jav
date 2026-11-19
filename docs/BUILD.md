@@ -1358,3 +1358,87 @@ APK: `versionCode 9` / `versionName 2.3.1`.
 | `open_app` | Termux y YouTube ReVanced abren con `am start --user 0` (sin `monkey`) |
 
 Pendiente: reinstalar el APK 2.3.1 en el TECNO (WSS) — se validó allí la 2.3.0.
+
+## 34. v2.4.0 — Fase 4: autodiagnóstico real y preconfiguración asistida (2026-11-19)
+
+Contexto: al revisar v2.3.1 se detectó que `device_status` dependía de
+`get_foreground`, que exige `JevAccessibilityService` conectado. Con la
+accesibilidad apagada, el diagnóstico abortaba justo cuando más falta
+hace. v2.4.0 desacopla la matriz `caps` y añade reparación asistida.
+
+### Cambios
+
+| Área | Dónde | Qué |
+| --- | --- | --- |
+| Caps vivos | `CommandDispatcher.kt` | `currentCaps()` única fuente (`hello`/`get_foreground`/`get_caps`); WS `get_caps` (scope read, sin `svc()`) |
+| Reparación a11y | `CommandDispatcher.kt`, `ShellPolicy.kt` | WS `enable_accessibility` (admin, Shizuku, nunca `su`); `mergeAccessibilityService` preserva servicios y no duplica |
+| Diagnóstico Go | `pkg/jam/jam.go` | `GetCaps()` (refresca `c.Caps`) + `EnableAccessibility()` |
+| `device_status` | `pkg/tools/device_app.go` | `repair_accessibility`; degradación honesta (`ok:true/verified:false` + `foreground_error`); `missing_caps[]` + `setup_hints[]` |
+| Hints | `pkg/jam/jam.go` | `USAGE_ACCESS_DISABLED` / `NOTIFICATION_LISTENER_DISABLED` / `WRITE_SETTINGS_DISABLED` enseñan el panel por `send_intent` |
+| Contrato | `pkg/tools/register.go`, `cmd/audit-mcp` | `repair_accessibility` en schema y tabla esperada; sin tools nuevas (38) |
+
+### Verificación
+
+```
+gofmt -l cmd/ pkg/               → vacío
+go vet ./...                     → limpio
+go test -count=1 ./...           → 7 paquetes ok (pkg/jam +2, pkg/tools +1)
+make build                       → dist/jav-linux-amd64 2.4.0
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64 → 12/12 PASS
+(cd android-app && ./gradlew testDebugUnitTest)  → 100% PASS
+```
+
+APK: `versionCode 10` / `versionName 2.4.0` (misma firma debug commiteada:
+`adb install -r` in-place).
+
+### Semántica operativa
+
+- `get_caps` no exige accesibilidad: sirve con el servicio apagado.
+- `device_status` con a11y apagada: `caps` + `missing_caps` + `setup_hints`
+  intactos; `foreground:null`; `verified:false`.
+- `repair_accessibility=true`: intenta `enable_accessibility` y reporta en
+  `evidence.repair` (un fallo no aborta). Si Shizuku no corre, el operador
+  lo arranca a mano: Jav nunca lo arranca (§2).
+- Apps <2.4.0: `get_caps` → `METHOD_NOT_ALLOWED`; se usan los caps del
+  hello/`get_foreground` (compat v2.3.1).
+
+## 35. v2.5.0 — Fase 5: grounding agnóstico en `resolve_element` + fixes de auditoría (2026-11-19)
+
+Contexto: auditoría de v2.4.0 (3 detalles) + necesidad de que
+`resolve_element` funcione sin `OPENROUTER_API_KEY` cuando el operador ya
+tiene un LLM OpenAI-compatible (Ollama/vLLM local u otro proveedor).
+
+### Cambios
+
+| Área | Dónde | Qué |
+| --- | --- | --- |
+| Fix auditoría 1 | `CommandDispatcher.kt` | `accessibility_enabled 1` **antes** de `enabled_accessibility_services` (gotcha de ROMs) |
+| Fix auditoría 2 | `pkg/tools/register.go` | `adb_shell.timeout_ms` default **65000**, rango **500..90000**; ficha con grant `grant_pending` no bloqueante |
+| Fix auditoría 3 | `pkg/director/director.go` | rama `NONE` registra coste (`cost_usd` + `usage`) en `tracker.Track` |
+| Respaldo S2 | `pkg/director/s2.go` | `S2CanResolve()` + `ResolveElementWithS2(...)` con prompt JSON estricto, fences markdown y validación dura |
+| Wiring | `pkg/director/director.go` | Jev principal; sin S1 o `JAV_RESOLVE_BACKEND=openai` → delega en S2 si está configurado; con `ask` inyectado nunca sale a red |
+| Evidence | `pkg/tools/resolve.go` | propaga `backend` y `model` (éxito y fallback) |
+
+### Verificación
+
+```
+gofmt -l cmd/ pkg/               → vacío
+go vet ./...                     → limpio
+go test -count=1 ./...           → 7 paquetes ok (+4 S2 +1 wiring +coste NONE)
+make build                       → dist/jav-linux-amd64 2.5.0
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64 → 12/12 PASS
+(cd android-app && ./gradlew testDebugUnitTest)  → 100% PASS
+```
+
+APK: `versionCode 11` / `versionName 2.5.0`.
+
+### Semántica del grounding
+
+- `S2CanResolve()` exige configuración **explícita**: base local
+  (`JAV_AI_BASE_URL` loopback, key opcional) o key S2 + al menos un
+  `JAV_AI_*` explícito. Sin nada → `S1_UNAVAILABLE` como antes.
+- `JAV_RESOLVE_BACKEND=openai` fuerza el respaldo; si falta configuración
+  → `S2_UNAVAILABLE` explícito (no se ignora la preferencia).
+- El resultado S2 nunca es un `Choice` de Jev: es JSON plano validado
+  contra la tabla (`choice ∈ criteria`, `confidence` finita). Cualquier
+  anomalía es Fallback Soberano, nunca un `idx` utilizable.
