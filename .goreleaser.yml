@@ -1,6 +1,7 @@
 # GoReleaser mínima para jav (binario Go MCP stdio).
-# Targets: linux-amd64, linux-arm64, darwin-arm64, windows-amd64.
-# Build estático: CGO_ENABLED=0. Tags: v* (ver .github/workflows/release.yml).
+# Targets: linux-amd64, linux-arm64, darwin-arm64, windows-amd64,
+# android-arm64 (Termux). Build estático: CGO_ENABLED=0.
+# Tags: v* (ver .github/workflows/release.yml).
 version: 2
 
 project_name: jav
@@ -13,6 +14,7 @@ builds:
       - linux
       - darwin
       - windows
+      - android
     goarch:
       - amd64
       - arm64
@@ -21,6 +23,8 @@ builds:
         goarch: amd64
       - goos: windows
         goarch: arm64
+      - goos: android
+        goarch: amd64
     flags:
       - -trimpath
     ldflags:

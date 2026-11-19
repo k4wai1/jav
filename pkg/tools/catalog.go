@@ -13,60 +13,67 @@ package tools
 // ToolGroups es el orden canónico de los 4 grupos.
 var ToolGroups = []string{"state", "ui", "native", "resolve"}
 
-// toolMeta: grupo, resumen (acción + carril) y si es sensible (exige confirm).
+// toolMeta: grupo, resumen (acción + carril), si es sensible (exige confirm)
+// y requisitos críticos inline.
+//
+// v2.6.0: los clientes MCP que NO leen Resources automáticamente (Claude
+// Desktop, Cursor, Windsurf, Cline) solo ven `tools/list`. Por eso el
+// requisito que rompe la llamada viaja en la propia descripción compacta, no
+// solo en la ficha de 7 secciones.
 type toolMeta struct {
 	Group     string
 	Summary   string
 	Sensitive bool
+	Requires  string
 }
 
 // toolCatalog espeja la tabla declarativa de register.go (mismos 38 nombres).
 var toolCatalog = map[string]toolMeta{
 	// --- state: lectura de estado (carril nativo/read) ---
-	"device_status":   {"state", "estado Jav: caps/foreground y diagnóstico+repair de a11y (read).", false},
-	"get_foreground":  {"state", "foreground: paquete+activity (read).", false},
-	"list_packages":   {"state", "paquetes instalados nativo WS; fallback adb (read).", false},
-	"get_battery":     {"state", "batería: nivel/carga/temp/saver (N0).", false},
-	"get_memory":      {"state", "RAM disponible/total/low_memory (N0).", false},
-	"get_storage":     {"state", "almacenamiento; fine usa Shizuku (N0/N2).", false},
-	"get_cpu":         {"state", "núcleos y uso de CPU; fine=N2 (N0/N2).", false},
-	"get_device_info": {"state", "hardware sin IDs persistentes (N0).", false},
-	"get_audit":       {"state", "audit ring 500 (solo hashes) (admin).", false},
+	"device_status":   {"state", "estado Jav: caps/foreground y diagnóstico de a11y (read).", false, "repair_accessibility=true repara la a11y vía Shizuku; funciona con la a11y apagada."},
+	"get_foreground":  {"state", "foreground: paquete+activity (read).", false, ""},
+	"list_packages":   {"state", "paquetes instalados nativo WS; fallback adb (read).", false, ""},
+	"get_battery":     {"state", "batería: nivel/carga/temp/saver (N0).", false, ""},
+	"get_memory":      {"state", "RAM disponible/total/low_memory (N0).", false, ""},
+	"get_storage":     {"state", "almacenamiento; fine usa Shizuku (N0/N2).", false, ""},
+	"get_cpu":         {"state", "núcleos y uso de CPU; fine=N2 (N0/N2).", false, ""},
+	"get_device_info": {"state", "hardware sin IDs persistentes (N0).", false, ""},
+	"get_audit":       {"state", "audit ring 500 (solo hashes) (admin).", false, ""},
 
 	// --- ui: bucle de decisión sobre la pantalla ---
-	"read_screen":   {"ui", "pantalla normalizada + snapshot_id (read).", false},
-	"tap_node":      {"ui", "toca node_id+snapshot_id (ui).", false},
-	"tap_text":      {"ui", "toca el primer nodo con text (ui).", false},
-	"type_text":     {"ui", "REPLACE en campo enfocado; __PASTE__ pega clipboard (ui).", false},
-	"scroll":        {"ui", "scroll up/down (ui).", false},
-	"press_back":    {"ui", "botón atrás (ui).", false},
-	"press_home":    {"ui", "botón home (ui).", false},
-	"wait_for_text": {"ui", "espera text y da snapshot (read).", false},
-	"open_app":      {"ui", "abre app (Shizuku) + verify fg (ui).", false},
-	"close_app":     {"ui", "force-stop + verify salida (shell).", false},
-	"screenshot":    {"ui", "captura; FLAG_SECURE→SECURE_SURFACE (read).", false},
+	"read_screen":   {"ui", "pantalla normalizada + snapshot_id (read).", false, "Devuelve un snapshot_id monotónico: úsalo en tap_node/type_text."},
+	"tap_node":      {"ui", "toca node_id+snapshot_id (ui).", false, "Exige node_id y snapshot_id vigente de read_screen (STALE_SNAPSHOT si cambió)."},
+	"tap_text":      {"ui", "toca el primer nodo con text (ui).", false, ""},
+	"type_text":     {"ui", "REPLACE en el campo ya enfocado; __PASTE__ pega el clipboard (ui).", false, "Exige node_id+snapshot_id vigente y foco (NOT_FOCUSED: haz tap antes; sin taps implícitos)."},
+	"scroll":        {"ui", "scroll up/down (ui).", false, ""},
+	"press_back":    {"ui", "botón atrás (ui).", false, ""},
+	"press_home":    {"ui", "botón home (ui).", false, ""},
+	"wait_for_text": {"ui", "espera text y da snapshot (read).", false, ""},
+	"open_app":      {"ui", "abre app (Shizuku) + verify fg (ui).", false, ""},
+	"close_app":     {"ui", "force-stop + verify salida (shell).", false, ""},
+	"screenshot":    {"ui", "captura; FLAG_SECURE→SECURE_SURFACE (read).", false, ""},
 
 	// --- native: APIs de dispositivo / intents ---
-	"settings_get":         {"native", "lee ajuste System/Secure/Global (read).", false},
-	"settings_put":         {"native", "escribe ajuste System (crítica) (admin).", true},
-	"open_url":             {"native", "abre URL (ACTION_VIEW), no envía (intent).", false},
-	"send_intent":          {"native", "intent de apertura/pre-relleno (intent).", true},
-	"get_clipboard_device": {"native", "clipboard: len/sha256/text≤2048 (jam/shizuku) (read).", false},
-	"get_app_usage":        {"native", "foreground agregado top 50 (N1).", false},
-	"list_contacts":        {"native", "contactos; forense count+hash (N1).", false},
-	"add_contact":          {"native", "alta de contacto (crítica) (N1).", true},
-	"list_events":          {"native", "eventos ≤7 días (N1).", false},
-	"create_event":         {"native", "crea evento (crítica) (N1).", true},
-	"list_notifications":   {"native", "notificaciones activas (N1).", false},
-	"reply_notification":   {"native", "responde vía RemoteInput (crítica) (N1).", true},
-	"media_state":          {"native", "sesiones multimedia (N1).", false},
-	"media_control":        {"native", "play/pause/next/prev; stop crítico (N1).", true},
-	"get_location":         {"native", "ubicación: cache o fix (N1).", false},
-	"take_photo":           {"native", "foto headless FGS visible (crítica) (N1).", true},
-	"adb_shell":            {"native", "shell UID shell Shizuku; grant+denylist (admin).", true},
+	"settings_get":         {"native", "lee ajuste System/Secure/Global (read).", false, ""},
+	"settings_put":         {"native", "escribe ajuste System (crítica) (admin).", true, ""},
+	"open_url":             {"native", "abre URL (ACTION_VIEW), no envía (intent).", false, ""},
+	"send_intent":          {"native", "intent de apertura/pre-relleno (intent).", true, ""},
+	"get_clipboard_device": {"native", "clipboard: len/sha256/text≤2048 (jam/shizuku) (read).", false, ""},
+	"get_app_usage":        {"native", "foreground agregado top 50 (N1).", false, ""},
+	"list_contacts":        {"native", "contactos; forense count+hash (N1).", false, ""},
+	"add_contact":          {"native", "alta de contacto (crítica) (N1).", true, ""},
+	"list_events":          {"native", "eventos ≤7 días (N1).", false, ""},
+	"create_event":         {"native", "crea evento (crítica) (N1).", true, ""},
+	"list_notifications":   {"native", "notificaciones activas (N1).", false, ""},
+	"reply_notification":   {"native", "responde vía RemoteInput (crítica) (N1).", true, ""},
+	"media_state":          {"native", "sesiones multimedia (N1).", false, ""},
+	"media_control":        {"native", "play/pause/next/prev; stop crítico (N1).", true, ""},
+	"get_location":         {"native", "ubicación: cache o fix (N1).", false, ""},
+	"take_photo":           {"native", "foto headless FGS visible (crítica) (N1).", true, ""},
+	"adb_shell":            {"native", "shell UID shell Shizuku; grant+denylist (admin).", true, "Sin grant: {planned:true,grant_pending:true}; aprueba la notificación y repite el MISMO comando."},
 
 	// --- resolve: resolver ciego S1 ---
-	"resolve_element": {"resolve", "resuelve el elemento S1 de la micro-intención (resolve).", false},
+	"resolve_element": {"resolve", "resuelve el elemento S1 de la micro-intención (resolve).", false, ""},
 }
 
 // FullToolDocs conserva la ficha completa de 7 secciones por tool (contrato
@@ -82,12 +89,20 @@ func buildFullToolDocs() map[string]string {
 }
 
 // CompactDesc genera la descripción de 1-2 líneas que viaja en tools/list:
-// `[<grupo>] <acción y carril>. Retorno: {ok,verified,evidence,hint}.`
+// `[<grupo>] <acción y carril>.` + (si aplica) requisito crítico inline
+// + `Retorno: {ok,verified,evidence,hint}.`
 // + (si sensible) `Sin confirm: planned:true+preview; exige confirm:true.`
 // + `Spec: android://tool/<name>`.
+//
+// Autosuficiente por diseño (v2.6.0): un cliente que nunca llama a
+// `resources/read` igualmente conoce el gate que rompería la llamada.
 func CompactDesc(name string) string {
 	meta := toolCatalog[name]
-	s := "[" + meta.Group + "] " + meta.Summary + " Retorno: {ok,verified,evidence,hint}."
+	s := "[" + meta.Group + "] " + meta.Summary
+	if meta.Requires != "" {
+		s += " " + meta.Requires
+	}
+	s += " Retorno: {ok,verified,evidence,hint}."
 	if meta.Sensitive {
 		s += " Sin confirm: planned:true+preview; exige confirm:true."
 	}

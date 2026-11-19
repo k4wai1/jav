@@ -30,12 +30,17 @@ Env del instalador: `VERSION=v0.1.0` (default `latest`),
 escribible, si no `~/.local/bin`), `BIN=jav`. Detecta
 linux/darwin/windows × amd64/arm64 y deja el binario en el destino.
 
+En **Termux/Android** (v2.6.0) detecta `$TERMUX_VERSION` o
+`uname -o` = `Android`, descarga `jav_android_arm64.tar.gz` e instala en
+`$PREFIX/bin`; si la release pedida es anterior a v2.6.0 (sin ese asset),
+cae limpiamente a `linux/arm64` (binario Go estático, mismo comportamiento).
+
 ## 2. Desde fuente
 
 ```sh
 git clone https://github.com/k4wai1/jav.git ~/jav
 make build        # host → dist/jav-linux-amd64
-make build-all    # linux/amd64 + linux/arm64 + darwin/arm64 + windows/amd64 → dist/
+make build-all    # linux/amd64+arm64 + darwin/arm64 + windows/amd64 + android/arm64 → dist/
 go run ./cmd/jav  # sin instalar: arranca el servidor MCP por stdio
 ```
 
@@ -177,9 +182,14 @@ se lee **en caliente** de `~/.config/jav/config.json`.
 ```
 
 Los bloques `environment` de abajo son **opcionales** (fallback/CI o para fijar
-valores por cliente; el entorno tiene prioridad sobre `config.json`).
+valores por cliente; el entorno tiene prioridad sobre `config.json`). Para
+Claude Desktop / Cursor / Windsurf / Cline usa el bloque universal §4.5.
 
-### 4.1 opencode.json (host Linux, stdio)
+### 4.1 OpenCode (host Linux, stdio)
+
+> v2.6.0: la config de OpenCode del repo vive en
+> `docs/dev/opencode/opencode.json` (fuera de la raíz, para no acoplar el
+> proyecto a un cliente). El bloque de abajo es el contenido que usa.
 
 ```json
 {
@@ -272,9 +282,9 @@ Variante local-S2 (misma key ausente = sin auth en loopback):
 ### 4.4 Termux (teléfono como host)
 
 ```sh
-# Binario arm64; misma ruta o ~/.local/bin/jav
+# v2.6.0: instala jav_android_arm64 en $PREFIX/bin
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
-# o copia dist/jav-linux-arm64 al teléfono y renómbralo a jav.
+# o copia dist/jav-android-arm64 (make build-all) al teléfono como jav.
 
 export JAV_WS_URL="ws://127.0.0.1:38472/"
 export JAV_TOKEN=""            # del QR de Jav
@@ -286,9 +296,32 @@ export JAV_LOG_DIR="logs/"
 jav  # stdio: conéctalo como servidor local desde tu cliente MCP
 ```
 
-En Termux el cliente MCP (opencode) usa el bloque §4.1 con la ruta del
-binario arm64 y las mismas variables. S2 Termux-local = `JAV_AI_BASE_URL`
-en loopback sin key (ver `ai-providers.md` §3).
+En Termux el cliente MCP usa el bloque universal §4.5 (`"command": "jav"`)
+o el bloque §4.1 con la ruta del binario y las mismas variables. S2
+Termux-local = `JAV_AI_BASE_URL` en loopback sin key (`ai-providers.md` §3).
+
+### 4.5 Claude Desktop / Cursor / Windsurf / Cline (v2.6.0)
+
+Bloque estándar `mcpServers`, idéntico en los cuatro clientes (cambia solo
+el archivo: `claude_desktop_config.json`, `~/.cursor/mcp.json`,
+`mcp_config.json` de Windsurf o la config de Cline):
+
+```json
+{
+  "mcpServers": {
+    "jav": {
+      "command": "jav",
+      "args": []
+    }
+  }
+}
+```
+
+No necesitan `environment`: `jav` lee `~/.config/jav/config.json` (0600) en
+caliente. Las descripciones compactas de `tools/list` son autosuficientes
+(gates inline: `snapshot_id`, `confirm:true`, `repair_accessibility`,
+`grant_pending`), así que estos clientes no necesitan consultar
+`resources/read` para operar.
 
 ## 5. Verificación
 

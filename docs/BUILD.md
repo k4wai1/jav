@@ -1442,3 +1442,36 @@ APK: `versionCode 11` / `versionName 2.5.0`.
 - El resultado S2 nunca es un `Choice` de Jev: es JSON plano validado
   contra la tabla (`choice ∈ criteria`, `confidence` finita). Cualquier
   anomalía es Fallback Soberano, nunca un `idx` utilizable.
+
+## 36. v2.6.0 — Fase 6: universalidad MCP, desacople de OpenCode y builds multiplataforma (2026-11-19)
+
+Contexto: Jav ya es un servidor MCP neutro, pero la raíz albergaba archivos
+de OpenCode y los clientes que no leen Resources solo veían descripciones
+demasiado escuetas. Además el release no cubría Termux (teléfono como host).
+
+### Cambios
+
+| Área | Dónde | Qué |
+| --- | --- | --- |
+| Autosuficiencia | `pkg/tools/catalog.go` | `toolMeta.Requires`; gates inline (`snapshot_id`, foco, `repair_accessibility`, `grant_pending`) en `tools/list` |
+| Desacople | `docs/dev/opencode/` | `AGENTS-MULTIAGENT.md`, `opencode.json`, `agents/` + README con symlinks; `.opencode/skills/` intacto |
+| Build android | `.goreleaser.yml`, `Makefile` | `GOOS=android GOARCH=arm64` (`CGO_ENABLED=0`) → `jav_android_arm64.tar.gz` |
+| Installer | `install.sh` | Detecta Termux (`$TERMUX_VERSION`/`uname -o`), destino `$PREFIX/bin`, fallback a `linux/arm64`; arreglado `EXT` de Windows (`windows`, no `Windows`) |
+| CI | `.github/workflows/release.yml` | `checkout@v7`, `setup-java@v6`, `upload-artifact@v7`, `download-artifact@v8`, `setup-go@v7`, `goreleaser-action@v7` |
+| Docs | `README.md`, `docs/INSTALL.md` | Bloque `mcpServers` universal + notas OpenCode/Termux; cambios v2.4.0–v2.6.0; cache-bust `?v=2.6.0` |
+| Versión | varios | `2.6.0` / `versionCode 12` |
+
+### Verificación
+
+```
+gofmt -l cmd/ pkg/               → vacío
+go vet ./...                     → limpio
+go test -count=1 ./...           → 7 paquetes ok
+sh -n install.sh                 → OK
+make build                       → dist/jav-linux-amd64 2.6.0
+go run ./cmd/audit-mcp --bin dist/jav-linux-amd64 → 12/12 PASS
+(cd android-app && ./gradlew testDebugUnitTest)  → 100% PASS
+grep su                          → solo ShizukuBridge.kt:118
+```
+
+APK: `versionCode 12` / `versionName 2.6.0`.

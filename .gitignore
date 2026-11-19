@@ -57,5 +57,13 @@ refs/
 /jav-tree.txt
 /jav_context.txt
 
-# --- OpenCode: node_modules sí es local; las skills SÍ se commitean ---
-# (antes se ignoraba .opencode/skills/; la skill audit-bundle es parte del repo)
+# --- OpenCode: node_modules local; config/agentes en docs/dev/opencode/ ---
+# (v2.6.0: `opencode.json` y `.opencode/agents/` se movieron a
+#  docs/dev/opencode/ para desacoplar la raíz del cliente. La skill
+#  audit-bundle sigue en `.opencode/skills/` y SÍ se commitea.)
+
+# Symlinks locales de OpenCode (ver docs/dev/opencode/README.md): la config
+# canónica vive en docs/dev/opencode/; los enlaces en la raíz nunca se suben.
+/opencode.json
+/.opencode/agents
+.opencode/node_modules/

@@ -3,10 +3,13 @@
 > Reglas vinculantes para cualquier agente o programador que toque este repo.
 > Si una regla bloquea el trabajo, se enmienda aquí primero, no se rodea.
 >
-> Reparto de roles entre agentes OpenCode: ver `AGENTS-MULTIAGENT.md`
-> (subordinado a este archivo). Hoja de ruta viva: `PLAN.md`.
+> Reparto de roles entre agentes OpenCode: ver
+> `docs/dev/opencode/AGENTS-MULTIAGENT.md` (subordinado a este archivo).
+> Config y agentes de OpenCode viven en `docs/dev/opencode/` para no
+> acoplar la raíz del repo a un cliente MCP concreto.
+> Hoja de ruta viva: `PLAN.md`.
 
-## Estado Operativo Actual (v2.5.0)
+## Estado Operativo Actual (v2.6.0)
 
 | Área | Estado |
 | --- | --- |
@@ -18,6 +21,8 @@
 | Transporte | **Sesión persistente** compartida (`pkg/jam`, `sharedMu`): 1 `hello` por ráfaga (~140–320 ms/llamada); cierre ordenado (`close`+eco); **failover de rutas del mismo teléfono** (Tailnet ↔ LAN ↔ USB) |
 | Seguridad | Token **AES-GCM/Keystore** · Lockout **5/60 s → 5 min** · **WSS** TOFU · **Audit Ring 500** · **Kill Switch** (QS tile + notificación) · **Shell Grant 1 cmd/5 min/30 min + denylist** |
 | GUI (Android) | Icono 1000×1000 + launcher mipmaps + header con logo; colores semánticos `values`/`values-night` |
+| Universalidad | `tools/list` autosuficiente (gates inline) para Claude Desktop/Cursor/Windsurf/Cline; bloque `mcpServers` en README; config de OpenCode aislada en `docs/dev/opencode/` |
+| Builds | Release `linux/amd64+arm64`, `darwin/arm64`, `windows/amd64`, **`android/arm64`** (Termux); `install.sh` detecta Termux y usa `$PREFIX/bin` |
 
 ## 1. Filosofía
 
@@ -736,3 +741,32 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    conserva `S1_UNAVAILABLE` y el `ask` no se invoca.
 6. Versión **2.5.0** (`versionCode 11`), sin tools nuevas (38) y
    `audit-mcp` 12/12. Contrato en `docs/specs/ai-providers.md §2.2–§2.3`.
+
+**2026-11-19 — v2.6.0 (Fase 6): universalidad MCP, desacople de OpenCode y builds multiplataforma:**
+
+1. **`tools/list` autosuficiente.** `toolMeta` gana `Requires` y
+   `CompactDesc` inyecta el gate que rompe la llamada en la propia
+   descripción: `snapshot_id` vigente en `tap_node`/`type_text` (+ foco),
+   `repair_accessibility` en `device_status`, `grant_pending` no bloqueante
+   en `adb_shell`. Los clientes que **no** leen Resources (Claude Desktop,
+   Cursor, Windsurf, Cline) operan sin fricción; la ficha de 7 secciones
+   sigue en `android://tool/<name>`. Se mantiene `[grupo]`, `Retorno:
+   {ok,verified,evidence,hint}` y `Spec:`; `audit-mcp` sigue 12/12 y la
+   carga cognitiva ≤3000 (holgada).
+2. **Desacople de OpenCode.** `AGENTS-MULTIAGENT.md`, `opencode.json` y
+   `.opencode/agents/` se mueven a `docs/dev/opencode/` (con README que
+   documenta los symlinks opcionales). La raíz no depende de un cliente MCP
+   concreto; `.opencode/skills/audit-bundle` se conserva en su sitio.
+3. **Builds multiplataforma.** `.goreleaser.yml` y `make build-all` añaden
+   `GOOS=android GOARCH=arm64` (`CGO_ENABLED=0`) → asset
+   `jav_android_arm64.tar.gz`. `install.sh` detecta Termux
+   (`$TERMUX_VERSION` o `uname -o` = `Android`), instala en `$PREFIX/bin` y
+   cae a `linux/arm64` si la release pedida no trae el asset android.
+4. **CI al día.** `actions/checkout@v7`, `setup-java@v6`,
+   `upload-artifact@v7`, `download-artifact@v8`, `setup-go@v7`,
+   `goreleaser-action@v7` (majors compatibles con el runner actual; fuera
+   los avisos de Node 20).
+5. **Contrato y versión.** Siguen **38 tools**; `versionName 2.6.0` /
+   `versionCode 12`. README (EN/ES) publica el bloque estándar
+   `mcpServers` (Claude Desktop, Cursor, Windsurf, Cline) con notas para
+   OpenCode y Termux, y la sección de cambios v2.4.0–v2.6.0.

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/icon.png?v=2.3.1" width="128" alt="Jav" />
+<img src="docs/assets/icon.png?v=2.6.0" width="128" alt="Jav" />
 
 # Jav
 
@@ -82,11 +82,25 @@ adb install -r jav-companion.apk
 jav pair
 ```
 
-Then point your Director at `jav` over stdio:
+Then register `jav` as an MCP server. This block is the same for **Claude
+Desktop** (`claude_desktop_config.json`), **Cursor** (`~/.cursor/mcp.json`),
+**Windsurf** (`mcp_config.json`) and **Cline**:
 
 ```json
-{ "command": ["jav"] }
+{
+  "mcpServers": {
+    "jav": {
+      "command": "jav",
+      "args": []
+    }
+  }
+}
 ```
+
+> **OpenCode** uses the `mcp` key instead:
+> `{"mcp":{"jav":{"type":"local","command":["jav"],"enabled":true}}}`.
+> **Termux:** `install.sh` installs the `android/arm64` binary into
+> `$PREFIX/bin`, so the same `"command": "jav"` block works unchanged.
 
 That's it — no `.env`, no restart: `jav` (re)reads
 `~/.config/jav/config.json` (`0600`) hot. Remote pairing uses
@@ -183,6 +197,58 @@ only execute after `confirm:true`.
 | `adb_shell` grant | blocks 60 s if not granted → `SHELL_DENIED` (verified live) |
 
 ## What changed
+
+### v2.6.0 — universal MCP, OpenCode decoupled, Termux builds
+
+- **Self-contained compact descriptions.** `tools/list` now inlines the gate
+  that would break the call (`snapshot_id` freshness in `tap_node`/`type_text`,
+  `repair_accessibility` in `device_status`, `grant_pending` in `adb_shell`),
+  so clients that never read Resources (Claude Desktop, Cursor, Windsurf,
+  Cline) work without the on-demand 7-section sheet. The sheet is still served
+  at `android://tool/<name>`; startup stays well under budget.
+- **OpenCode decoupled from the root.** `opencode.json`, `.opencode/agents/`
+  and `AGENTS-MULTIAGENT.md` moved to `docs/dev/opencode/` (see its README for
+  the optional symlinks). The audit-bundle skill stays in `.opencode/skills/`.
+- **Termux / Android builds.** A new `android/arm64` target ships as
+  `jav_android_arm64.tar.gz`; `install.sh` detects Termux (`$TERMUX_VERSION` or
+  `uname -o` = Android), installs to `$PREFIX/bin`, and falls back to
+  `linux/arm64` on older releases without that asset.
+- **CI actions refreshed** to Node-24-compatible majors (`checkout@v7`,
+  `setup-java@v6`, `upload-artifact@v7`, `download-artifact@v8`,
+  `setup-go@v7`, `goreleaser-action@v7`).
+- Version **2.6.0** (`versionCode 12`); still **38 tools** and `audit-mcp`
+  12/12.
+
+### v2.5.0 — agnostic grounding in `resolve_element`
+
+- **S2 fallback (OpenAI-compatible).** Jev stays the primary backend
+  (`backend: "jev-decisions"`). Without an OpenRouter key, or with
+  `JAV_RESOLVE_BACKEND=openai`, `resolve_element` delegates to a local or
+  OpenAI-compatible endpoint (`JAV_AI_BASE_URL` / `JAV_AI_MODEL` /
+  `JAV_AI_API_KEY`) using a strict one-object JSON prompt. Hard validation:
+  `S2_HALLUCINATION` (off-table), `LOW_CONF` (below `tau`), `NO_TARGET`,
+  `S2_UNAVAILABLE`. Success reports `backend: "openai-compat"` + `model`.
+- **Isolation intact.** `pkg/jev` never reads `JAV_AI_*` and never accepts a
+  chat model; an injected `ask` never reaches the network.
+- **Audit fixes.** Accessibility is enabled in the right order
+  (`accessibility_enabled 1` before the service list); `adb_shell.timeout_ms`
+  is documented as 65000 (500..90000) with a non-blocking grant; the `NONE`
+  branch now records its cost in the session tracker.
+
+### v2.4.0 — real self-diagnosis and assisted setup
+
+- **Diagnosis does not depend on accessibility.** New WS method `get_caps`
+  (scope `read`, no `svc()`), with `currentCaps()` as the single source; it
+  works with accessibility off. `device_status` degrades honestly
+  (`ok:true, verified:false`, `foreground:null`, `foreground_error`) and adds
+  `missing_caps[]` + `setup_hints[]` with concrete actions.
+- **`repair_accessibility` (opt-in)** fixes the service via Shizuku (uid
+  shell, **never** `su`) using `mergeAccessibilityService`, preserving the
+  services already enabled. Without Shizuku → `SHIZUKU_UNAVAILABLE`; denied →
+  `SHIZUKU_DENIED`. A repair failure is reported in `evidence.repair` and
+  does not abort the diagnosis.
+- **Actionable hints** for usage access, notification listener and write
+  settings open the right panel via `send_intent` (it opens, never sends).
 
 ### v2.3.1 — live fixes from a two-phone run (USB + Tailnet)
 
@@ -331,10 +397,30 @@ adb install -r jav-companion.apk
 jav pair
 ```
 
-Apunta tu Director a `jav` por stdio (`{ "command": ["jav"] }`). La config
-`~/.config/jav/config.json` (`0600`) se relee **en caliente**; remoto =
-`wss://<ip-tailnet-o-lan>:38472/`, USB = `jav pair usb <TOKEN>` (+ `adb forward`).
-Shizuku lo arrancas tú; Jav nunca lo inicia.
+Registra `jav` como servidor MCP. Este bloque sirve igual para **Claude
+Desktop** (`claude_desktop_config.json`), **Cursor** (`~/.cursor/mcp.json`),
+**Windsurf** (`mcp_config.json`) y **Cline**:
+
+```json
+{
+  "mcpServers": {
+    "jav": {
+      "command": "jav",
+      "args": []
+    }
+  }
+}
+```
+
+> **OpenCode** usa la clave `mcp`:
+> `{"mcp":{"jav":{"type":"local","command":["jav"],"enabled":true}}}`.
+> **Termux:** `install.sh` instala el binario `android/arm64` en
+> `$PREFIX/bin`, así que el mismo bloque `"command": "jav"` funciona sin
+> cambios.
+
+La config `~/.config/jav/config.json` (`0600`) se relee **en caliente**;
+remoto = `wss://<ip-tailnet-o-lan>:38472/`, USB = `jav pair usb <TOKEN>`
+(+ `adb forward`). Shizuku lo arrancas tú; Jav nunca lo inicia.
 
 Varios teléfonos en una sola config, con cambio en caliente:
 
@@ -382,6 +468,20 @@ args/token en claro) y Kill Switch (tile QS + notificación). Detalle en
 
 ## Cambios recientes
 
+- **v2.6.0** — universalidad MCP: `tools/list` autosuficiente (gates inline
+  de `snapshot_id`, `confirm:true`, `repair_accessibility`, `grant_pending`)
+  para Claude Desktop/Cursor/Windsurf/Cline; OpenCode desacoplado a
+  `docs/dev/opencode/`; build **android/arm64** (Termux) + `install.sh`
+  detecta Termux y usa `$PREFIX/bin`; CI actualizado.
+- **v2.5.0** — grounding agnóstico en `resolve_element`: Jev sigue principal
+  y, sin key o con `JAV_RESOLVE_BACKEND=openai`, respaldo OpenAI-compatible
+  con validación dura (`S2_HALLUCINATION`/`LOW_CONF`/`NO_TARGET`); `backend`
+  y `model` en `evidence`; fixes de auditoría (orden a11y, schema
+  `adb_shell`, coste de `NONE`).
+- **v2.4.0** — autodiagnóstico real: `get_caps` (scope read, sin
+  accesibilidad) y `device_status` degradado honesto con `missing_caps` y
+  `setup_hints`; `repair_accessibility` opt-in vía Shizuku (preserva
+  servicios, nunca `su`).
 - **v2.3.1** — fixes de la prueba viva con dos teléfonos: el cliente
   descarta el evento `shell_grant` (ya no mata la llamada) y `shell` espera
   65 s; `get_foreground` devuelve caps vivos (`shell_grant` al día);

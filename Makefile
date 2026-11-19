@@ -1,4 +1,4 @@
-VERSION ?= 2.5.0
+VERSION ?= 2.6.0
 LDFLAGS = -s -w -X main.version=$(VERSION)
 BIN = dist/jav-linux-amd64
 
@@ -14,6 +14,7 @@ build-all:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/jav-linux-arm64 ./cmd/jav
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/jav-darwin-arm64 ./cmd/jav
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/jav-windows-amd64.exe ./cmd/jav
+	CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -trimpath -ldflags "$(LDFLAGS)" -o dist/jav-android-arm64 ./cmd/jav
 
 test:
 	go test ./...
