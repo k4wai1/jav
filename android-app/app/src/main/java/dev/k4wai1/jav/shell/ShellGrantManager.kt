@@ -9,17 +9,15 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import dev.k4wai1.jav.service.JevForegroundService
 import dev.k4wai1.jav.util.JevLog
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /**
  * Grant interactivo de `shell` (AGENTS.md §2.6, §3.7, §9.4).
  *
- * El estado vive en memoria del proceso y **expira solo**. La request
- * bloquea hasta 60 s en `requestGrantBlocking`; el operador resuelve por
- * los botones de la notificación (que llegan a
- * `JevForegroundService.onStartCommand`). Denegación o timeout →
- * `false` (el dispatcher traduce a `SHELL_DENIED`).
+ * El estado vive en memoria del proceso y **expira solo**. v2.3.1: la
+ * request **no bloquea**; si falta grant se publica la notificación y se
+ * responde `planned`, y el agente repite el comando tras aprobar. El
+ * operador resuelve por los botones (que llegan a
+ * `JevForegroundService.onStartCommand`).
  */
 object ShellGrantManager {
 
@@ -49,13 +47,11 @@ object ShellGrantManager {
     @Volatile
     private var singleCmdSha256: String? = null
 
-    private var pendingLatch: CountDownLatch? = null
-
     @Volatile
     private var pendingSha: String? = null
 
     @Volatile
-    private var pendingGranted: Boolean = false
+    private var pendingAtMs: Long = 0L
 
     /** ¿Hay grant vigente? (ventana activa o 1-comando pendiente). */
     @Synchronized
@@ -75,42 +71,27 @@ object ShellGrantManager {
     }
 
     /**
-     * Pide grant y **bloquea** hasta `timeoutMs` (60 s por defecto).
-     * Devuelve `true` si quedó concedido (y consume el 1-comando),
-     * `false` si el operador denegó, venció el timeout o se revocó.
+     * v2.3.1: grant **no bloqueante**. Devuelve `true` si el comando ya
+     * está cubierto (ventana activa, o grant de 1 comando que se consume
+     * aquí) y `false` si acaba de publicar la notificación y hay que
+     * reintentar tras aprobarla.
+     *
+     * Antes bloqueaba hasta 60 s en el hilo del WebSocket; con
+     * `connectionLostTimeout = 10` el servidor cerraba la conexión a los
+     * ~20 s (close 1006) antes de que el operador pudiera aprobar.
      */
-    fun requestGrantBlocking(
-        ctx: Context,
-        cmd: String,
-        timeoutMs: Long = 60_000L
-    ): Boolean {
+    fun requestGrant(ctx: Context, cmd: String): Boolean {
         val sha = ShellPolicy.sha256Hex(cmd)
-        val now = System.currentTimeMillis()
-        if (hasActiveGrant(sha, now)) {
+        if (hasActiveGrant(sha)) {
             consumeSingle(sha)
             return true
         }
-        val latch = CountDownLatch(1)
         synchronized(this) {
-            pendingLatch = latch
             pendingSha = sha
-            pendingGranted = false
+            pendingAtMs = System.currentTimeMillis()
         }
         postGrantRequest(ctx, cmd, sha)
-        val ok = try {
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS) && pendingGranted
-        } catch (t: InterruptedException) {
-            Thread.currentThread().interrupt()
-            false
-        } finally {
-            cancelGrantRequest(ctx)
-            synchronized(this) {
-                pendingLatch = null
-                pendingSha = null
-            }
-        }
-        if (ok) consumeSingle(sha)
-        return ok
+        return false
     }
 
     /**
@@ -120,8 +101,7 @@ object ShellGrantManager {
      */
     @Synchronized
     fun resolve(action: String, sha256Extra: String?): Pair<String, String>? {
-        val latch = pendingLatch ?: return null
-        val sha = sha256Extra ?: pendingSha ?: ""
+        val sha = sha256Extra ?: pendingSha ?: return null
         val mode = when (action) {
             ACTION_GRANT_ONCE -> MODE_ONCE
             ACTION_GRANT_5M -> MODE_5M
@@ -131,36 +111,29 @@ object ShellGrantManager {
         }
         val now = System.currentTimeMillis()
         when (mode) {
-            MODE_ONCE -> {
-                singleCmdSha256 = sha
-                pendingGranted = true
-            }
-            MODE_5M -> {
-                grantUntilMs = now + WINDOW_5M_MS
-                pendingGranted = true
-            }
-            MODE_30M -> {
-                grantUntilMs = now + WINDOW_30M_MS
-                pendingGranted = true
-            }
-            else -> pendingGranted = false
+            MODE_ONCE -> singleCmdSha256 = sha
+            MODE_5M -> grantUntilMs = now + WINDOW_5M_MS
+            MODE_30M -> grantUntilMs = now + WINDOW_30M_MS
+            else -> {}
         }
-        latch.countDown()
+        pendingSha = null
+        pendingAtMs = 0L
         return mode to sha
     }
 
-    /** Revoca cualquier grant y libera la solicitud pendiente como denegada. */
+    /** Revoca cualquier grant y descarta la solicitud pendiente. */
     @Synchronized
     fun revoke() {
         grantUntilMs = 0L
         singleCmdSha256 = null
-        pendingGranted = false
-        pendingLatch?.countDown()
+        pendingSha = null
+        pendingAtMs = 0L
     }
 
     /** ¿Hay una solicitud esperando al operador? (para la UI del tile). */
     @Synchronized
-    fun isPending(): Boolean = pendingLatch != null
+    fun isPending(): Boolean =
+        pendingSha != null && System.currentTimeMillis() - pendingAtMs < 60_000L
 
     // ---- notificación de solicitud (canal alta importancia) ----
 
@@ -210,7 +183,8 @@ object ShellGrantManager {
         )
     }
 
-    private fun cancelGrantRequest(ctx: Context) {
+    /** Cancela la notificación de solicitud (tras resolver o revocar). */
+    fun cancelRequest(ctx: Context) {
         try {
             ctx.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         } catch (t: Throwable) {

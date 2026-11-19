@@ -641,3 +641,33 @@ single-client `BUSY` (Fase 2); permiso `FOREGROUND_SERVICE_SPECIAL_USE`
    alfabético o deja sin activo) y `--name` sin valor → uso + exit 2. (f)
    selección `1..N` en `jav pair` interactivo (mDNS). (g) `ClientRegistry`
    con test JVM por proxy dinámico (`ClientRegistryTest.kt`).
+
+**2026-11-18 — v2.3.1: fixes de la prueba viva con dos teléfonos (TCL USB + TECNO WSS):**
+
+1. **Eventos intercalados en el cliente Go** (`pkg/jam.raw`): el teléfono
+   emite `shell_grant` (sin `id`) antes de la respuesta; el cliente ahora
+   descarta frames sin `id` con `event` y sigue leyendo. Antes la llamada
+   moría con `JAM_ERROR` aunque el comando se ejecutara. El grant pasa a
+   **no bloqueante**: sin grant la respuesta es `{planned:true,
+   grant_pending:true, cmd_sha256}` y el agente repite el comando tras
+   aprobar (antes el hilo del WS quedaba 60 s bloqueado y el
+   `connectionLostTimeout=10` cortaba la conexión a los ~20 s).
+2. **`caps` vivos en `get_foreground`**: `hello.caps` es una foto del
+   arranque; con sesión persistente `shell_grant` quedaba en `false` para
+   siempre. `get_foreground` (O(1)) reenvía los caps actuales y
+   `device_status` los fusiona sobre los del hello.
+3. **Tap por gesto honesto**: `dispatchGesture` puede completarse sin efecto
+   (launchers filtran toques inyectados). `tap_node` con `via=gesture` solo
+   devuelve `verified:true` si hubo un **evento con efecto**
+   (`isEffectEvent`: window/click/scroll/focus/text; **no** hover/touch) en
+   ~700 ms. En el **launcher** (paquete HOME) exige **cambio de app** en
+   1,2 s (Fossify emite contenido al descartar el gesto). El campo
+   `verified` viaja en el result y `jamCall` ya no lo mejora. `open_app`
+   espera 8 s al foreground en equipos lentos.
+4. **`open_app` sin `monkey` como camino principal**: resuelve el componente
+   con `cmd package resolve-activity --user 0` y lanza
+   `am start --user 0 -n`; `monkey` solo como último recurso. Nuevos códigos
+   `APP_DISABLED` (congelada/`pm disable-user`, típico de Hail) y
+   `APP_NOT_LAUNCHABLE`. Parsea en `nat/AppLaunch.kt` (JVM-testeable).
+5. Versión **2.3.1** (`versionCode 9`), tests: Go `pkg/jam` (+1 evento
+   intercalado) y Kotlin `AppLaunchTest` (5). Sin tools nuevas (38).

@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.view.Display
+import dev.k4wai1.jav.nat.AppLaunch
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -45,7 +46,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 
-data class TapResult(val nodeId: String, val via: String)
+data class TapResult(
+    val nodeId: String,
+    val via: String,
+    val verified: Boolean = true,
+    val effect: String = ""
+)
 
 data class ScreenshotData(val img: String, val w: Int, val h: Int, val via: String)
 data class TypeResult(val chars: Int, val via: String)
@@ -59,6 +65,21 @@ data class TypeResult(val chars: Int, val via: String)
 // paquete activo (STALE_SNAPSHOT si de verdad cambió).
 internal fun isVolatileEvent(eventType: Int?): Boolean =
     eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+
+/**
+ * v2.3.1: eventos que prueban un efecto de la acción (no hover/touch).
+ * Se usa para no marcar `verified` un gesto que el sistema descartó.
+ */
+internal fun isEffectEvent(eventType: Int): Boolean = when (eventType) {
+    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+    AccessibilityEvent.TYPE_VIEW_CLICKED,
+    AccessibilityEvent.TYPE_VIEW_SELECTED,
+    AccessibilityEvent.TYPE_VIEW_SCROLLED,
+    AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+    AccessibilityEvent.TYPE_VIEW_FOCUSED -> true
+    else -> false
+}
 
 /**
  * Fase 2: percepción + acciones UI. Fase 3a: `open_app`/`force_stop`
@@ -86,6 +107,11 @@ class JevAccessibilityService : AccessibilityService() {
     var uiDirty: Boolean = false
         private set
 
+    /** v2.3.1: contador monótono de eventos de UI (prueba de efecto). */
+    @Volatile
+    var eventSeq: Long = 0L
+        private set
+
     @Volatile
     private var lastActivity: String = ""
 
@@ -107,10 +133,14 @@ class JevAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) {
             uiDirty = true
+            eventSeq++
             return
         }
-        if (!isVolatileEvent(event.eventType)) {
+        // Solo eventos con efecto real (contenido/foco/click/scroll…);
+        // hover y touch interaction no prueban que la app aceptara el tap.
+        if (isEffectEvent(event.eventType)) {
             uiDirty = true
+            eventSeq++
         }
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             event.className?.toString()?.let { lastActivity = it }
@@ -235,6 +265,8 @@ class JevAccessibilityService : AccessibilityService() {
         val live = reanchorOrThrow(snap, node)
         try {
             val via: String
+            var verified = true
+            var effect = ""
             if (live.isClickable && live.performClick()) {
                 via = "action_click"
             } else {
@@ -249,10 +281,25 @@ class JevAccessibilityService : AccessibilityService() {
                     val cy = (bs[1] + bs[3]) / 2
                     val (px, py) = toPhysical(cx, cy)
                     JevLog.d(TAG, "tap gesto log=$cx,$cy phys=$px,$py")
+                    val seqBefore = eventSeq
+                    val homeBefore = isHomePackage(snap.packageName)
                     if (!dispatchTap(px, py)) {
                         throw JamError("gesto rechazado por el sistema", "INTERNAL_ERROR")
                     }
                     via = "gesture"
+                    // v2.3.1: dispatchGesture no garantiza efecto. En el
+                    // launcher (Fossify y similares) el gesto se descarta
+                    // pero llegan eventos de contenido: exigimos cambio de
+                    // app. En el resto, un evento con efecto basta.
+                    if (homeBefore) {
+                        waitForPackageChange(snap.packageName, GESTURE_HOME_MS)
+                        val after = rootInActiveWindow?.packageName?.toString()
+                        verified = after != null && after != snap.packageName
+                        effect = "home->" + (after ?: "null")
+                    } else {
+                        verified = waitForUiEvent(seqBefore, GESTURE_VERIFY_MS)
+                        effect = if (verified) "ui_event" else "no_event"
+                    }
                 }
             }
             if (node.editable || live.isEditable) {
@@ -264,7 +311,7 @@ class JevAccessibilityService : AccessibilityService() {
                     JevLog.d(TAG, "performFocus lanzó: ${t.message}")
                 }
             }
-            return TapResult(node.id, via)
+            return TapResult(node.id, via, verified, effect)
         } finally {
             live.recycle()
             uiDirty = true
@@ -453,19 +500,52 @@ class JevAccessibilityService : AccessibilityService() {
     // ---- Fase 3a: Shizuku + screenshot ----
 
     /**
-     * Abre la app por su launcher (`monkey`; no requiere conocer la
-     * activity). Verifica con foreground (exit 0 de monkey no basta).
+     * Abre la app (Fase 3a; v2.3.1 sin depender de `monkey`).
+     *
+     * Camino principal: resolver el launcher con `cmd package
+     * resolve-activity` y lanzar con `am start --user 0 -n <comp>`. Esto
+     * funciona también con Shizuku en **uid 0 (root)**, donde `monkey`
+     * abortaba con exit 252. Si el paquete está deshabilitado/congelado
+     * (Hail, AppFreezer, `pm disable-user`) se devuelve `APP_DISABLED`
+     * con hint accionable en vez de un `INTERNAL_ERROR` opaco.
      */
     fun openApp(pkg: String): Pair<String, String> {
         if (pkg.isBlank()) throw JamError("package vacío", "VALIDATION_ERROR")
-        val r = ShizukuBridge.exec(
-            listOf("monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1")
-        )
-        if (r.exitCode != 0) {
-            throw JamError("monkey falló (exit ${r.exitCode}): ${r.stderr.take(200)}", "INTERNAL_ERROR")
-        }
-        if ((r.stdout + r.stderr).contains("No activities found")) {
-            throw JamError("el paquete no tiene activity lanzable", "VALIDATION_ERROR")
+        val comp = resolveLauncherComponent(pkg)
+        if (comp != null) {
+            val r = ShizukuBridge.exec(
+                listOf("am", "start", "--user", "0", "-n", comp)
+            )
+            val out = r.stdout + r.stderr
+            if (r.exitCode != 0 || out.contains("Error:")) {
+                JevLog.d(TAG, "am start falló ($comp): ${out.take(200)}")
+                if (isDisabledOrFrozen(pkg)) {
+                    throw JamError(
+                        "app deshabilitada o congelada ($pkg); habilítala/descongélala y reintenta",
+                        "APP_DISABLED"
+                    )
+                }
+                throw JamError(
+                    "no se pudo lanzar $pkg: ${out.trim().take(160)}",
+                    "APP_NOT_LAUNCHABLE"
+                )
+            }
+        } else if (isDisabledOrFrozen(pkg)) {
+            throw JamError(
+                "app deshabilitada o congelada ($pkg); habilítala/descongélala y reintenta",
+                "APP_DISABLED"
+            )
+        } else {
+            // Último recurso (apps sin launcher resoluble): monkey.
+            val r = ShizukuBridge.exec(
+                listOf("monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1")
+            )
+            if (r.exitCode != 0) {
+                throw JamError(
+                    "no se pudo lanzar $pkg (sin activity LAUNCHER resoluble)",
+                    "APP_NOT_LAUNCHABLE"
+                )
+            }
         }
         val deadline = SystemClock.uptimeMillis() + OPEN_APP_WAIT_MS
         var last = "" to ""
@@ -473,10 +553,30 @@ class JevAccessibilityService : AccessibilityService() {
             val snap = dumpUiTree()
             last = snap.packageName to snap.activity
             if (last.first == pkg) break
-            SystemClock.sleep(500)
+            SystemClock.sleep(POLL_MS)
         } while (SystemClock.uptimeMillis() < deadline)
         if (last.first != pkg) throw JamError("la app no llegó a foreground", "TIMEOUT")
         return last
+    }
+
+    /** Componente launcher `<pkg>/<activity>` para el usuario 0, o null. */
+    private fun resolveLauncherComponent(pkg: String): String? {
+        val r = ShizukuBridge.exec(
+            listOf(
+                "cmd", "package", "resolve-activity", "--brief", "--user", "0",
+                "-a", "android.intent.action.MAIN",
+                "-c", "android.intent.category.LAUNCHER", pkg
+            )
+        )
+        if (r.exitCode != 0) return null
+        return AppLaunch.parseComponent(r.stdout + "\n" + r.stderr)
+    }
+
+    /** ¿Está deshabilitada (incluye `pm disable-user` de Hail/icebox)? */
+    private fun isDisabledOrFrozen(pkg: String): Boolean {
+        val r = ShizukuBridge.exec(listOf("pm", "list", "packages", "-d"))
+        if (r.exitCode != 0) return false
+        return AppLaunch.isDisabledIn(r.stdout, pkg)
     }
 
     fun screenshotPng(format: String, quality: Int): ScreenshotData {
@@ -624,6 +724,49 @@ class JevAccessibilityService : AccessibilityService() {
     private fun dispatchTap(x: Int, y: Int): Boolean =
         dispatchStroke(x, y, x, y, TAP_MS)
 
+    /**
+     * v2.3.1: prueba de efecto para gestos. `dispatchGesture` puede
+     * completarse sin que la app lo acepte (launchers que filtran toques
+     * inyectados); si no llega ningún evento de UI en la ventana, el tap
+     * se reporta `verified=false` en vez de mentir.
+     */
+    private fun waitForUiEvent(seqBefore: Long, timeoutMs: Long): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        do {
+            if (eventSeq != seqBefore) return true
+            SystemClock.sleep(POLL_MS / 10)
+        } while (SystemClock.uptimeMillis() < deadline)
+        return false
+    }
+
+    /** Espera (≤timeoutMs) a que el foreground deje de ser `from`. */
+    private fun waitForPackageChange(from: String, timeoutMs: Long): Boolean {
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        do {
+            val pkg = rootInActiveWindow?.packageName?.toString()
+            if (pkg != null && pkg != from) return true
+            SystemClock.sleep(POLL_MS / 5)
+        } while (SystemClock.uptimeMillis() < deadline)
+        return false
+    }
+
+    @Volatile
+    private var homePkgsCache: Set<String>? = null
+
+    /** ¿`pkg` es un launcher (HOME)? Cacheado; el resolver no sirve. */
+    private fun isHomePackage(pkg: String): Boolean {
+        val set = homePkgsCache ?: try {
+            val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            packageManager.queryIntentActivities(i, 0)
+                .map { it.activityInfo.packageName }
+                .toSet()
+                .also { homePkgsCache = it }
+        } catch (t: Throwable) {
+            emptySet()
+        }
+        return set.contains(pkg)
+    }
+
     private fun dispatchSwipe(x1: Int, y1: Int, x2: Int, y2: Int): Boolean =
         dispatchStroke(x1, y1, x2, y2, SWIPE_MS)
 
@@ -656,9 +799,11 @@ class JevAccessibilityService : AccessibilityService() {
         private const val TAP_MS = 100L
         private const val SWIPE_MS = 400L
         private const val GESTURE_TIMEOUT_MS = 3000L
+        private const val GESTURE_VERIFY_MS = 700L
+        private const val GESTURE_HOME_MS = 1200L
         private const val POLL_MS = 250L
         private const val MAX_WAIT_MS = 30_000L
-        private const val OPEN_APP_WAIT_MS = 5000L
+        private const val OPEN_APP_WAIT_MS = 8000L
         private const val SCREENSHOT_TIMEOUT_MS = 5000L
         private const val MAX_SCREENSHOT_B64 = 3_500_000
         private const val CLIP_SETTLE_MS = 30L

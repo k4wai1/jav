@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/icon.png?v=2.3.0" width="128" alt="Jav" />
+<img src="docs/assets/icon.png?v=2.3.1" width="128" alt="Jav" />
 
 # Jav
 
@@ -184,6 +184,26 @@ only execute after `confirm:true`.
 
 ## What changed
 
+### v2.3.1 — live fixes from a two-phone run (USB + Tailnet)
+
+- **Shell grant unblocked.** Two real bugs: the client read the
+  `shell_grant` event (no `id`) as the reply, and the phone blocked the
+  WebSocket thread for 60 s while `connectionLostTimeout = 10` killed the
+  connection at ~20 s. Now the client skips event frames, and a missing
+  grant answers `{planned:true, grant_pending:true}` immediately: approve
+  the notification and repeat the same command.
+- **Live caps.** `hello.caps` is a boot snapshot; `get_foreground` now
+  returns current caps and `device_status` merges them, so `shell_grant`
+  flips to `true` when you approve the notification.
+- **Honest gesture taps.** `dispatchGesture` can complete without effect
+  (launchers ignore injected touches): `tap_node` reports
+  `verified:true` via `gesture` only if UI activity followed (~700 ms).
+- **`open_app` without `monkey`.** Resolves the launcher with
+  `cmd package resolve-activity --user 0` and starts
+  `am start --user 0 -n`, which also works with Shizuku as **root**.
+  Frozen/disabled apps now return `APP_DISABLED` (e.g. Hail) instead of an
+  opaque `monkey exit 252`.
+
 ### v2.3.0 — multi-device, route failover, LAN + mDNS
 
 - **No ADB needed on the host (v2.0.0).** `list_packages` and screen
@@ -362,6 +382,12 @@ args/token en claro) y Kill Switch (tile QS + notificación). Detalle en
 
 ## Cambios recientes
 
+- **v2.3.1** — fixes de la prueba viva con dos teléfonos: el cliente
+  descarta el evento `shell_grant` (ya no mata la llamada) y `shell` espera
+  65 s; `get_foreground` devuelve caps vivos (`shell_grant` al día);
+  `tap_node` por gesto solo se marca `verified` si hubo actividad de UI;
+  `open_app` lanza con `am start --user 0` (funciona con Shizuku root) y
+  distingue `APP_DISABLED` (Hail) de `APP_NOT_LAUNCHABLE`.
 - **v2.3.0** — multidispositivo completo (`--name`/`--list`/`--use`/`--remove`,
   `JAV_DEVICE` fail-closed) y **failover automático Tailnet ↔ LAN ↔ USB** con
   `fallback_urls`; alias sin colisión (`pixel-9`/`pixel-9-2`).

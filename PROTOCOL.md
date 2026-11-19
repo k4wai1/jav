@@ -96,28 +96,34 @@ Primer match en orden de recorrido BFS. Determinista, sin fuzzy en v1.
 |---|---|---|---|
 | `dump_ui` | `{}` | `{snapshot_id, package, activity, timestamp, nodes[]}` (sin ventana activa → `package: ""`, `nodes: []`) | read |
 | `tap` | `{selector}` | `{node_id, via}` | ui |
-| `tap_node` | `{node_id, snapshot_id}` | `{via: action_click\|click_ancestor\|gesture}` (mismatch → `STALE_SNAPSHOT`) | ui |
+| `tap_node` | `{node_id, snapshot_id}` | `{node_id, via: action_click\|click_ancestor\|gesture, verified}` (mismatch → `STALE_SNAPSHOT`; v2.3.1: `gesture` solo es `verified:true` si llegó actividad de UI en ~700 ms) | ui |
 | `type` | `{node_id, snapshot_id, text}` | `{chars, via: action_set_text\|action_paste\|shizuku_keyevent_paste}` (nodo sin foco → `NOT_FOCUSED`; el cliente hace `tap` previo explícito; `ACTION_SET_TEXT` y, si un WebView/input lo rechaza, fallback `ACTION_PASTE` vía `ClipboardManager`; v1.2.5: `text="__PASTE__"` pega el clipboard del dispositivo sin pisarlo — va directo a `ACTION_PASTE` y, si el nodo lo rechaza, `input keyevent 279` por Shizuku; `chars=0` en esa vía) | ui |
 | `scroll` | `{direction: up\|down\|left\|right, node_id?}` | `{}` | ui |
 | `press_back` / `press_home` | `{}` | `{}` | ui |
 | `wait_for_node` | `{selector, timeout_ms}` | `{node_id, snapshot_id}` o `TIMEOUT` | ui |
 | `screenshot` | `{format?: png\|webp, quality?}` | `{img_base64, w, h, via}`; superficie segura → `SECURE_SURFACE`; > 4 MiB → `PAYLOAD_TOO_LARGE` (hint: WebP q80). Fallback `screencap` en API 29 = Fase 3 | read |
 | `set_clipboard` | `{text}` | `{chars}` (v5 §4.1: la propia Jav ejecuta `ClipboardManager.setPrimaryClip`; sin Shizuku, sin grant; `text` vacío → `VALIDATION_ERROR`; la lectura sigue por host `dumpsys`) | ui, sin grant |
-| `open_app` | `{package}` | `{package, activity}` (`monkey -p <pkg> -c android.intent.category.LAUNCHER 1` por Shizuku; verificar con `get_foreground`) | ui, sin grant |
+| `open_app` | `{package}` | `{package, activity}` (**v2.3.1:** resuelve el componente con `cmd package resolve-activity --user 0` y lanza con `am start --user 0 -n`; `monkey` solo como último recurso; paquete deshabilitado/congelado → `APP_DISABLED`, sin launcher resoluble → `APP_NOT_LAUNCHABLE`) | ui, sin grant |
 | `force_stop` | `{package}` | `{}` | shell, sin grant |
 | `grant_permission` | `{package, permission}` | `{}` | shell, **con grant** |
-| `get_foreground` | `{}` | `{package, activity}` (v1.2.4: O(1), no consume `snapshot_id`) | read |
+| `get_foreground` | `{}` | `{package, activity, caps{}}` (**v2.3.1:** incluye `caps` vivos —el hello es una foto del arranque— para que `shell_grant` se refleje al conceder/expirar; O(1), no consume `snapshot_id`) | read |
 | `list_packages` | `{filter?}` | `{count, packages[]}` (**v2.0.0: nativo** `PackageManager.getInstalledPackages` vía WS, sin `adb` en el host; `filter` = `contains` case-insensitive; orden alfabético; APK <2.0.0 responde `METHOD_NOT_ALLOWED` → el cliente cae a `adb shell pm list packages`; package visibility por `<queries>`) | read |
-| `shell` | `{cmd, timeout_ms? 500..60000 default 15000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jav → `SHELL_DENYLIST`; sin grant → `SHELL_DENIED`; > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
+| `shell` | `{cmd, timeout_ms? 500..90000 default 65000, confirm?}` | `{exit_code, stdout, stderr}`; denylist irreversible sin `confirm` → `{planned: true, preview{cmd_sha256, reason}}`; comando que mata/desinstala Jav → `SHELL_DENYLIST`; sin grant → `{planned: true, grant_pending: true, cmd_sha256}` (reintentar tras aprobar); > 5 req/s → `RATE_LIMITED` | admin, **con grant** |
 | `get_audit` | `{limit?: int=50 (1..200), since_seq?: int=0}` | `{total_buffered, returned, entries[]}` con cada entry `{seq, ts, method, scope, args_sha256 (16 hex SHA-256), result, origin}` (ring buffer, 500 entradas; nunca args en claro) | admin |
 
-**Flujo de grant de `shell`:** la request **bloquea hasta 60 s**.
-Aprobación "1 comando" → ejecuta solo si `SHA-256(cmd)` coincide
-exacto; aprobación "5/30 min" → cubre cualquier `shell` en la ventana.
-Denegación o timeout 60 s → `SHELL_DENIED`.
-Denylist (§8) irreversible sin `confirm: true` → `{planned: true, preview}`;
-comando que mata/desinstala Jav → `SHELL_DENYLIST` (nunca ejecutado).
-El desenlace se emite como evento `shell_grant` (§6).
+**Flujo de grant de `shell` (v2.3.1, no bloqueante):** si el comando no
+está cubierto por un grant, la respuesta es inmediata
+`{planned: true, grant_pending: true, cmd_sha256}` y se publica la
+notificación. El operador elige "1 cmd" (ejecuta solo si el SHA-256 del
+comando coincide exacto), "5/30 min" (ventana para cualquier `shell`) o
+"Denegar" (no se concede). El agente **repite el mismo comando** tras
+aprobar: si ya hay grant, se ejecuta en esa llamada. Antes la request
+bloqueaba 60 s en el hilo del WebSocket y el `connectionLostTimeout = 10`
+cerraba la conexión a los ~20 s (`close 1006`) antes de poder aprobar.
+**v2.3.1:** el cliente **descarta frames de evento sin `id`** y sigue
+leyendo hasta la respuesta real (antes el evento se devolvía como respuesta
+y la llamada moría con `JAM_ERROR` aunque el comando se ejecutara). El
+timeout por defecto de `shell` sube a 65 s para cubrir la espera del grant.
 
 **Frescura y `via` (contrato):**
 
@@ -125,7 +131,10 @@ El desenlace se emite como evento `shell_grant` (§6).
   nodo objetivo era clickable → `ACTION_CLICK`), `click_ancestor` (el
   objetivo no era clickable → se ejecutó `ACTION_CLICK` sobre el ancestro
   cliqueable más próximo, ≤3 niveles) o `gesture` (fallback: gesto al
-  centro de `bounds`).
+  centro de `bounds`). **v2.3.1:** `via=gesture` solo trae
+  `verified: true` si siguió un evento **con efecto** (window state/content,
+  click, scroll, focus o text) en ~700 ms; hover y touch no cuentan. En el
+  launcher (paquete HOME) exige **cambio de paquete** en 1,2 s.
 - **Ventana de snapshots (v1.2.4):** el dispositivo conserva los últimos
   **8** `dump_ui`; `tap_node`/`type_text` aceptan cualquier `snapshot_id` de
   esa ventana (una lectura intermedia —p. ej. `get_foreground`— ya no consume
@@ -229,7 +238,7 @@ activa: `package: ""`, `nodes: []` (típicamente transitorio).
 `ACCESSIBILITY_DISABLED` · `SHIZUKU_UNAVAILABLE` · `SHIZUKU_DENIED` ·
 `SELECTOR_NOT_FOUND` · `STALE_SNAPSHOT` · `NOT_FOCUSED` ·
 `SECURE_SURFACE` (solo `screenshot`) ·
-`PAYLOAD_TOO_LARGE` · `SHELL_DENIED` (sin grant) ·
+`PAYLOAD_TOO_LARGE` · `APP_DISABLED` / `APP_NOT_LAUNCHABLE` (`open_app`) ·
 `SHELL_DENYLIST` (requiere `admin` + `confirm: true`) · `TIMEOUT` ·
 `INTERNAL_ERROR`.
 

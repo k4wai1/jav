@@ -1318,3 +1318,43 @@ incremental corrupta (`app/build/kotlin`). Se borró `app/build/kotlin` +
 
 **Tiempos locales** (JDK 21, SDK 34): compilación Kotlin completa
 **3 m 35 s**; `testDebugUnitTest` **2 m 30 s** (19 tareas up-to-date).
+
+## 33. v2.3.1 — fixes de la prueba viva (USB + Tailnet) (2026-11-18)
+
+Contexto: prueba real con **TCL 5002E** (Android 10, armv7, USB) y
+**TECNO LG7n** (Android 12, WSS/Tailnet). Se buscó un vídeo de WuWa en
+YouTube y se extrajo el link por clipboard en ambos (mismo resultado:
+`https://youtu.be/cChHhTZMWlI`).
+
+### Cambios
+
+| Fix | Dónde | Qué |
+| --- | --- | --- |
+| Grant de shell | `pkg/jam/jam.go` | `raw()` descarta frames sin `id` con `event` y sigue leyendo |
+| Grant no bloqueante | `ShellGrantManager.kt`, `CommandDispatcher.kt` | sin grant → `{planned:true, grant_pending:true, cmd_sha256}`; el hilo del WS no se bloquea (el `connectionLostTimeout=10` mataba la conexión a ~20 s) |
+| Timeout shell | `pkg/tools/shell.go` | default 65 s, máx. 90 s; app ejecuta hasta 90 s |
+| Caps vivos | `CommandDispatcher.kt`, `pkg/tools/device_app.go` | `get_foreground` devuelve caps; `device_status` los fusiona |
+| Gesto honesto | `JevAccessibilityService.kt` | `isEffectEvent` (excluye hover/touch) + `waitForUiEvent`; en el launcher exige cambio de paquete en 1,2 s |
+| `open_app` | `JevAccessibilityService.kt`, `nat/AppLaunch.kt` | `cmd package resolve-activity --user 0` + `am start --user 0 -n`; `APP_DISABLED` / `APP_NOT_LAUNCHABLE` |
+
+### Verificación
+
+```
+go test -count=1 ./...            → 7 paquetes ok (pkg/jam +1: evento intercalado)
+go vet ./...                      → limpio
+./gradlew :app:testDebugUnitTest  → 110 tests, 0 fallos (+5 AppLaunchTest, +2 EffectEventTest)
+cmd/audit-mcp                     → 12/12 PASS (~1640 tokens, 216 palabras)
+```
+
+APK: `versionCode 9` / `versionName 2.3.1`.
+
+### Verificado en vivo (TCL, 2026-11-18)
+
+| Fix | Evidencia |
+| --- | --- |
+| Grant no bloqueante | `adb_shell` → `planned:true, grant_pending:true` en **86 ms**; tras "5 MIN" → `stdout:"armeabi-v7a"`, `verified:true` (sin 1006) |
+| Caps vivos | `device_status.caps.shell_grant` pasa de `false` a `true` al aprobar |
+| Gesto honesto | tap a icono del launcher → `via:"gesture"`, `verified:false`, `effect:"home->org.fossify.home"` |
+| `open_app` | Termux y YouTube ReVanced abren con `am start --user 0` (sin `monkey`) |
+
+Pendiente: reinstalar el APK 2.3.1 en el TECNO (WSS) — se validó allí la 2.3.0.

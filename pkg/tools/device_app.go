@@ -39,6 +39,15 @@ func hDeviceStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolR
 	if caps == nil {
 		caps = map[string]bool{}
 	}
+	// v2.3.1: `get_foreground` devuelve caps EN VIVO (p. ej. shell_grant
+	// cambia con el grant interactivo); el hello es una foto del arranque.
+	if live, ok := fg["caps"].(map[string]any); ok {
+		for k, v := range live {
+			if b, ok := v.(bool); ok {
+				caps[k] = b
+			}
+		}
+	}
 	return result(jam.OK(true, map[string]any{
 		"scopes": c.Scopes, "app_version": c.AppVersion, "foreground": fg,
 		"caps": caps, "cost": cost.SessionSummary(),

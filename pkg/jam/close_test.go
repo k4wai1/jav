@@ -29,6 +29,8 @@ type wsHarness struct {
 	helloCaps map[string]any
 	// v2.3.0: metadatos de `get_device_info` (modelo → alias automático).
 	deviceInfo map[string]any
+	// v2.3.1: evento asíncrono a intercalar ANTES de la respuesta.
+	preEvent map[string]any
 }
 
 func newWsHarness(t *testing.T) *wsHarness {
@@ -100,7 +102,12 @@ func newWsHarness(t *testing.T) *wsHarness {
 					result[k] = v
 				}
 			}
+			ev := h.preEvent
 			h.mu.Unlock()
+			// v2.3.1: evento asíncrono sin `id` antes de la respuesta real.
+			if ev != nil {
+				_ = conn.WriteJSON(ev)
+			}
 			_ = conn.WriteJSON(map[string]any{
 				"jsonrpc": "2.0", "id": id, "ok": true,
 				"result": result,
@@ -376,5 +383,30 @@ func TestMultiDevicePairAndSelect(t *testing.T) {
 	if after := h2.waitGraceful(gracefulBefore + 1); after != gracefulBefore+1 {
 		t.Fatalf("h2 no cerró la sesión ordenadamente: before=%d after=%d",
 			gracefulBefore, after)
+	}
+}
+
+// v2.3.1: el teléfono intercala EVENTOS sin `id` (p. ej. `shell_grant` al
+// conceder el permiso) antes de la respuesta. El cliente debe descartarlos
+// y quedarse con la respuesta real; antes la llamada moría con JAM_ERROR
+// aunque el comando sí se hubiera ejecutado.
+func TestCallSkipsEventFrames(t *testing.T) {
+	h := newWsHarness(t)
+	defer h.srv.Close()
+	h.pointClientAt(t)
+	h.mu.Lock()
+	h.preEvent = map[string]any{"event": "shell_grant", "mode": "5m", "sha256": "deadbeef"}
+	h.mu.Unlock()
+
+	c, jerr := Dial()
+	if jerr != nil {
+		t.Fatalf("dial: %v", jerr)
+	}
+	res, jerr := c.Call("shell", map[string]any{"cmd": "id", "timeout_ms": 1000})
+	if jerr != nil {
+		t.Fatalf("call con evento intercalado: %v", jerr)
+	}
+	if got, _ := res["method"].(string); got != "shell" {
+		t.Fatalf("resultado inesperado: %#v", res)
 	}
 }

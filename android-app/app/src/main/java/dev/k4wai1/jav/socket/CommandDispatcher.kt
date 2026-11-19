@@ -78,17 +78,8 @@ class CommandDispatcher(private val appContext: Context) {
         // El token bearer único es la credencial del operador: habilita
         // además `admin` (audit, rotar token, settings) por PROTOCOL §3.
         val scopes = setOf("read", "ui", "admin")
-        val acc = JevAccessibilityService.instance != null
-        val shizuku = try {
-            Shizuku.pingBinder()
-        } catch (t: Throwable) {
-            false
-        }
         // Caps N1 del catálogo native-apis: grants de usuario por método.
         // (Líneas nuevas de protocolo propuestas → las anota @architect.)
-        fun granted(perm: String) =
-            ContextCompat.checkSelfPermission(appContext, perm) ==
-                PackageManager.PERMISSION_GRANTED
         // Respuesta plana según PROTOCOL §2 (sin envoltura id/result).
         val frame = JamJson.encodeToString(
             HelloResult.serializer(),
@@ -96,23 +87,42 @@ class CommandDispatcher(private val appContext: Context) {
                 protocol_version = PROTOCOL_VERSION,
                 app_version = BuildConfig.VERSION_NAME,
                 scopes = scopes.toList(),
-                caps = mapOf(
-                    "accessibility" to acc,
-                    "shizuku" to shizuku,
-                    "shell_grant" to ShellGrantManager.hasActiveGrant(),
-                    "usage_access" to NativeSensitive.hasUsageAccess(appContext),
-                    "notification_listening" to JamNotificationListener.isConnected(),
-                    "contacts" to granted(android.Manifest.permission.READ_CONTACTS),
-                    "calendar" to granted(android.Manifest.permission.READ_CALENDAR),
-                    "location" to (granted(
-                        android.Manifest.permission.ACCESS_FINE_LOCATION
-                    ) || granted(android.Manifest.permission.ACCESS_COARSE_LOCATION)),
-                    "camera" to granted(android.Manifest.permission.CAMERA)
-                )
+                caps = capsMap()
             )
         )
         audit("hello", req, "OK", origin)
         return scopes to frame
+    }
+
+    /**
+     * v2.3.1: los caps son estado VIVO, no una foto del hello. El hello
+     * los fija al conectar, pero `shell_grant` cambia con el grant
+     * interactivo; `get_foreground` los reenvía para que `device_status`
+     * no muestre un grant apagado mientras los comandos ya pasan.
+     */
+    private fun capsMap(): Map<String, Boolean> {
+        val acc = JevAccessibilityService.instance != null
+        val shizuku = try {
+            Shizuku.pingBinder()
+        } catch (t: Throwable) {
+            false
+        }
+        fun granted(perm: String) =
+            ContextCompat.checkSelfPermission(appContext, perm) ==
+                PackageManager.PERMISSION_GRANTED
+        return mapOf(
+            "accessibility" to acc,
+            "shizuku" to shizuku,
+            "shell_grant" to ShellGrantManager.hasActiveGrant(),
+            "usage_access" to NativeSensitive.hasUsageAccess(appContext),
+            "notification_listening" to JamNotificationListener.isConnected(),
+            "contacts" to granted(android.Manifest.permission.READ_CONTACTS),
+            "calendar" to granted(android.Manifest.permission.READ_CALENDAR),
+            "location" to (granted(
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) || granted(android.Manifest.permission.ACCESS_COARSE_LOCATION)),
+            "camera" to granted(android.Manifest.permission.CAMERA)
+        )
     }
 
     fun dispatch(req: WsRequest, scopes: Set<String>, origin: String = "loopback"): String {
@@ -238,6 +248,10 @@ class CommandDispatcher(private val appContext: Context) {
         return okResponse(req.id, buildJsonObject {
             put("node_id", r.nodeId)
             put("via", r.via)
+            // v2.3.1: un gesto puede ser descartado por el sistema; la app
+            // solo lo marca verificado si hubo eventos de la UI después.
+            put("verified", r.verified)
+            if (r.effect.isNotEmpty()) put("effect", r.effect)
         })
     }
 
@@ -279,9 +293,12 @@ class CommandDispatcher(private val appContext: Context) {
 
     private fun foreground(req: WsRequest): String {
         val (pkg, act) = svc().getForeground()
+        val caps = capsMap()
         return okResponse(req.id, buildJsonObject {
             put("package", pkg)
             put("activity", act)
+            // v2.3.1: caps vivos (el hello es una foto del arranque).
+            put("caps", buildJsonObject { caps.forEach { (k, v) -> put(k, v) } })
         })
     }
 
@@ -422,10 +439,17 @@ class CommandDispatcher(private val appContext: Context) {
             }
             ShellPolicy.PolicyVerdict.ALLOWED -> {}
         }
-        if (!ShellGrantManager.requestGrantBlocking(appContext, cmd)) {
-            throw JamError("grant de shell denegado o expirado", "SHELL_DENIED")
+        if (!ShellGrantManager.requestGrant(appContext, cmd)) {
+            // v2.3.1: no bloquear el hilo del WS (connectionLostTimeout=10
+            // cerraba la conexión a los ~20 s). Se responde planned y el
+            // cliente reintenta el MISMO comando tras aprobar la notificación.
+            return okResponse(req.id, buildJsonObject {
+                put("planned", true)
+                put("grant_pending", true)
+                put("cmd_sha256", ShellPolicy.sha256Hex(cmd))
+            })
         }
-        val timeout = p.timeout_ms.coerceIn(500L, 60_000L)
+        val timeout = p.timeout_ms.coerceIn(500L, 90_000L)
         val r = ShizukuBridge.exec(listOf("sh", "-c", cmd), timeout)
         return okResponse(req.id, buildJsonObject {
             put("exit_code", r.exitCode)

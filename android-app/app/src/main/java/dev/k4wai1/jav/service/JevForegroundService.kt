@@ -305,6 +305,7 @@ class JevForegroundService : Service() {
         val sha = intent.getStringExtra(ShellGrantManager.EXTRA_SHA256)
         val resolved = ShellGrantManager.resolve(action, sha) ?: return
         val (mode, cmdSha) = resolved
+        ShellGrantManager.cancelRequest(this)
         try {
             // v2.2.0: el evento alcanza al cliente esté en loopback,
             // tailnet o LAN (antes solo se miraba el listener loopback).

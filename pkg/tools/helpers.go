@@ -213,6 +213,11 @@ func jamCall(fn func(c *jam.Client) (map[string]any, *jam.JamError)) jam.Envelop
 	if p, _ := res["planned"].(bool); p {
 		verified = false
 	}
+	// v2.3.1: la app puede declarar el efecto NO verificado (p. ej. un tap
+	// por gesto que el sistema pudo descartar). El cliente no lo mejora.
+	if v, ok := res["verified"].(bool); ok && !v {
+		verified = false
+	}
 	return jam.OK(verified, res, "")
 }
 

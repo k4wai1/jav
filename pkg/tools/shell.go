@@ -17,7 +17,7 @@ import (
 func hAdbShell(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := argsOf(req)
 	cmd := getString(args, "cmd", "")
-	timeoutMs := getInt(args, "timeout_ms", 15000)
+	timeoutMs := getInt(args, "timeout_ms", 65000)
 	confirm := getBool(args, "confirm", false)
 	if strings.TrimSpace(cmd) == "" {
 		return result(validationError("cmd vacío"))
@@ -25,10 +25,18 @@ func hAdbShell(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	if timeoutMs < 500 {
 		timeoutMs = 500
 	}
-	if timeoutMs > 60000 {
-		timeoutMs = 60000
+	// El grant interactivo bloquea hasta 60 s en el teléfono: el default
+	// debe cubrirlo (antes 15 s → cierre 1006 y hint engañoso).
+	if timeoutMs > 90000 {
+		timeoutMs = 90000
 	}
-	return result(jamCall(func(c *jam.Client) (map[string]any, *jam.JamError) {
+	env := jamCall(func(c *jam.Client) (map[string]any, *jam.JamError) {
 		return c.Shell(cmd, timeoutMs, confirm)
-	}))
+	})
+	if ev, ok := env["evidence"].(map[string]any); ok {
+		if p, _ := ev["grant_pending"].(bool); p {
+			env["hint"] = "aprueba la notificación (1 cmd / 5 min / 30 min) y repite el mismo comando"
+		}
+	}
+	return result(env)
 }

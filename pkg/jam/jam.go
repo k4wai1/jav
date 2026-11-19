@@ -494,16 +494,28 @@ func (c *Client) raw(method string, params map[string]any) (map[string]any, *Jam
 	if err := c.conn.WriteJSON(req); err != nil {
 		return nil, &JamError{Code: "CONNECTION_FAILED", Message: err.Error()}
 	}
-	var res map[string]any
-	if err := c.conn.ReadJSON(&res); err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "read limit") || strings.Contains(msg, "message too large") {
-			return nil, &JamError{Code: "PAYLOAD_TOO_LARGE",
-				Message: "frame WS > 4 MiB"}
+	for {
+		var res map[string]any
+		if err := c.conn.ReadJSON(&res); err != nil {
+			msg := err.Error()
+			if strings.Contains(msg, "read limit") || strings.Contains(msg, "message too large") {
+				return nil, &JamError{Code: "PAYLOAD_TOO_LARGE",
+					Message: "frame WS > 4 MiB"}
+			}
+			return nil, &JamError{Code: "CONNECTION_FAILED", Message: msg}
 		}
-		return nil, &JamError{Code: "CONNECTION_FAILED", Message: msg}
+		// v2.3.1: el servidor puede intercalar EVENTOS asíncronos (p. ej.
+		// `shell_grant` al conceder el grant) antes de la respuesta. Un
+		// frame sin `id` no es una respuesta: se descarta y se sigue
+		// leyendo. Antes se devolvía como respuesta y la llamada moría con
+		// JAM_ERROR aunque el comando sí se ejecutaba.
+		if _, ok := res["id"]; !ok {
+			if _, isEvent := res["event"]; isEvent {
+				continue
+			}
+		}
+		return res, nil
 	}
-	return res, nil
 }
 
 // Call lanza JamError si !ok; si ok devuelve `result` (equiv. call()).

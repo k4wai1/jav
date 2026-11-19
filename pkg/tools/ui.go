@@ -49,8 +49,17 @@ func hTapNode(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult
 			nodeID = id
 		}
 		uitrack.MarkTried(nodeID, -1)
-		env = jam.OK(true, map[string]any{"node_id": ev["node_id"], "via": ev["via"]},
-			"verifica el efecto con read_screen")
+		// v2.3.1: no mejorar el veredicto de la app. Un gesto que el
+		// sistema descartó llega como verified=false y debe propagarse.
+		verified := true
+		if v, ok := ev["verified"].(bool); ok && !v {
+			verified = false
+		}
+		out := map[string]any{"node_id": ev["node_id"], "via": ev["via"]}
+		if e, ok := ev["effect"].(string); ok && e != "" {
+			out["effect"] = e
+		}
+		env = jam.OK(verified, out, "verifica el efecto con read_screen")
 	}
 	return result(env)
 }
