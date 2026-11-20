@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/icon.png?v=2.6.0" width="128" alt="Jav" />
+<img src="docs/assets/icon.svg?v=2.6.0" width="128" alt="Jav" />
 
 # Jav
 
@@ -37,7 +37,7 @@ the PC (`jav`, stdio).
 
 | | **Jav** (this repo) | **Director** (external, not part of Jav) |
 |---|---|---|
-| What | Go MCP server (`cmd/jav`) + Android app `dev.k4wai1.jav` | OpenCode / Claude / Cursor / operator |
+| What | Go MCP server (`cmd/jav`) + Android app `dev.k4wai1.jav` | Claude Desktop / Cursor / Windsurf / Cline / OpenCode / Termux / operator |
 | Does | exposes 38 atomic MCP tools, runs no loops and no internal planner | reads each screen, picks one atomic tool per step, verifies the effect |
 | Tactical help | serves `resolve_element` (blind S1 Jev resolver) | decides goals, gates, and approves previews |
 
@@ -47,27 +47,44 @@ the loop; Jav holds the device.
 ## Architecture
 
 <p align="center">
-  <a href="docs/diagrams/jav-architecture.html"><img src="docs/assets/jav-architecture.svg" alt="Jav architecture: Director — jav MCP stdio — Jev resolver — Jav app with 3 lanes" width="960"></a>
+  <a href="docs/diagrams/jav-architecture.html"><img src="docs/assets/jav-architecture.svg?v=2.6.0" alt="Jav architecture: Director — jav MCP stdio — Jev resolver — Jav app with 3 lanes" width="960"></a>
 </p>
 
 <p align="center"><sub>Interactive version: <a href="docs/diagrams/jav-architecture.html">docs/diagrams/jav-architecture.html</a></sub></p>
 
-## How the flow works with Jev — recommended: OpenRouter
+As of **v2.6.0** the runtime needs **no ADB on the host**: private IPs serve
+WSS (Tailnet `100.64/10` or LAN RFC 1918) and mDNS advertises `_jav-mcp._tcp`;
+multiple phones share one config with automatic failover (Tailnet ↔ LAN ↔ USB);
+`device_status` diagnoses with accessibility off (`get_caps` + `setup_hints`);
+and an `android/arm64` build runs on Termux in the same phone.
+
+## The tactical resolver — two interchangeable backends
 
 The Director reads the screen, picks one atomic tool per step and verifies the
-effect. When the screen is noisy, `resolve_element` adds a blind tactical
-resolver (S1 **Jev**): the accessibility tree is pruned to a numbered table
-(≤254 candidates) and Jev answers in a single pass — a `Choice` + confidence,
-**no free text**, anti-prompt-injection by construction. `conf ≥ 0.70` (tau) or
-the **Sovereign Fallback** (top candidates + recovery instruction; the Director
-decides). Measured on a real TECNO: **~3 s and ~$0.00005 per resolution**.
+effect. When the screen is noisy, `resolve_element` returns the target as a
+**closed choice** over a numbered table (≤254 candidates + `NONE`): never
+coordinates, never free text.
 
-Recommended setup: an **OpenRouter** key. `jav pair` asks for it (optional), or
-put `openrouter_api_key` in `~/.config/jav/config.json`, or export
-`OPENROUTER_API_KEY`. Default model `typesafe/jev-1.13`; an optional S2 model
-(`ai_base_url` / `ai_api_key` / `ai_model`) handles escalations. **No key?**
-Everything still works: the resolver degrades to the Sovereign Fallback and
-never fabricates options.
+- **Option A — decision models (primary).** A discriminative "decisions API"
+  engine such as **Jev** (`typesafe/jev-*` via OpenRouter) answers in a single
+  pass: a `Choice` + calibrated confidence. `conf ≥ 0.70` (tau) or the
+  **Sovereign Fallback** (top candidates + recovery instruction; the Director
+  decides). Extensible to other decision engines behind the same contract.
+- **Option B — any standard LLM with structured output (fallback).** Any
+  OpenAI-compatible endpoint — local (Ollama, vLLM) or remote (OpenRouter,
+  OpenAI, DeepSeek, …) — is forced to answer exactly
+  `{"choice": <int|"NONE">, "confidence": <float>}`. The reply is validated
+  against the table: off-table → `S2_HALLUCINATION`; non-finite or below tau →
+  `LOW_CONF`; `NONE` → `NO_TARGET`. All end in the Sovereign Fallback.
+- **No key and no local LLM?** Everything still works: the resolver degrades
+  to the Sovereign Fallback and never fabricates options.
+
+Jev stays primary. The fallback is used when there is no OpenRouter key or
+`JAV_RESOLVE_BACKEND=openai`. `evidence.backend` reports `jev-decisions` or
+`openai-compat`, plus `model`. Setup: `jav pair` asks for the OpenRouter key
+(optional), or set `openrouter_api_key`; for Option B set `ai_base_url` /
+`ai_api_key` / `ai_model` in `~/.config/jav/config.json` or `JAV_AI_*`.
+Measured on a real TECNO: **~3 s and ~$0.00005 per resolution** (Option A).
 
 ## Quickstart
 
@@ -76,6 +93,7 @@ never fabricates options.
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
 
 # 2 · Companion app from Releases; enable accessibility once; copy the token
+#     (ADB is only for sideloading the APK; the MCP runtime needs no adb)
 adb install -r jav-companion.apk
 
 # 3 · Pair once — interactive prompt for IP + token, Auto-TOFU, no .env
@@ -162,16 +180,23 @@ only execute after `confirm:true`.
 ## Security
 
 <p align="center">
-  <a href="docs/diagrams/jav-security.html"><img src="docs/assets/jav-security.svg" alt="Jav security: pinned WSS, token on every bind, gates, shell policy, audit ring, kill switch" width="960"></a>
+  <a href="docs/diagrams/jav-security.html"><img src="docs/assets/jav-security.svg?v=2.6.0" alt="Jav security: pinned WSS, token on every bind, gates, shell policy, audit ring, kill switch" width="960"></a>
 </p>
 
 - **Scopes:** `read` (dump/screenshot) · `ui` (tap/type/scroll/back, grantless
   `open_app`) · `shell` (grant-gated, irreversible denylist + `confirm`) ·
   `admin` (token/audit/settings). Token mandatory on every bind (loopback
   included); lockout 5 fails/60 s → 5 min; 4 MiB frame; 50 req/s (shell 5/s).
+  Missing shell grant is non-blocking: `{planned:true, grant_pending:true}`.
 - **Transport:** WS on loopback only; **WSS required** on any non-loopback
-  bind (Tailnet `100.64.0.0/10`, never `0.0.0.0`), self-signed `CN=jav.local`
-  with TOFU pinning; token AES-GCM in `AndroidKeyStore`.
+  bind — Tailnet `100.64.0.0/10` or LAN RFC 1918, never `0.0.0.0` — with a
+  self-signed `CN=jav.local` cert and TOFU pinning; token AES-GCM in
+  `AndroidKeyStore`. A new connection evicts the previous slot (`4002 EVICTED`),
+  so a dead TCP slot never blocks reconnection.
+- **Diagnosis:** `get_caps` works with accessibility off and `device_status`
+  returns `missing_caps` + `setup_hints` instead of failing; `repair_accessibility`
+  (opt-in) and `enable_accessibility` use Shizuku uid shell, never `su`, and
+  preserve the services already enabled.
 - **Confirm:** messaging, paying, deleting, account/permission, photo, media
   stop and settings writes are critical: without `confirm:true` they are planned
   without executing (`planned:true` + `preview`).
@@ -195,6 +220,24 @@ only execute after `confirm:true`.
 | 38/38 live certification (WSS/Tailnet) | 40 calls: 29 OK + 11 honest gates, 0 timeouts |
 | S1 Jev `resolve_element` | ~3 s · **$0.000053** per resolution |
 | `adb_shell` grant | blocks 60 s if not granted → `SHELL_DENIED` (verified live) |
+
+## Roadmap → v3.0 (ideas, not implemented yet)
+
+> **Proposals only.** The current contract is v2.6.0: 38 tools, non-root +
+> Shizuku, no `su`. Nothing below exists in `cmd/`, `pkg/` or `android-app/`
+> yet; each item needs an explicit `AGENTS.md` amendment and its own phase.
+
+- **Standalone CLI mode + detailed `--help`.** Use the `jav` Go binary
+  directly from a terminal as a conventional CLI (pair, status, screenshot,
+  etc.) without keeping the MCP stdio server in memory. The MCP server remains
+  the default mode.
+- **Assisted APK install/update.** Let the agent install or update Android apps
+  through Shizuku with an explicit, configurable opt-in — and a switch to
+  disable it entirely on managed devices.
+- **Opt-in root mode via environment variable.** A rooted-device escape hatch
+  that disables the anti-`su`/`sudo` guard **only** when the operator enables it
+  explicitly by env var. Non-root + Shizuku stays the default and the normative
+  contract.
 
 ## What changed
 
@@ -336,7 +379,10 @@ https://github.com/k4wai1/jav/releases/tag/v1.2.0).
 ## Troubleshooting
 
 - **`UNAUTHORIZED`** — token missing/wrong. Run `jav pair` (interactive). After
-  5 failed attempts from one origin the phone locks out for 5 min.
+  5 failed attempts from one origin the phone locks out for 5 min. Base64url
+  tokens may start with `-`: on v2.6.0 and earlier `jav pair <ip> -- <TOKEN>`
+  reads `--` as the token; quote it and drop `--` (`jav pair <ip> '-abc…'`).
+  Fixed in v2.6.1.
 - **`CONNECTION_FAILED` on loopback** — no `adb forward tcp:38472 tcp:38472`.
 - **`SHIZUKU_UNAVAILABLE`** — start Shizuku yourself; the app never starts it.
   Without it N0 still works, `open_app`/`screenshot` fallbacks fail honestly.
@@ -369,20 +415,43 @@ planifica y nunca inventa coordenadas: el bucle lo lleva el Director
 (OpenCode/Claude/Cursor/operador); el dispositivo lo lleva Jav.
 
 <p align="center">
-  <a href="docs/diagrams/jav-architecture.html"><img src="docs/assets/jav-architecture.svg" alt="Arquitectura de Jav" width="960"></a>
+  <a href="docs/diagrams/jav-architecture.html"><img src="docs/assets/jav-architecture.svg?v=2.6.0" alt="Arquitectura de Jav" width="960"></a>
 </p>
 
-## Flujo con Jev — recomendado: OpenRouter
+Desde **v2.6.0** el runtime **no necesita ADB en el host**: las IPs privadas
+sirven WSS (Tailnet `100.64/10` o LAN RFC 1918) y mDNS anuncia
+`_jav-mcp._tcp`; varios teléfonos comparten una config con failover automático
+(Tailnet ↔ LAN ↔ USB); `device_status` diagnostica con la accesibilidad apagada
+(`get_caps` + `setup_hints`); y el build `android/arm64` corre en Termux en el
+mismo teléfono.
 
-Cuando la pantalla es ruidosa, `resolve_element` añade un resolver táctico
-ciego (S1 **Jev**): el árbol de accesibilidad se poda a una tabla numerada
-(≤254 candidatos) y Jev responde en un solo pase — un `Choice` + confianza,
-**sin texto libre**, anti-prompt-injection por construcción. `conf ≥ 0.70`
-(tau) o **Fallback Soberano** (top candidatos + instrucción de recuperación).
-Medido en un TECNO real: **~3 s y ~$0.00005 por resolución**. Configura una key
-de **OpenRouter** (`jav pair` la pide opcional; `openrouter_api_key` en
-`~/.config/jav/config.json`; o `OPENROUTER_API_KEY`). **Sin key** todo sigue
-funcionando: el resolver degrada al Fallback Soberano y nunca inventa opciones.
+## El resolver táctico — dos backends intercambiables
+
+Cuando la pantalla es ruidosa, `resolve_element` devuelve el objetivo como una
+**elección cerrada** sobre una tabla numerada (≤254 candidatos + `NONE`):
+nunca coordenadas, nunca texto libre.
+
+- **Opción A — modelos de decisiones (principal).** Un motor discriminativo
+  tipo "decisions API", como **Jev** (`typesafe/jev-*` vía OpenRouter), responde
+  en un solo pase: un `Choice` + confianza calibrada. `conf ≥ 0.70` (tau) o el
+  **Fallback Soberano** (top candidatos + instrucción de recuperación; decide
+  el Director). Extensible a otros motores de decisión tras el mismo contrato.
+- **Opción B — cualquier LLM estándar con salida estructurada (respaldo).**
+  Cualquier endpoint OpenAI-compatible — local (Ollama, vLLM) o remoto
+  (OpenRouter, OpenAI, DeepSeek, …) — responde obligatoriamente
+  `{"choice": <int|"NONE">, "confidence": <float>}`. La respuesta se valida
+  contra la tabla: fuera de tabla → `S2_HALLUCINATION`; no finita o bajo tau →
+  `LOW_CONF`; `NONE` → `NO_TARGET`. Todo termina en el Fallback Soberano.
+- **¿Sin key y sin LLM local?** Todo sigue funcionando: el resolver degrada al
+  Fallback Soberano y nunca inventa opciones.
+
+Jev sigue siendo el principal. El respaldo se usa sin key de OpenRouter o con
+`JAV_RESOLVE_BACKEND=openai`. `evidence.backend` indica `jev-decisions` u
+`openai-compat`, más `model`. Configuración: `jav pair` pide la key de
+OpenRouter (opcional) o `openrouter_api_key`; para la Opción B usa
+`ai_base_url` / `ai_api_key` / `ai_model` en `~/.config/jav/config.json` o
+`JAV_AI_*`. Medido en un TECNO real: **~3 s y ~$0.00005 por resolución**
+(Opción A).
 
 ## Quickstart
 
@@ -391,6 +460,7 @@ funcionando: el resolver degrada al Fallback Soberano y nunca inventa opciones.
 curl -fsSL https://raw.githubusercontent.com/k4wai1/jav/master/install.sh | sh
 
 # 2 · APK companion (Releases); activa accesibilidad una vez; copia el token
+#     (ADB solo para instalar el APK; el runtime MCP no necesita adb)
 adb install -r jav-companion.apk
 
 # 3 · Vincula una vez — pide IP + token, Auto-TOFU, sin .env
@@ -456,15 +526,37 @@ cargan **bajo demanda** como Resources (`android://tool/<name>`,
 ## Seguridad
 
 <p align="center">
-  <a href="docs/diagrams/jav-security.html"><img src="docs/assets/jav-security.svg" alt="Seguridad de Jav" width="960"></a>
+  <a href="docs/diagrams/jav-security.html"><img src="docs/assets/jav-security.svg?v=2.6.0" alt="Seguridad de Jav" width="960"></a>
 </p>
 
 Token obligatorio en todos los binds (loopback incluido), WSS con pinning TOFU
-en tailnet o LAN privada (nunca `0.0.0.0`), lockout 5 fallos/60 s → 5 min,
-`shell` con denylist de irreversibles + grant interactivo (1 cmd / 5 min /
-30 min), audit ring de 500 en el dispositivo (hashes de 16 hex, nunca
-args/token en claro) y Kill Switch (tile QS + notificación). Detalle en
-[Protocol](docs/PROTOCOL.md) y [Arquitectura](ARCHITECTURE.md).
+en Tailnet `100.64/10` o LAN RFC 1918 (nunca `0.0.0.0`), lockout 5 fallos/60 s
+→ 5 min, evicción `4002 EVICTED` (sin slot muerto), `shell` con denylist de
+irreversibles + grant no bloqueante (`grant_pending:true`, 1 cmd / 5 min /
+30 min), `get_caps` con la accesibilidad apagada, `repair_accessibility` vía
+Shizuku que preserva los servicios previos (nunca `su`), audit ring de 500 en
+el dispositivo (hashes de 16 hex, nunca args/token en claro) y Kill Switch
+(tile QS + notificación). Detalle en [Protocol](docs/PROTOCOL.md) y
+[Arquitectura](ARCHITECTURE.md).
+
+## Roadmap → v3.0 (ideas, no implementadas todavía)
+
+> **Solo propuestas.** El contrato vigente es v2.6.0: 38 tools, non-root +
+> Shizuku, sin `su`. Nada de lo siguiente existe aún en `cmd/`, `pkg/` ni
+> `android-app/`; cada ítem requiere una enmienda explícita en `AGENTS.md` y su
+> propia fase.
+
+- **Modo CLI independiente + `--help` detallado.** Usar el binario Go `jav`
+  directamente desde una terminal como CLI convencional (pair, status,
+  screenshot, etc.) sin mantener el servidor MCP stdio en memoria. El servidor
+  MCP sigue siendo el modo por defecto.
+- **Instalación/actualización de APKs asistida.** Que el agente pueda instalar
+  o actualizar apps Android vía Shizuku con un opt-in explícito y configurable,
+  incluido un interruptor para desactivarlo por completo en equipos gestionados.
+- **Modo root opt-in por variable de entorno.** Una vía de escape para equipos
+  rooteados que desactive la guarda anti-`su`/`sudo` **solo** cuando el operador
+  lo habilite explícitamente por entorno. Non-root + Shizuku sigue siendo el
+  defecto y el contrato normativo.
 
 ## Cambios recientes
 
@@ -507,7 +599,10 @@ args/token en claro) y Kill Switch (tile QS + notificación). Detalle en
 ## Troubleshooting
 
 - **`UNAUTHORIZED`** — token ausente/incorrecto; `jav pair` (interactivo).
-  5 fallos del mismo origen → bloqueo 5 min.
+  5 fallos del mismo origen → bloqueo 5 min. Los tokens base64url pueden
+  empezar por `-`: en v2.6.0 y anteriores `jav pair <ip> -- <TOKEN>` toma `--`
+  como token; entrecomíllalo y omite `--` (`jav pair <ip> '-abc…'`). Corregido
+  en v2.6.1.
 - **`CONNECTION_FAILED` en loopback** — falta `adb forward tcp:38472 tcp:38472`.
 - **`SHIZUKU_UNAVAILABLE`** — Shizuku no corre; arráncalo tú (Jav nunca lo
   inicia). Sin él, N0 sigue vivo; `open_app`/`screenshot` fallan honestos.

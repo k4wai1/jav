@@ -65,6 +65,12 @@ jav pair usb <TOKEN>
 jav pair 100.x.y.z <TOKEN> <OPENROUTER_API_KEY>
 ```
 
+- **Tokens que empiezan por `-`:** son base64url, así que el primer carácter
+  puede ser `-`. En **v2.6.0 y anteriores**, `jav pair <ip> -- <TOKEN>` toma el
+  separador `--` como si fuera el token (`UNAUTHORIZED`). Workaround:
+  entrecomilla el token y omite `--` → `jav pair <ip> '-abc…'`. Corregido en
+  **v2.6.1** (el separador POSIX `--` se descarta).
+
 **Multidispositivo (v2.2.0):** cada vinculación guarda un `DeviceEntry`
 con alias; el activo se elige sin reiniciar el MCP.
 

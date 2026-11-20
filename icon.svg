@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <defs>
+    <!-- Fondo oscuro morado-índigo -->
+    <radialGradient id="bg-grad" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#21113b" />
+      <stop offset="65%" stop-color="#170b2b" />
+      <stop offset="100%" stop-color="#10061f" />
+    </radialGradient>
+
+    <!-- Base lineal de fusión arcoíris -->
+    <linearGradient id="rainbow-base" x1="12%" y1="15%" x2="85%" y2="92%">
+      <stop offset="0%" stop-color="#e8ff85" />
+      <stop offset="28%" stop-color="#5effa1" />
+      <stop offset="55%" stop-color="#5ce8ff" />
+      <stop offset="78%" stop-color="#c996ff" />
+      <stop offset="100%" stop-color="#ff6ad8" />
+    </linearGradient>
+
+    <!-- Capas radiales tipo mesh para conservar las zonas de color originales -->
+    <radialGradient id="glow-peach" cx="18%" cy="49%" r="38%">
+      <stop offset="0%" stop-color="#ffcca0" stop-opacity="0.95" />
+      <stop offset="50%" stop-color="#e8ff94" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#ffcca0" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glow-mint" cx="52%" cy="18%" r="38%">
+      <stop offset="0%" stop-color="#57ff9a" stop-opacity="0.95" />
+      <stop offset="60%" stop-color="#5effc8" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#57ff9a" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glow-cyan" cx="85%" cy="40%" r="38%">
+      <stop offset="0%" stop-color="#54f0ff" stop-opacity="0.95" />
+      <stop offset="55%" stop-color="#69d2ff" stop-opacity="0.45" />
+      <stop offset="100%" stop-color="#54f0ff" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glow-pink" cx="42%" cy="72%" r="34%">
+      <stop offset="0%" stop-color="#f79eff" stop-opacity="0.9" />
+      <stop offset="60%" stop-color="#d49bff" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#f79eff" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="glow-magenta" cx="56%" cy="93%" r="32%">
+      <stop offset="0%" stop-color="#ff5ed6" stop-opacity="0.98" />
+      <stop offset="55%" stop-color="#ff85e4" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="#ff5ed6" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Máscara vectorial de la silueta completa -->
+    <mask id="icon-mask">
+      <rect width="1000" height="1000" fill="black" />
+
+      <!-- Antenas -->
+      <g stroke="white" stroke-width="24" stroke-linecap="round">
+        <line x1="412" y1="104" x2="374" y2="39" />
+        <line x1="622" y1="104" x2="660" y2="39" />
+      </g>
+
+      <!-- Cabeza (domo) -->
+      <path d="M 291 272 A 226 198 0 0 1 743 272 Z" fill="white" />
+
+      <!-- Torso superior con ambos hombros alineados simétricamente -->
+      <polygon points="291,294 743,294 743,348 813,348 813,471 710,545 535,525 412,410 221,455 221,348 291,348" fill="white" />
+
+      <!-- Brazos verticales redondeados -->
+      <g stroke="white" stroke-width="96" stroke-linecap="round">
+        <line x1="221" y1="337" x2="221" y2="448" />
+        <line x1="813" y1="337" x2="813" y2="455" />
+      </g>
+
+      <!-- Trazo diagonal izquierdo (brazo a punta inferior izquierda) -->
+      <line x1="178" y1="507" x2="335" y2="350" stroke="white" stroke-width="74" stroke-linecap="round" />
+
+      <!-- Bucle central en U a 45° -->
+      <path d="M 515 369 L 347.5 536.5 A 70 70 0 0 0 446.5 635.5 L 680 402" fill="none" stroke="white" stroke-width="74" stroke-linecap="round" stroke-linejoin="round" />
+
+      <!-- Trazo diagonal derecho y cola inferior -->
+      <path d="M 813 471 L 510 774 Q 460 824 504 876 L 564 940" fill="none" stroke="white" stroke-width="74" stroke-linecap="round" stroke-linejoin="round" />
+
+      <!-- Recortes negativos (ojos, separación de cabeza, axilas y ranuras diagonales) -->
+      <circle cx="422" cy="183" r="23" fill="black" />
+      <circle cx="612" cy="183" r="23" fill="black" />
+      <rect x="260" y="272" width="510" height="22" fill="black" />
+
+      <g stroke="black" stroke-linecap="round">
+        <!-- Axilas simétricas -->
+        <line x1="280" y1="285" x2="280" y2="350" stroke-width="22" />
+        <line x1="754" y1="285" x2="754" y2="350" stroke-width="22" />
+
+        <!-- Ranuras diagonales a 45° -->
+        <line x1="412" y1="372" x2="235" y2="549" stroke-width="68" />
+        <line x1="535" y1="448" x2="397" y2="586" stroke-width="66" />
+        <line x1="710" y1="474" x2="455" y2="729" stroke-width="68" />
+      </g>
+    </mask>
+  </defs>
+
+  <!-- Fondo con borde redondeado -->
+  <rect width="1000" height="1000" rx="245" fill="url(#bg-grad)" />
+
+  <!-- Aplicación de la fusión arcoíris sobre la silueta -->
+  <g mask="url(#icon-mask)">
+    <rect width="1000" height="1000" fill="url(#rainbow-base)" />
+    <rect width="1000" height="1000" fill="url(#glow-peach)" />
+    <rect width="1000" height="1000" fill="url(#glow-mint)" />
+    <rect width="1000" height="1000" fill="url(#glow-cyan)" />
+    <rect width="1000" height="1000" fill="url(#glow-pink)" />
+    <rect width="1000" height="1000" fill="url(#glow-magenta)" />
+  </g>
+</svg>

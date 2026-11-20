@@ -415,7 +415,48 @@
 5. Release: tag `v2.3.0` cuando el operador cierre la certificación en vivo
    (build local `docs/BUILD.md §32`; sin deuda P0 abierta).
 
+### Estado v2.6.0 — Fases 1–6 cerradas (2026-11-19)
+- [x] **Fase 4 → v2.4.0**: `get_caps` (scope read, sin accesibilidad) +
+  `device_status` degradado honesto (`missing_caps`/`setup_hints`) +
+  `repair_accessibility`/`enable_accessibility` vía Shizuku preservando
+  servicios (nunca `su`).
+- [x] **Fase 5 → v2.5.0**: grounding agnóstico en `resolve_element` (Jev
+  principal + respaldo OpenAI-compatible con JSON estricto y validación dura);
+  fixes de auditoría (orden a11y, schema `adb_shell`, coste de `NONE`).
+- [x] **Fase 6 → v2.6.0**: `tools/list` autosuficiente para cualquier cliente
+  MCP, desacople de OpenCode a `docs/dev/opencode/`, build `android/arm64`
+  (Termux) y CI al día. Release `v2.6.0` publicado (7 assets).
+- [x] Fases 1–3 y 6a/6b cerradas en su día (accesibilidad, transporte con
+  token en todos los binds, Shizuku, audit ring 500, kill switch, `adb_shell`).
+
+## Roadmap v3.0 (propuestas futuras, **no implementado**)
+
+> Nada de esta lista existe todavía en `cmd/`, `pkg/` ni `android-app/`.
+> Cada ítem requiere enmienda explícita en `AGENTS.md` y su propia fase; el
+> contrato vigente sigue siendo v2.6.0 (38 tools, non-root + Shizuku, sin `su`).
+
+- [ ] **Modo CLI independiente + `--help` detallado**: usar el binario Go `jav`
+  desde consola como CLI tradicional (pair/status/screenshot…) sin levantar el
+  servidor MCP stdio; el modo MCP sigue siendo el defecto.
+- [ ] **Instalación/actualización de APKs asistida**: instalar o actualizar apps
+  Android vía Shizuku con opt-in explícito, configurable y desactivable.
+- [ ] **Modo root opt-in por variable de entorno**: desactivar la guarda
+  anti-`su`/`sudo` solo cuando el operador lo habilite por entorno en equipos
+  rooteados; non-root + Shizuku sigue siendo el estándar.
+- [ ] **Rediseño visual de `activity_main.xml`**: UI de la app companion
+  (tarjetas de token/estado/caps, jerarquía y tema) sin dependencias nuevas.
+- [ ] **Fix v2.6.1** del separador POSIX `--` en `jav pair` (ver primera entrada
+  de Deuda) + test de regresión.
+
 ## Deuda / anotaciones (AGENTS.md §9)
+- **v2.6.1 (bug menor, `cmd/jav/pair.go`)** — los tokens bearer son base64url
+  y pueden empezar por `-`. En v2.6.0 y anteriores, `jav pair <ip> -- <TOKEN>`
+  falla con `UNAUTHORIZED`: `extractNameFlag` no descarta el separador POSIX
+  `--` y lo trata como token. Workaround: `jav pair <ip> '-TOKEN'` (sin `--`).
+  Fix pendiente (~2 líneas): en `extractNameFlag`, añadir
+  `case a == "--": rest = append(rest, args[i+1:]...); return name, rest, true`
+  (o `break` etiquetado del bucle) + test de regresión en
+  `cmd/jav/pair_test.go`. Detectado 2026-11-19 tras el release v2.6.0.
 - Nombre asentado 2026-10-07 y **ejecutado 2026-10-16**: **Jav** = proyecto/runtime (`github.com/k4wai1/jav`); **Jev** = backend táctico (`JEV_MODEL`); app = `Jav`, paquete `dev.k4wai1.jav`; env `JAV_*` canónico con alias `JEV_*` (ver `docs/specs/ecosystem.md` §4). `mcp-server/` (Python), `logs/run-*.jsonl` y golden testdata conservan el nombre viejo como forense.
 - Seguridad P0: **resuelto** (36fc93a "token enmascarado", verificado
   2026-10-10): `JevForegroundService.kt:35` loguea

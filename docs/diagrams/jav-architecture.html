@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="generator" content="archify 3.1.0">
   <meta name="archify-reader-contract" content="declared-wide-v1">
-  <title>Jav — Control Path and the Role of Jev Diagram</title>
+  <title>Jav — Universal Control Path (v2.6) Diagram</title>
   <script>
     // Resolve the theme before first paint so light-preference users don't
     // see a dark flash. The toolbar script below re-applies with UI state.
@@ -5150,9 +5150,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
            data-preset-badge-blueprint="BLUEPRINT / REV 01"
            data-preset-badge-editorial="EDITORIAL / FIELD NOTE">
         <div class="pulse-dot"></div>
-        <h1>Jav — Control Path and the Role of Jev</h1>
+        <h1>Jav — Universal Control Path (v2.6)</h1>
       </div>
-      <p class="subtitle">External Director · jav MCP stdio · Jev single-pass resolver · three execution lanes</p>
+      <p class="subtitle">Any MCP client · jav stdio (38 tools) · dual resolver (decisions or structured LLM) · three execution lanes</p>
     </div>
 
 
@@ -5161,8 +5161,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / PLATE 04">
       <svg viewBox="0 0 978 612" role="img" lang="en" aria-labelledby="archify-diagram-title archify-diagram-description" data-animation="trace" data-preset="classic" data-quality-profile="showcase" data-node-ui="" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
-        <title id="archify-diagram-title">Jav — Control Path and the Role of Jev</title>
-        <desc id="archify-diagram-description">External Director · jav MCP stdio · Jev single-pass resolver · three execution lanes</desc>
+        <title id="archify-diagram-title">Jav — Universal Control Path (v2.6)</title>
+        <desc id="archify-diagram-description">Any MCP client · jav stdio (38 tools) · dual resolver (decisions or structured LLM) · three execution lanes</desc>
         <!-- Definitions -->
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -5218,15 +5218,15 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:1">
           <path data-graph-role="automatic-crossover-underlay" d="M 250 319.95 L 234 319.95 Q 226 319.95 226 311.95 L 226 132 Q 226 124 234 124 L 250 124" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="jav" data-edge-to="jev" data-edge-label="pruned table ≤254" data-edge-key="1" data-edge-id="resolve-request" data-composition-points="250,319.95;226,319.95;226,124;250,124" data-composition-crossover="halo" data-composition-independent="true" d="M 250 319.95 L 234 319.95 Q 226 319.95 226 311.95 L 226 132 Q 226 124 234 124 L 250 124" class="a-default" data-animate="edge" style="--step:1" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="jav" data-edge-to="jev" data-edge-label="numbered candidates ≤254" data-edge-key="1" data-edge-id="resolve-request" data-composition-points="250,319.95;226,319.95;226,124;250,124" data-composition-crossover="halo" data-composition-independent="true" d="M 250 319.95 L 234 319.95 Q 226 319.95 226 311.95 L 226 132 Q 226 124 234 124 L 250 124" class="a-default" data-animate="edge" style="--step:1" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:2">
           <path data-graph-role="automatic-crossover-underlay" d="M 400 124 L 416 124 Q 424 124 424 132 L 424 313 Q 424 321 416 321 L 400 321" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="jev" data-edge-to="jav" data-edge-label="idx + conf" data-edge-key="2" data-edge-id="resolve-reply" data-composition-points="400,124;424,124;424,321;400,321" data-composition-crossover="halo" data-composition-independent="true" d="M 400 124 L 416 124 Q 424 124 424 132 L 424 313 Q 424 321 416 321 L 400 321" class="a-default" data-animate="edge" style="--step:2" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="jev" data-edge-to="jav" data-edge-label="idx · node_id · conf" data-edge-key="2" data-edge-id="resolve-reply" data-composition-points="400,124;424,124;424,321;400,321" data-composition-crossover="halo" data-composition-independent="true" d="M 400 124 L 416 124 Q 424 124 424 132 L 424 313 Q 424 321 416 321 L 400 321" class="a-default" data-animate="edge" style="--step:2" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:3">
           <path data-graph-role="automatic-crossover-underlay" d="M 400 335 L 520 335" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="jav" data-edge-to="device" data-edge-label="WS/WSS :38472" data-edge-key="3" data-edge-id="ws-session" data-composition-points="400,335;520,335" data-composition-crossover="halo" data-composition-independent="true" d="M 400 335 L 520 335" class="a-default" data-animate="edge" style="--step:3" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="jav" data-edge-to="device" data-edge-label="WS/WSS · failover" data-edge-key="3" data-edge-id="ws-session" data-composition-points="400,335;520,335" data-composition-crossover="halo" data-composition-independent="true" d="M 400 335 L 520 335" class="a-default" data-animate="edge" style="--step:3" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:4">
           <path data-graph-role="automatic-crossover-underlay" d="M 670 314 L 697 314 Q 705 314 705 306 L 705 176 Q 705 168 713 168 L 740 168" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5242,61 +5242,63 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
 
         <!-- Components -->
-        <g id="node-director" data-node-id="director" data-node-label="External Director" tabindex="0" role="button" aria-label="Focus External Director, OpenCode · Claude · Cursor, Client machine" aria-pressed="false" data-node-kind="external" data-node-sublabel="OpenCode · Claude · Cursor" data-node-context="Client machine">
-          <title>External Director · OpenCode · Claude · Cursor · Client machine</title>
+        <g id="node-director" data-node-id="director" data-node-label="MCP client (Director)" tabindex="0" role="button" aria-label="Focus MCP client, mcpServers · any client, Client machine" aria-pressed="false" data-node-kind="external" data-node-sublabel="mcpServers · any client" data-node-context="Client machine">
+          <title>MCP client (Director) · mcpServers · any client · Client machine</title>
           <rect x="40" y="296" width="140" height="64" rx="8" class="c-mask"/>
           <rect x="40" y="296" width="140" height="64" rx="8" class="c-external" data-animate="node" style="--step:0" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(46 302) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="110" y="326" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">External Director</text>
-        <text data-detail="context" x="110" y="342" class="t-muted" font-size="8.4" text-anchor="middle">OpenCode · Claude · Cursor</text>
+          <text data-node-label="" data-detail-anchor="" x="110" y="322" class="t-primary" font-size="10.2" font-weight="600" text-anchor="middle">MCP client (Director)</text>
+        <text data-detail="context" x="110" y="338" class="t-muted" font-size="7.6" text-anchor="middle">Claude · Cursor · Windsurf</text>
+        <text data-detail="fine" x="110" y="352" class="t-external" font-size="7" text-anchor="middle">Cline · OpenCode · Termux</text>
         </g>
 
-        <g id="node-jav" data-node-id="jav" data-node-label="jav (Go)" tabindex="0" role="button" aria-label="Focus jav (Go), MCP stdio · persistent session, Client machine" aria-pressed="false" data-node-kind="backend" data-node-sublabel="MCP stdio · persistent session" data-node-context="Client machine">
-          <title>jav (Go) · MCP stdio · persistent session · Client machine</title>
+        <g id="node-jav" data-node-id="jav" data-node-label="jav (Go) · 38 tools" tabindex="0" role="button" aria-label="Focus jav (Go), stdio · persistent · mDNS, Client machine" aria-pressed="false" data-node-kind="backend" data-node-sublabel="stdio · persistent · mDNS" data-node-context="Client machine">
+          <title>jav (Go) · 38 tools · stdio · persistent session · mDNS · Client machine</title>
           <rect x="250" y="296" width="150" height="64" rx="8" class="c-mask"/>
           <rect x="250" y="296" width="150" height="64" rx="8" class="c-backend" data-animate="node" style="--step:1" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(256 302) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="325" y="326" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">jav (Go)</text>
-        <text data-detail="context" x="325" y="342" class="t-muted" font-size="7.8" text-anchor="middle">MCP stdio · persistent session</text>
+          <text data-node-label="" data-detail-anchor="" x="325" y="322" class="t-primary" font-size="10.4" font-weight="600" text-anchor="middle">jav (Go) · 38 tools</text>
+        <text data-detail="context" x="325" y="338" class="t-muted" font-size="7.4" text-anchor="middle">session · devices · fallback_urls</text>
+        <text data-detail="fine" x="325" y="352" class="t-backend" font-size="7" text-anchor="middle">mDNS · Termux arm64 · no ADB</text>
         </g>
 
-        <g id="node-jev" data-node-id="jev" data-node-label="Jev — typesafe/jev-1.13" tabindex="0" role="button" aria-label="Focus Jev — typesafe/jev-1.13, OpenRouter · single-pass Choice, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="OpenRouter · single-pass Choice" data-node-tag="conf ≥ 0.70" data-node-context="Architecture component">
-          <title>Jev — typesafe/jev-1.13 · OpenRouter · single-pass Choice · Architecture component · conf ≥ 0.70</title>
+        <g id="node-jev" data-node-id="jev" data-node-label="Tactical resolver" tabindex="0" role="button" aria-label="Focus Tactical resolver, Jev decisions · OpenAI-compatible, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="Jev decisions · OpenAI-compatible" data-node-tag="strict JSON · conf ≥ 0.70" data-node-context="Architecture component">
+          <title>Tactical resolver · Jev decisions · OpenAI-compatible · strict JSON · conf ≥ 0.70</title>
           <rect x="250" y="88" width="150" height="72" rx="8" class="c-mask"/>
           <rect x="250" y="88" width="150" height="72" rx="8" class="c-cloud" data-animate="node" style="--step:2" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(256 94) scale(0.6875)">
             <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="325" y="122" class="t-primary" font-size="10.2" font-weight="600" text-anchor="middle">Jev — typesafe/jev-1.13</text>
-        <text data-detail="context" x="325" y="138" class="t-muted" font-size="7.6" text-anchor="middle">OpenRouter · single-pass Choice</text>
-        <text data-detail="fine" x="325" y="152" class="t-cloud" font-size="7" text-anchor="middle">conf ≥ 0.70</text>
+          <text data-node-label="" data-detail-anchor="" x="325" y="120" class="t-primary" font-size="10.4" font-weight="600" text-anchor="middle">Tactical resolver</text>
+        <text data-detail="context" x="325" y="136" class="t-muted" font-size="7.2" text-anchor="middle">Jev decisions · OpenAI-compatible</text>
+        <text data-detail="fine" x="325" y="151" class="t-cloud" font-size="7" text-anchor="middle">strict JSON · conf ≥ 0.70</text>
         </g>
 
-        <g id="node-device" data-node-id="device" data-node-label="Jav for Android" tabindex="0" role="button" aria-label="Focus Jav for Android, dev.k4wai1.jav · SDK 31, Android device · TECNO LG7n" aria-pressed="false" data-node-kind="backend" data-node-sublabel="dev.k4wai1.jav · SDK 31" data-node-context="Android device · TECNO LG7n">
-          <title>Jav for Android · dev.k4wai1.jav · SDK 31 · Android device · TECNO LG7n</title>
+        <g id="node-device" data-node-id="device" data-node-label="Jav for Android" tabindex="0" role="button" aria-label="Focus Jav for Android, dev.k4wai1.jav · SDK 31, Android device · TECNO LG7n" aria-pressed="false" data-node-kind="backend" data-node-sublabel="dev.k4wai1.jav · get_caps" data-node-context="Android device · TECNO LG7n">
+          <title>Jav for Android · dev.k4wai1.jav · get_caps · Android device · TECNO LG7n</title>
           <rect x="520" y="296" width="150" height="64" rx="8" class="c-mask"/>
           <rect x="520" y="296" width="150" height="64" rx="8" class="c-backend" data-animate="node" style="--step:4" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(526 302) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="595" y="326" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Jav for Android</text>
-        <text data-detail="context" x="595" y="342" class="t-muted" font-size="9" text-anchor="middle">dev.k4wai1.jav · SDK 31</text>
+        <text data-detail="context" x="595" y="342" class="t-muted" font-size="9" text-anchor="middle">dev.k4wai1.jav · get_caps</text>
         </g>
 
-        <g id="node-lane1" data-node-id="lane1" data-node-label="Lane 1 · Native" tabindex="0" role="button" aria-label="Focus Lane 1 · Native, N0/N1/N2 APIs, Android device · TECNO LG7n" aria-pressed="false" data-node-kind="backend" data-node-sublabel="N0/N1/N2 APIs" data-node-context="Android device · TECNO LG7n">
-          <title>Lane 1 · Native · N0/N1/N2 APIs · Android device · TECNO LG7n</title>
+        <g id="node-lane1" data-node-id="lane1" data-node-label="Lane 1 · Native (N0/N1)" tabindex="0" role="button" aria-label="Focus Lane 1 · Native, N0/N1 APIs + get_caps, Android device · TECNO LG7n" aria-pressed="false" data-node-kind="backend" data-node-sublabel="N0/N1 APIs + get_caps" data-node-context="Android device · TECNO LG7n">
+          <title>Lane 1 · Native (N0/N1) · APIs + get_caps · Android device · TECNO LG7n</title>
           <rect x="740" y="140" width="168" height="56" rx="8" class="c-mask"/>
           <rect x="740" y="140" width="168" height="56" rx="8" class="c-backend" data-animate="node" style="--step:5" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(746 146) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="824" y="166" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Lane 1 · Native</text>
-        <text data-detail="context" x="824" y="182" class="t-muted" font-size="9" text-anchor="middle">N0/N1/N2 APIs</text>
+          <text data-node-label="" data-detail-anchor="" x="824" y="166" class="t-primary" font-size="10.6" font-weight="600" text-anchor="middle">Lane 1 · Native</text>
+        <text data-detail="context" x="824" y="182" class="t-muted" font-size="8.6" text-anchor="middle">N0/N1 + get_caps</text>
         </g>
 
         <g id="node-lane2" data-node-id="lane2" data-node-label="Lane 2 · Intents" tabindex="0" role="button" aria-label="Focus Lane 2 · Intents, one system hop, Android device · TECNO LG7n" aria-pressed="false" data-node-kind="backend" data-node-sublabel="one system hop" data-node-context="Android device · TECNO LG7n">
@@ -5307,7 +5309,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="824" y="322" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Lane 2 · Intents</text>
-        <text data-detail="context" x="824" y="338" class="t-muted" font-size="9" text-anchor="middle">one system hop</text>
+        <text data-detail="context" x="824" y="338" class="t-muted" font-size="8.6" text-anchor="middle">no headless send</text>
         </g>
 
         <g id="node-lane3" data-node-id="lane3" data-node-label="Lane 3 · Accessibility UI" tabindex="0" role="button" aria-label="Focus Lane 3 · Accessibility UI, element re-anchor, Android device · TECNO LG7n" aria-pressed="false" data-node-kind="backend" data-node-sublabel="element re-anchor" data-node-tag="Shizuku uid 2000" data-node-context="Android device · TECNO LG7n">
@@ -5318,8 +5320,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="824" y="486" class="t-primary" font-size="10.6" font-weight="600" text-anchor="middle">Lane 3 · Accessibility UI</text>
-        <text data-detail="context" x="824" y="502" class="t-muted" font-size="9" text-anchor="middle">element re-anchor</text>
-        <text data-detail="fine" x="824" y="516" class="t-backend" font-size="7" text-anchor="middle">Shizuku uid 2000</text>
+        <text data-detail="context" x="824" y="502" class="t-muted" font-size="8.6" text-anchor="middle">8 snapshots · re-anchor</text>
+        <text data-detail="fine" x="824" y="516" class="t-backend" font-size="7" text-anchor="middle">Shizuku N2 · grant_pending</text>
         </g>
 
         <!-- Connection labels -->
@@ -5327,17 +5329,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="188.4" y="345" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
           <text x="215" y="355" class="t-edge-emphasis" font-size="8" text-anchor="middle">MCP stdio</text>
         </g>
-        <g data-detail="context" data-edge-from="jav" data-edge-to="jev" data-edge-label="pruned table ≤254" data-edge-key="1" data-edge-id="resolve-request">
+        <g data-detail="context" data-edge-from="jav" data-edge-to="jev" data-edge-label="numbered candidates ≤254" data-edge-key="1" data-edge-id="resolve-request">
           <rect x="180.2" y="201.975" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="226" y="211.975" class="t-edge-default" font-size="8" text-anchor="middle">pruned table ≤254</text>
+          <text x="226" y="211.975" class="t-edge-default" font-size="8" text-anchor="middle">numbered candidates</text>
         </g>
-        <g data-detail="context" data-edge-from="jev" data-edge-to="jav" data-edge-label="idx + conf" data-edge-key="2" data-edge-id="resolve-reply">
+        <g data-detail="context" data-edge-from="jev" data-edge-to="jav" data-edge-label="idx · node_id · conf" data-edge-key="2" data-edge-id="resolve-reply">
           <rect x="395" y="202.5" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="424" y="212.5" class="t-edge-default" font-size="8" text-anchor="middle">idx + conf</text>
+          <text x="424" y="212.5" class="t-edge-default" font-size="8" text-anchor="middle">idx · node_id · conf</text>
         </g>
-        <g data-detail="context" data-edge-from="jav" data-edge-to="device" data-edge-label="WS/WSS :38472" data-edge-key="3" data-edge-id="ws-session">
+        <g data-detail="context" data-edge-from="jav" data-edge-to="device" data-edge-label="WS/WSS · failover" data-edge-key="3" data-edge-id="ws-session">
           <rect x="423.8" y="345" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="460" y="355" class="t-edge-default" font-size="8" text-anchor="middle">WS/WSS :38472</text>
+          <text x="460" y="355" class="t-edge-default" font-size="8" text-anchor="middle">WS/WSS · failover</text>
         </g>
 
 
@@ -5553,21 +5555,21 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>Control plane</h3>
         </div>
         <ul>
-          <li>The Director keeps the goal and decides the next step</li>
-          <li>jav speaks MCP stdio and loads tool specs on demand (android://tool/&lt;name&gt;)</li>
-          <li>The raw accessibility tree never goes to the Director by default</li>
+          <li>Any MCP client (mcpServers): Claude Desktop · Cursor · Windsurf · Cline · OpenCode</li>
+          <li>jav speaks MCP stdio with 38 tools; full specs load on demand (android://tool/&lt;name&gt;)</li>
+          <li>Multi-device with devices + fallback_urls (Tailnet ↔ LAN ↔ USB) and mDNS discovery</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>Jev resolver</h3>
+          <h3>Dual resolver</h3>
         </div>
         <ul>
-          <li>resolve_element(screen_goal_en) sends a pruned table: ≤254 nodes + 3×3 zones</li>
-          <li>One Choice pass over 0..253 + NONE — index and calibrated conf, never free text</li>
-          <li>$0.042/MTok in · $0.00/MTok out via OpenRouter</li>
+          <li>A · Decisions model (Jev via OpenRouter): one Choice pass, calibrated conf, no free text</li>
+          <li>B · Any OpenAI-compatible LLM: strict JSON {choice, confidence}, validated against the node table</li>
+          <li>S2_HALLUCINATION / LOW_CONF / NO_TARGET → Sovereign Fallback; no key still works</li>
         </ul>
       </div>
 
@@ -5577,9 +5579,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>Execution lanes</h3>
         </div>
         <ul>
-          <li>Lane 1 — native APIs (N0/N1/N2), cheapest first</li>
-          <li>Lane 2 — one system intent hop</li>
-          <li>Lane 3 — accessibility UI with element re-anchor · Shizuku uid 2000 for clipboard and shell</li>
+          <li>Lane 1 — native APIs (N0/N1) + live caps via get_caps, cheapest first</li>
+          <li>Lane 2 — one system intent hop, never a headless send</li>
+          <li>Lane 3 — accessibility UI with 8-snapshot liveness; Shizuku N2 (adb_shell grant_pending, repair_accessibility)</li>
         </ul>
       </div>
     </div>

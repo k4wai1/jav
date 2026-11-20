@@ -13,6 +13,21 @@
 > Los specs son el contrato operativo; este archivo es el porqué y el mapa.
 > Resume, no duplica. Cero literales normativos de app (los ejemplos con
 > paquetes son no-normativos) y cero keys.
+>
+> **Nota de vigencia (v2.6.0, 2026-11-19).** El contrato operativo es
+> `PROTOCOL.md` + `AGENTS.md`. Correcciones ya implementadas sobre el texto
+> histórico de abajo:
+> - **No hay ADB obligatorio en el host.** `list_packages` y las dimensiones de
+>   pantalla viajan por WS; `adb forward` es solo un atajo de loopback.
+> - **`resolve_element` no es solo-Jev.** Jev es el backend principal; existe
+>   respaldo OpenAI-compatible con JSON estricto y validación dura
+>   (`docs/specs/ai-providers.md`).
+> - **El grant de `shell` es no bloqueante** (`grant_pending:true`); las
+>   referencias a "bloquea 60 s" son históricas.
+> - **Listeners:** loopback WS + WSS por IP privada detectada (Tailnet
+>   `100.64/10` o LAN RFC 1918), nunca `0.0.0.0`; multidispositivo con
+>   `devices` + `fallback_urls` y evicción `4002 EVICTED`.
+> - **Builds:** `android/arm64` (Termux) además de linux/darwin/windows.
 
 ## 1. Visión
 
@@ -57,13 +72,13 @@ Arquitectura **Dual-Tier** histórica del carril 3 (congelada; detalle en §6):
 
 | # | Decisión | Implementación |
 |---|---|---|
-| 1 | Transporte | WebSocket RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback). Listener B (opt-in): `wss://<ip-tailnet>:38472`, bind a la IP del tailnet (`100.64.0.0/10`), **nunca `0.0.0.0` por defecto**. Single-client (`BUSY` al segundo). Frame 4 MiB |
-| 2 | MCP | Go en el PC: binario **`jav`** (`cmd/jav`, stdio, `JAV_WS_URL`; `adb forward` para loopback). Harness Python `mcp-server/` congelado como referencia histórica, no runtime |
+| 1 | Transporte | WebSocket RFC 6455. Listener A: `ws://127.0.0.1:38472` (loopback). Listeners B: `wss://<ip-privada>:38472` bindeados a cada IP privada detectada (Tailnet `100.64.0.0/10` o LAN RFC 1918), **nunca `0.0.0.0` por defecto**. v2.1+: un cliente nuevo desaloja al anterior (`4002 EVICTED`). Frame 4 MiB |
+| 2 | MCP | Binario **`jav`** (`cmd/jav`, stdio, `JAV_WS_URL`; `adb forward` opcional para loopback). v2.0+: funciona en Termux con build `android/arm64` y sin ADB. Harness Python `mcp-server/` congelado como referencia histórica, no runtime |
 | 3 | Privilegios | **App non-root.** UI = AccessibilityService. Shell = Shizuku (UID 2000). **`su` prohibido en código** |
 | 4 | TLS + token | Self-signed por instalación (BouncyCastle), pinning TOFU (QR). `ws` solo en loopback; **WSS obligatorio en no-loopback. Token obligatorio en todos los binds** |
 | 5 | Token | Hand-rolled: AES-256 en AndroidKeyStore + AES/GCM, bearer en el frame `hello` (nunca en URL) |
-| 6 | Jev | OpenRouter `typesafe/jev-1.13` por defecto; `jev_client` abstraído para swap a TypeSafe oficial |
-| 7 | Shell | OFF por defecto. `shell` **bloquea hasta 60 s** esperando grant (1 comando = SHA-256 exacto / 5 min / 30 min). Expira sola. **Hasta Fase 6 el dispatcher lo rechaza con `METHOD_NOT_ALLOWED`** |
+| 6 | Resolver | Jev (`typesafe/jev-*` vía OpenRouter) como backend principal (single-pass `Choice`); v2.5+: respaldo OpenAI-compatible con JSON estricto y validación dura |
+| 7 | Shell | OFF por defecto. Grant 1 comando (SHA-256 exacto) / 5 min / 30 min; expira sola. v2.3.1+: **no bloqueante** → `{planned:true, grant_pending:true}` y el agente repite el comando tras aprobar |
 | 8 | minSdk | 29 (Android 10). `compileSdk/targetSdk 34`. Fallback `screencap` en API 29 (sin verificar: solo hay API 31/33) |
 | 9 | Nombre y banco (2026-10-01) | App = **Jav** (`dev.k4wai1.jav`). Bancos: TECNO KJ5 (API 33, sin root, loop Wi-Fi) + **A10 USB** (Android 10, 720×1440, director v5) + LG7n (API 31, Magisk) secundario |
 | 10 | Latencia y `secure` (2026-10-02) | **≤300 ms para ≤150 nodos; ~2 ms/nodo; peor caso ~1 s a 500**. Bucle Jev ≈ 500–800 ms/paso. **`secure` fuera de `dump_ui`** (FLAG_SECURE no oculta el árbol); solo `screenshot` → `SECURE_SURFACE`. Acciones sin post-snapshot; `type` exige foco (`NOT_FOCUSED`) |
@@ -113,11 +128,11 @@ HOST Debian 13 (Director externo + Jav Go + Jav en teléfono)
 │  director/ (adaptadores pasivos paso a paso) · normalizer · cost│
 │  (histórico Python loop.py/run_goal congelado, no activo)      │
 └───────────────┬────────────────────────────┬──────────────────┘
-  WS 127.0.0.1:38472 (adb forward) │ WSS <ip-tailnet>:38472 (opt-in)
-                 ▼ USB / red                    ▼ tailnet
+  WS 127.0.0.1:38472 (adb opcional) │ WSS <ip-privada>:38472 (Tailnet/LAN)
+                 ▼ USB / loopback               ▼ Tailnet o LAN
 ┌───────────────────────────────────────────────────────────────┐
 │ Jav (dev.k4wai1.jav, app non-root)                                │
-│  ForegroundService ── 2 listeners WS (loopback + tailnet)      │
+│  ForegroundService ── WS loopback + WSS por IP privada          │
 │  JevAccessibilityService ── UI tree + tap/type/scroll + gestos │
 │  ShizukuBridge ── newProcess/UserService (UID shell):          │
 │                   pm, am, settings, input, screencap           │
